@@ -14,9 +14,7 @@ extension WindowContentView {
     /// `navigableSessions`); `sessionRecency` itself is `@ObservationIgnored`, read for its value, not for
     /// observation, so it registers none on its own.
     private var recentSessions: [UUID] {
-        var valid = Set(store.navigableSessions.map(\.id))
-        if let activeID = store.activeSession?.id { valid.remove(activeID) }
-        return store.sessionRecency.top(SessionSwitcher.maxCandidates, in: valid)
+        store.navigableRecentSessions(limit: SessionSwitcher.maxCandidates)
     }
 
     /// Title-bar button that opens the recent-sessions popover — the mouse equivalent of the Ctrl-Tab
@@ -175,8 +173,8 @@ extension WindowContentView {
     /// set the status), then close the popover — the mouse twin of the ⌃⇧I palette's select-and-reveal.
     private func selectAttention(_ id: UUID) {
         store.noteUserActivity()
-        store.selectSession(id)
-        actions.revealActiveBlockedPane()
+        let indicator = store.selectSession(id)
+        actions.revealActiveBlockedPane(captured: indicator)
         attentionPopoverShown = false
     }
 }

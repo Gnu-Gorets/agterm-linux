@@ -317,9 +317,11 @@ public final class AppStore {
     /// `autoReset` agent indicator (the one-time `completed` flash) is reset to idle on
     /// BOTH the session moved to (you've seen it) and the one moved from (it must not
     /// persist once you leave it); a non-`autoReset` indicator (active/blocked) is left
-    /// untouched (keep-state).
-    public func selectSession(_ sessionID: UUID?, sidebarSelection selectionIDs: [UUID]? = nil) {
-        if let sessionID, session(withID: sessionID) == nil { return }
+    /// untouched (keep-state). Returns the destination's pre-reset indicator so GUI callers can reveal its tagged pane consistently.
+    @discardableResult
+    public func selectSession(_ sessionID: UUID?, sidebarSelection selectionIDs: [UUID]? = nil) -> AgentIndicator? {
+        if let sessionID, session(withID: sessionID) == nil { return nil }
+        let destinationIndicator = sessionID.flatMap { session(withID: $0)?.agentIndicator }
         let previous = selectedSessionID
         selectedSessionID = sessionID
         if let selectionIDs {
@@ -333,6 +335,7 @@ public final class AppStore {
         clearAutoResetIndicator(previous)  // leave: a one-time status must not linger on the row you left
         recordRecency()
         scheduleSave() // selection fires on every click/keystroke — coalesce the writes
+        return destinationIndicator
     }
 
     /// Clears focus when the newly selected session lives outside the focused workspace, so an explicit
@@ -550,10 +553,11 @@ public final class AppStore {
     /// badge clearing, persistence, and workspace derivation. Because the targets are always in-set, nav
     /// never triggers `autoUnfocusIfOutsideFocus` — that stays the safety net for an explicit cross-set
     /// select.
-    public func navigateSession(_ direction: SessionNavigation) {
+    @discardableResult
+    public func navigateSession(_ direction: SessionNavigation) -> AgentIndicator? {
         let sessions = navigableSessions
         let ids = sessions.map(\.id)
-        guard let first = ids.first, let last = ids.last else { return }
+        guard let first = ids.first, let last = ids.last else { return nil }
         let target: UUID
         switch direction {
         case .first: target = first
@@ -566,10 +570,10 @@ public final class AppStore {
                 target = first // no/invalid selection -> first
             }
         case .nextAttention, .previousAttention:
-            guard let found = attentionTarget(in: sessions, forward: direction == .nextAttention) else { return }
+            guard let found = attentionTarget(in: sessions, forward: direction == .nextAttention) else { return nil }
             target = found
         }
-        selectSession(target)
+        return selectSession(target)
     }
 
     /// The next/previous session needing attention (status `blocked` or `completed`) in the flattened

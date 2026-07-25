@@ -265,13 +265,10 @@ paths:
   cmux owns the permission decision UI (a blocking hook round-trip captures accept/deny),
   herdr scrapes the PTY (the prompt chrome leaving the screen clears it).
 - **Pane-aware selection reveal.**
-  The same `AgentIndicator.statusPane` tag (set via `session.status --pane`, see the Control API rule) also
-  decides WHERE a GUI selection lands: EVERY user-initiated selection — attention-nav (⌃⌥↑/⌃⌥↓),
-  plain session nav (⌥⌘↑/↓/first/last), the ⌃P/attention command palette, a sidebar row click,
-  and idle auto-follow — reveals and focuses the pane that set the block — flipping `splitFocused` to the
-  split, or showing a hidden scratch via `AppStore.toggleScratch` — instead of always the main pane (the
-  shared `AppActions.revealActiveBlockedPane`, a no-op for an IDLE session (no status set);
-  see the Menu/actions rule).
+  The same `AgentIndicator.statusPane` tag set via `session.status --pane` decides WHERE a GUI selection lands when the status NEEDS ATTENTION.
+  Attention-nav, plain session nav, the command palettes, a sidebar row click, a Dock-menu session row, and idle auto-follow reveal and focus the pane that set the block.
+  The shared `AppActions.revealActiveBlockedPane(captured:)` flips to a tagged split, shows a hidden tagged scratch, or explicitly targets the primary pane for left/nil.
+  IDLE and ACTIVE selections use ordinary focus and preserve the existing pane choice.
   The `session.go next-attention|prev-attention` control arm only steps the selection (`navigateSession`),
   it does NOT itself run the reveal — the pane focus is a GUI/auto-follow concern.
   So a `right`- or `scratch`-tagged block both survives foreground typing in another pane AND pulls you to

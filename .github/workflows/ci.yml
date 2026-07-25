@@ -29,6 +29,7 @@ jobs:
               - "project.yml"
               - "scripts/**"
               - ".swiftlint.yml"
+              - "agtermTests/.swiftlint.yml"
               - "agtermUITests/.swiftlint.yml"
               - ".github/workflows/ci.yml"
 
@@ -117,3 +118,5 @@ jobs:
         run: brew install xcodegen
       - name: Build libghostty + app (Release)
         run: scripts/build.sh
+      - name: Application-hosted unit tests
+        run: scripts/test-app.sh

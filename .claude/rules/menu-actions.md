@@ -1,6 +1,7 @@
 ---
 paths:
   - "agterm/AppActions*.swift"
+  - "agterm/AppDelegate+DockMenu.swift"
   - "agterm/agtermApp*.swift"
   - "agterm/Views/Palette.swift"
   - "agterm/Views/PaneShortcuts.swift"
@@ -12,6 +13,7 @@ paths:
   - "agtermUITests/SessionNavUITests.swift"
   - "agtermUITests/SessionSwitcherUITests.swift"
   - "agtermUITests/SplitUITests.swift"
+  - "agtermTests/DockMenuTests.swift"
 ---
 
 ## Menu bar and actions
@@ -22,6 +24,26 @@ paths:
   Trivial one-liners (quick-terminal toggle) call the controller/store directly;
   `AppActions` owns the ones with real logic — new-session placement, the directory picker,
   split + focus, and font.
+- **Application Dock menu (`AppDelegate.applicationDockMenu`).**
+  AppKit asks for a fresh menu when the Dock icon is right-clicked.
+  The menu exposes New Session, Quick Terminal, Dashboard, the captured window's MRU sessions, and that window's attention ordering.
+  `AppStore.navigableRecentSessions(limit:)` supplies the same visible-scope, current-session-excluding MRU list used by the title-bar recent-session menu, capped by `SessionSwitcher.maxCandidates`.
+  AppKit sends Dock actions with a nil sender, and `NSMenuItem.target` is weak.
+  `AppDelegate.dockMenuActionTargets` is therefore the sole strong owner of one closure-backed target per dynamic item until the next menu build.
+  Session closures capture only the session UUID, never the `Session` or its terminal surfaces.
+  The next build invalidates the old targets before replacing that retention set, which also stops an already-loaded or in-flight stale target from dispatching.
+  Every top-level and session action captures the `AppStore` and window id present when AppKit builds the menu.
+  Invocation rechecks that window's per-window modal/controller state, raises it, synchronously publishes `WindowLibrary.frontmostWindowID` plus `.agtermWindowFrontmostChanged`, and only then selects or calls the shared `AppActions` path.
+  `AppStore.selectSession` and `navigateSession` return the pre-selection indicator because `autoReset` clears it on visit.
+  GUI selection callers pass that captured value to `revealActiveBlockedPane(captured:)`, which reveals a tagged pane only for `needsAttention` (`blocked`/`completed`) while `active` and `idle` use ordinary focus.
+  Synchronous publication is load-bearing because shared `AppActions` resolve through the frontmost store while AppKit can keep tracking a menu after another window becomes frontmost.
+  The per-window check is also load-bearing because window B's dashboard/zoom must not disable A, while a modal opened in captured window A after menu construction must make the stale action inert.
+  A Dashboard item built while A's dashboard is already open remains a valid close toggle, while one built closed becomes inert if A enters dashboard before invocation.
+  Hosted AppKit coverage lives in `agtermTests/DockMenuTests.swift`, including nil-sender dispatch, stale modal/closed/rebuilt actions, captured top-level/session actions, and pane-aware selection.
+  Run it with `make test-app`, whose dedicated scheme supplies isolated `AGTERM_STATE_DIR` and `AGTERM_CONTROL_SOCKET` values before `agtermApp.init()` and sets `AGTERM_HOSTED_TESTS=1`.
+  That sentinel renders a shell-free scene and never starts the control server.
+  Do not add the sentinel to the `agterm` scheme because its Test action launches the real app for `agtermUITests`.
+  The Dock surface composes the existing `session.new`, `quick`, `dashboard`, and `session.select` capabilities, so it is exempt from adding a new control command.
 - **Menu split: View vs Navigate.**
   The menu bar has TWO custom menus (besides File/Help).
   **View** (`CommandGroup(after: .toolbar)`) holds appearance + what-is-shown:
@@ -280,25 +302,16 @@ paths:
   unit-tested) and is driven by Navigate ▸ Previous/Next Attention Session,
   the action palette, and `session.go next-attention|prev-attention`; the two `BuiltinAction`s (`previous_attention_session`/`next_attention_session`)
   carry ⌃⌥↑/↓ as their `defaultChord`.
-  EVERY user-initiated GUI selection now REVEALS the blocked PANE, not just the session: the shared
-  `AppActions.revealActiveBlockedPane()` (formerly private, now called on all selection paths) reads the
-  landed session's `agentIndicator.statusPane` and focuses that pane — for `right`, the split surface via
-  `focusSplitPane(_:wantSplit: true)` (a FIXED target gated on `splitSurface != nil`, and its `onFocusChange`
-  re-asserts `splitFocused` to win the shown-split re-render race). A promoted split survivor is NOT covered
-  by this branch — promotion moves it into `surface` with `splitSurface == nil` (and re-tags a `.right` block
-  to `.left`), so it falls through to `focusActiveSession` as the session's sole main pane, which is correct;
-  for `scratch`, shows a hidden scratch via `AppStore.toggleScratch` then focuses it;
-  for `left`/nil, the main pane; and it is a no-op (plain `focusActiveSession`) for an IDLE session
-  (no status set), so ordinary selections are unaffected (the idle gate is what keeps a plain nav to a
-  session with a shown scratch from dismissing it).
-  It fires from ALL of: attention-nav (⌃⌥↑/↓, `selectNext/PreviousAttentionSession`),
-  plain session nav (⌥⌘↑/↓/first/last, `selectNext/Previous/First/LastSession`),
-  the ⌃P/attention command palette (async in the palette item's run closure),
-  a sidebar row click (`WorkspaceSidebar.Coordinator.outlineViewSelectionDidChange`, async),
-  and idle auto-follow (`autoFollowed(_:)`) — the palette/sidebar paths dispatch async so the reveal runs
-  AFTER the palette/selection focus-restore settles.
-  All paths route through the one helper so they can't drift (the tag is set by `session.status --pane`
-  — see the Control API + Notifications rules).
+  EVERY user-initiated GUI selection of a status that NEEDS ATTENTION reveals the tagged PANE, not just the session.
+  The shared `AppActions.revealActiveBlockedPane(captured:)` focuses the pane recorded in the pre-reset indicator returned by `AppStore.selectSession` or `navigateSession`.
+  For `right`, it focuses the split surface via `focusSplitPane(_:wantSplit: true)`, gated on `splitSurface != nil`, and `onFocusChange` reasserts `splitFocused` to win the shown-split re-render race.
+  A promoted split survivor is not covered by that branch because promotion moves it into `surface` with `splitSurface == nil` and retags a `.right` block to `.left`.
+  For `left` or nil, it explicitly clears `splitFocused` and calls `focusSplitPane(_:wantSplit: false)` to target the primary pane.
+  For `scratch`, it shows a hidden scratch via `AppStore.toggleScratch` and then focuses it.
+  IDLE and ACTIVE selections call plain `focusActiveSession`, so informational working-state tags do not dismiss a shown scratch or change split focus.
+  The helper fires from attention-nav, plain session nav, the command palettes, a sidebar row click, a Dock-menu session row, and idle auto-follow.
+  Palette and sidebar paths dispatch asynchronously so reveal runs after their focus restoration settles.
+  All paths share the selection boundary and reveal helper so pre-reset status and pane semantics cannot drift.
   Only the control `session.go next-attention|prev-attention` does NOT reveal (`goSession` just drives
   `AppStore.navigateSession`), so the socket steps the selection without moving focus into the pane.
 - `Delete Workspace` lives once in `AppActions.deleteWorkspace(_:)` (confirm alert when the workspace
@@ -401,4 +414,3 @@ paths:
   So the e2e (`RecentSessionsButtonUITests`, `AttentionButtonUITests.testAttentionButtonOpensPopoverListingAttention`)
   asserts the popover OPENS and lists the right sessions; the click→select is verified by hand and covered
   host-free by the selection APIs (see [[ui-tests]]).
-

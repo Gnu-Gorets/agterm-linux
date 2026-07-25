@@ -1076,10 +1076,11 @@ paths:
   to a closure that clears only when the host-free `AgentIndicator.clearedBy(pane:isInterrupt:)` says the keystroke's
   OWN pane owns the current status, so a `right`- or `scratch`-tagged block SURVIVES foreground typing in the
   main pane (see the Notifications rule).
-  (2) Pane-aware attention navigation: auto-follow and the GUI attention-nav (⌃⌥↑/⌃⌥↓, menu, palette) reveal
-  and focus the tagged pane — flip `splitFocused` to the split, or show a hidden scratch via `AppStore.toggleScratch`
-  — instead of always the main pane (the shared `AppActions.revealActiveBlockedPane`, wired into
-  `selectNext/PreviousAttentionSession` + `autoFollowed`).
+  (2) Pane-aware attention navigation: when status needs attention, auto-follow and every GUI selection path reveal and focus the tagged pane instead of always the main pane.
+  Those paths are attention-nav, plain session nav, the command palettes, a sidebar row, and a Dock-menu session row.
+  `AppStore.selectSession` and `navigateSession` return the pre-auto-reset indicator, and each caller passes it to the shared `AppActions.revealActiveBlockedPane(captured:)`.
+  That helper flips to a tagged split, shows a hidden tagged scratch, or explicitly targets the primary pane for left/nil.
+  IDLE and ACTIVE selections use ordinary focus and preserve the current pane.
   The `session.go next-attention|prev-attention` control arm (`goSession`) only drives `AppStore.navigateSession`
   and does NOT call the reveal, so the socket steps the selection but does not itself move focus into the pane
   (see the Menu/actions rule).

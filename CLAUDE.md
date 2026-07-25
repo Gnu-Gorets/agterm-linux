@@ -97,8 +97,9 @@ surface ownership, and the C-boundary concurrency contract before changing the b
 - `scripts/run.sh` — setup, `xcodegen generate`, `xcodebuild` Debug, then launch.
 - `scripts/build.sh` — same but Release, no launch.
 - `cd agtermCore && swift test` — run the host-free unit tests (`scripts/test.sh` wraps this).
+- `scripts/test-app.sh` — run the application-hosted AppKit unit tests with the isolated `agtermTests` scheme.
 - `Makefile` — a thin front door over the scripts: `make prep`/`build` (Debug,
-  no launch)/`run`/`release`/`deploy` (Release build + copy to `~/Applications`)/`test`/`lint`/`dist VERSION=x.y.z [PUBLISH=1]`
+  no launch)/`run`/`release`/`deploy` (Release build + copy to `~/Applications`)/`test`/`test-app`/`lint`/`dist VERSION=x.y.z [PUBLISH=1]`
   (the `release.sh` DMG)/`clean`; a bare `make` lists them.
   The scripts stay the source of truth — only `build`, `deploy`, and `lint` carry their own recipe.
 - `make lint` runs `swiftlint lint --strict` over the tree, configured by `.swiftlint.yml` at the repo
@@ -109,11 +110,12 @@ surface ownership, and the C-boundary concurrency contract before changing the b
   tunes `line_length` (200) and `cyclomatic_complexity` (`ignores_case_statements`,
   so the flat 44-arm command dispatch isn't "complex"), allows 2-deep type nesting,
   and caps source files at 1000 lines / 800-line type bodies.
-  Test files get a 2000-line budget via two nested `.swiftlint.yml` configs
-  (`agtermUITests/` and `agtermCore/Tests/`) that override only `file_length`/`type_body_length` and inherit everything else from the root.
+  Test files get a 2000-line budget via nested `.swiftlint.yml` configs in `agtermCore/Tests/`,
+  `agtermTests/`, and `agtermUITests/`.
+  Those configs override only `file_length`/`type_body_length` and inherit everything else from the root.
   `--strict` promotes warnings to failures, so the tree must stay swiftlint-clean (zero findings).
 
-The app must build, `swift test` must stay green, and `make lint` must pass after every change.
+The app must build, `swift test` and `make test-app` must stay green, and `make lint` must pass after every change.
 
 - **Manage file sizes for real — source files stay under 1000 lines, tests under a hard 2000 (= 2×).**
   In OUR OWN work: when you touch a long file, PROPOSE splitting/relocating it toward that rather than

@@ -1100,8 +1100,10 @@
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace">--pane</span> (default
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace">left</span>) records which pane set the status. It
                 makes keystroke-clear pane-scoped — a status set from a background pane survives typing in a different pane — and it
-                makes any user-initiated GUI selection reveal and focus the tagged pane. An agent running in a split or scratch
-                should set its own pane. Read back as the session node's
+                makes any user-initiated GUI selection of a <span style="font-family: &quot;JetBrains Mono&quot;, monospace">blocked</span>
+                or <span style="font-family: &quot;JetBrains Mono&quot;, monospace">completed</span> session reveal and focus the tagged
+                pane. An <span style="font-family: &quot;JetBrains Mono&quot;, monospace">active</span> status preserves the current pane
+                selection. An agent running in a split or scratch should set its own pane. Read back as the session node's
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace">statusPane</span>,
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace">statusBlink</span>,
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace">statusColor</span>, and
