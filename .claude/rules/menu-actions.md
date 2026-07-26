@@ -24,6 +24,18 @@ paths:
   Trivial one-liners (quick-terminal toggle) call the controller/store directly;
   `AppActions` owns the ones with real logic — new-session placement, the directory picker,
   split + focus, and font.
+  `toggleQuickTerminal` gates on the full `uiActionsEnabled` (terminal zoom AND the dashboard grid),
+  not zoom alone.
+  This is defence in depth, not a gap being closed: all three callers of the method were already gated.
+  The View ▸ Quick Terminal item carries `.disabled(modalActive)`,
+  which also covers a `keymap.conf` rebind of the built-in, because that rebind IS the item's key equivalent;
+  the palette caller is gated by `runPaletteCommand`'s own `uiActionsEnabled` check;
+  and the Dock item rechecks `uiActionsEnabled(for:)` at invocation.
+  The control `quick` command never reaches this method at all, driving `QuickTerminalRegistry` directly.
+  The title-bar quick-terminal button is not a caller either — it toggles the controller directly,
+  and is unreachable while a modal is up because `WindowContentView+Dashboard` swaps the whole titlebar.
+  `WindowContentView+Dashboard` also force-hides a SHOWN quick terminal when the grid opens,
+  so the gate only ever blocks opening one over the grid, never strands one behind it.
 - **Application Dock menu (`AppDelegate.applicationDockMenu`).**
   AppKit asks for a fresh menu when the Dock icon is right-clicked.
   The menu exposes New Session, Quick Terminal, Dashboard, the captured window's MRU sessions, and that window's attention ordering.
@@ -289,8 +301,15 @@ paths:
   no-ops on an empty tree, and routes through `selectSession` (recency + badge + persist + workspace-derivation).
   It is shared by the menu, the action palette, and the control channel (`session.go`) so the three can't
   drift.
-  Each GUI action (`AppActions.select{Next,Previous,First,Last}Session`) calls `focusActiveSession()`
-  after the move so first responder follows into the moved-to terminal (the sidebar never steals focus);
+  The four GUI actions (`AppActions.select{Next,Previous,First,Last}Session`)
+  are one-liners over the private `AppActions.navigatePlain(_:)`.
+  A step that MOVES the selection routes through `revealActiveBlockedPane(captured:)`,
+  which reveals the tagged pane when the moved-to session needs attention,
+  and otherwise falls through to `focusActiveSession()`,
+  so first responder follows into the moved-to terminal either way (the sidebar never steals focus).
+  A step that resolves to the session ALREADY selected skips the reveal and calls `focusActiveSession()` directly.
+  Both paths are still subject to the shared modal focus guards (zoom, dashboard, rename, palette, quick terminal),
+  which suppress the responder move in either branch.
   `WorkspaceSidebar.syncSelection()` expands the owning workspace if collapsed and `scrollRowToVisible`s
   the target so an off-screen row is revealed.
   Distinct from the ⌃Tab MRU switcher (recency order) and the ⌃P fuzzy palette (search) — this is predictable
@@ -304,7 +323,15 @@ paths:
   carry ⌃⌥↑/↓ as their `defaultChord`.
   EVERY user-initiated GUI selection of a status that NEEDS ATTENTION reveals the tagged PANE, not just the session.
   The shared `AppActions.revealActiveBlockedPane(captured:)` focuses the pane recorded in the pre-reset indicator returned by `AppStore.selectSession` or `navigateSession`.
-  When GUI navigation has no target, its action falls back to the active session's live indicator so a sole selected attention session still reveals its tagged pane and an empty filtered list preserves ordinary focus behavior.
+  ATTENTION nav falls back to the active session's live indicator when `navigateSession` returns no target.
+  `attentionTarget` excludes the CURRENT session,
+  so when the sole session needing attention is the one already selected it returns nil and nothing is selected.
+  That fallback is the only reason ⌃⌥↑/↓ still reveals its tagged pane there.
+  PLAIN session nav has NO such fallback and reveals only when the selection actually MOVED.
+  A plain step resolving to the session already selected just re-focuses:
+  `next`/`previous` wrap inside a one-element filtered set, and `first`/`last` repeat while already at that end.
+  `selectSession` does not short-circuit a same-target select, so it still returns an indicator there,
+  and revealing on it would clear `splitFocused` and pull the user off the split pane he is typing in.
   For `right`, it focuses the split surface via `focusSplitPane(_:wantSplit: true)`, gated on `splitSurface != nil`, and `onFocusChange` reasserts `splitFocused` to win the shown-split re-render race.
   A promoted split survivor is not covered by that branch because promotion moves it into `surface` with `splitSurface == nil` and retags a `.right` block to `.left`.
   For `left` or nil, it explicitly clears `splitFocused` and calls `focusSplitPane(_:wantSplit: false)` to target the primary pane.

@@ -45,8 +45,10 @@ final class AppActions {
     /// While terminal zoom OR the dashboard grid is active, the UI is modal: keyboard/menu/palette actions
     /// must not mutate the deck behind it. The zoom/dashboard toggles, socket commands, and macOS window
     /// controls remain separate paths (they never gate on this), so the user is never trapped and can always
-    /// dismiss the modal. `frontmostDashboard?.isOpen` mirrors `terminalZoomActive`, resolved on the frontmost
-    /// window like the zoom target.
+    /// dismiss the modal. This is the frontmost-window shorthand for the per-window check below, resolved on
+    /// `library.activeWindowID` like the zoom target. With NO window open that id is nil and the gate DENIES
+    /// (the per-window check's `guard let windowID else { return false }`), so a deck action can't run against
+    /// no window while the app is tearing down.
     var uiActionsEnabled: Bool { uiActionsEnabled(for: library.activeWindowID) }
 
     /// The modal gate for a specific window. Session-addressed entry points use this instead of the
@@ -420,32 +422,27 @@ final class AppActions {
     /// then moves first responder into the moved-to session's focused pane. Each also notes the manual
     /// navigation as user activity so it buys the full idle grace before auto-follow can pull the
     /// selection back (the control `session.go` drives `navigateSession` directly, so it stays silent).
-    /// If a filtered list has no navigation target, the GUI action keeps the current session's live
-    /// indicator so the same reveal/focus behavior still runs for that selection no-op.
-    func selectNextSession() {
+    /// A step that resolves to the session ALREADY selected reveals nothing and just re-focuses: `next`/`previous`
+    /// wrap inside the filtered set, so a one-element set re-selects the current session, and `first`/`last`
+    /// do the same while you are already at that end. `selectSession` does not short-circuit a same-target
+    /// select, so it still returns an indicator there — revealing on it would clear `splitFocused` and yank
+    /// first responder onto the primary pane on a keystroke that moved nothing, off the split the user is
+    /// typing in. Attention nav deliberately DOES reveal on its no-op; see it below for why.
+    private func navigatePlain(_ direction: SessionNavigation) {
         guard uiActionsEnabled else { return }
         store?.noteUserActivity()
-        let indicator = store?.navigateSession(.next) ?? store?.activeSession?.agentIndicator
+        let before = store?.selectedSessionID
+        // no live-indicator fallback here (unlike attention nav): a plain direction returns nil only when
+        // `navigableSessions` is EMPTY, and then nothing was selected, which the moved-check below catches.
+        let indicator = store?.navigateSession(direction)
+        guard store?.selectedSessionID != before else { focusActiveSession(); return }
         revealActiveBlockedPane(captured: indicator)
     }
-    func selectPreviousSession() {
-        guard uiActionsEnabled else { return }
-        store?.noteUserActivity()
-        let indicator = store?.navigateSession(.previous) ?? store?.activeSession?.agentIndicator
-        revealActiveBlockedPane(captured: indicator)
-    }
-    func selectFirstSession() {
-        guard uiActionsEnabled else { return }
-        store?.noteUserActivity()
-        let indicator = store?.navigateSession(.first) ?? store?.activeSession?.agentIndicator
-        revealActiveBlockedPane(captured: indicator)
-    }
-    func selectLastSession() {
-        guard uiActionsEnabled else { return }
-        store?.noteUserActivity()
-        let indicator = store?.navigateSession(.last) ?? store?.activeSession?.agentIndicator
-        revealActiveBlockedPane(captured: indicator)
-    }
+
+    func selectNextSession() { navigatePlain(.next) }
+    func selectPreviousSession() { navigatePlain(.previous) }
+    func selectFirstSession() { navigatePlain(.first) }
+    func selectLastSession() { navigatePlain(.last) }
 
     /// Step to the next/previous session needing attention (status `blocked` or `completed`), wrapping
     /// around and skipping idle/active sessions. Shares `navigateSession` with the GUI, palette, and the
@@ -453,6 +450,12 @@ final class AppActions {
     /// session nav (a manual step to an attention session buys the idle grace too), then reveals and focuses
     /// the moved-to session's blocked pane (`revealActiveBlockedPane`) so nav lands on the split/scratch pane
     /// that set the status, not just the session's plain focused pane.
+    /// Unlike the plain nav above, this DOES reveal on a selection no-op, and the `?? activeSession?.agentIndicator`
+    /// fallback is the only thing that makes it: `attentionTarget` EXCLUDES the current session, so when the
+    /// sole session needing attention is the one already selected it returns nil and `navigateSession` selects
+    /// nothing. Without the fallback the reveal degrades to plain `focusActiveSession` and ⌃⌥↑/↓ stops taking
+    /// you to that session's tagged split/scratch pane — the case an agent hits constantly, since a pane-scoped
+    /// block is not cleared by typing in the OTHER pane. Do not drop it as redundant.
     func selectNextAttentionSession() {
         guard uiActionsEnabled else { return }
         store?.noteUserActivity()
@@ -707,20 +710,27 @@ final class AppActions {
     /// Start an inline rename of the active session. The sidebar owns the edit field, so this posts
     /// a notification it observes; `renamePending` keeps the palette-close focus restore off the
     /// field while the edit starts.
+    /// The post carries the frontmost STORE as its object, and `WorkspaceSidebar.Coordinator` registers
+    /// with `object: store`, so only that window's sidebar starts an edit — the same per-window scoping
+    /// `expandAllWorkspaces(in:)` uses. Posting with a nil object instead reached EVERY open window's
+    /// coordinator, and their `selectedSessionID` guard does not scope anything (every window has a
+    /// selection), so each one opened an editor nobody was typing into and each leaked one unbalanced
+    /// `suppressAutoFollow`.
     func renameActiveSession() {
         guard uiActionsEnabled else { return }
-        guard store?.activeSession != nil else { return }
+        guard let store, store.activeSession != nil else { return }
         renamePending = true
-        NotificationCenter.default.post(name: .agtermBeginRenameSession, object: nil)
+        NotificationCenter.default.post(name: .agtermBeginRenameSession, object: store)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.renamePending = false }
     }
 
     /// Start an inline rename of the active session's workspace (the same one new sessions land in).
+    /// Store-scoped like `renameActiveSession` above, for the same reason.
     func renameActiveWorkspace() {
         guard uiActionsEnabled else { return }
-        guard store?.currentWorkspaceID != nil else { return }
+        guard let store, store.currentWorkspaceID != nil else { return }
         renamePending = true
-        NotificationCenter.default.post(name: .agtermBeginRenameWorkspace, object: nil)
+        NotificationCenter.default.post(name: .agtermBeginRenameWorkspace, object: store)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.renamePending = false }
     }
 
@@ -780,7 +790,11 @@ final class AppActions {
 
     // MARK: - Quick terminal (frontmost window)
 
-    /// Toggle the frontmost window's quick terminal (each window owns its own controller).
+    /// Toggle the frontmost window's quick terminal (each window owns its own controller). Gated on the full
+    /// `uiActionsEnabled` (zoom AND dashboard), not zoom alone — defence in depth rather than a gap being
+    /// closed, since all three callers already gate: the View ▸ Quick Terminal item's `.disabled(modalActive)`
+    /// (which covers a `keymap.conf` rebind too, because that rebind is the item's own key equivalent), the
+    /// palette's `runPaletteCommand` check, and the Dock item's invocation-time `uiActionsEnabled(for:)`.
     func toggleQuickTerminal() {
         guard uiActionsEnabled else { return }
         frontmostQuickTerminal?.toggle()
