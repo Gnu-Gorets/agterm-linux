@@ -292,8 +292,11 @@ struct AppStoreTests {
         let store = makeStore()
         let ws = store.addWorkspace(name: "work")
         let a = store.addSession(toWorkspace: ws.id, cwd: "/a")!
-        store.setAgentIndicator(AgentIndicator(status: .completed, autoReset: true), forSession: a.id)
-        store.selectSession(a.id) // visiting an auto-reset indicator clears it to idle for good
+        a.hasSplit = true
+        let indicator = AgentIndicator(status: .completed, autoReset: true, statusPane: .right)
+        store.setAgentIndicator(indicator, forSession: a.id)
+        let captured = store.selectSession(a.id) // visiting clears it, but returns the pre-clear routing value
+        #expect(captured == indicator)
         #expect(a.agentIndicator == AgentIndicator())
     }
 
@@ -1191,6 +1194,23 @@ struct AppStoreTests {
         #expect(store.recentSessions(limit: 9) == [b.id, a.id]) // recency spans every workspace
         store.closeSession(b.id) // closed sessions are pruned from recency, so they drop out
         #expect(store.recentSessions(limit: 9) == [a.id])
+    }
+
+    @Test func navigableRecentSessionsExcludesCurrentAndUsesVisibleScope() {
+        let store = makeStore()
+        let work = store.addWorkspace(name: "work")
+        let personal = store.addWorkspace(name: "personal")
+        let a = store.addSession(toWorkspace: work.id, cwd: "/a")!
+        let b = store.addSession(toWorkspace: work.id, cwd: "/b")!
+        let c = store.addSession(toWorkspace: personal.id, cwd: "/c")!
+        store.selectSession(a.id)
+        store.selectSession(c.id)
+        store.selectSession(b.id)
+
+        #expect(store.navigableRecentSessions(limit: 2) == [c.id, a.id])
+
+        store.setFocusedWorkspace(personal.id)
+        #expect(store.navigableRecentSessions(limit: 9) == [c.id])
     }
 
     @Test func setFontSizeRecordsValue() {

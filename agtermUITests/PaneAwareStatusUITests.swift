@@ -63,6 +63,46 @@ final class PaneAwareStatusUITests: ControlAPITestCase {
         XCTAssertNotEqual(sessionB, sessionA, "sanity: the parked session is distinct")
     }
 
+    // A sole attention session is already selected, so both attention-nav directions are selection no-ops:
+    // `navigateSession` returns nil after wrapping back to the current row. They must still read the live
+    // indicator and reveal its tagged pane instead of falling back to the currently focused main pane.
+    func testAttentionNavRevealsTaggedPaneWhenSoleAttentionSessionIsAlreadySelected() throws {
+        let sessionA = try activeSessionID()
+        XCTAssertEqual(try sendCommand(#"{"cmd":"session.split","target":"\#(sessionA)","args":{"mode":"on"}}"#)["ok"] as? Bool,
+                       true, "split on should succeed")
+        XCTAssertTrue(pollActiveSessionSplit(true, timeout: 10), "the session should report split:true")
+
+        let leftTag = "PAWNL-\(UUID().uuidString.prefix(8))"
+        let rightTag = "PAWNR-\(UUID().uuidString.prefix(8))"
+        try seedPaneMarker(target: sessionA, pane: "left", tag: leftTag)
+        try seedPaneMarker(target: sessionA, pane: "right", tag: rightTag)
+
+        XCTAssertEqual(try sendCommand(#"{"cmd":"session.focus","target":"\#(sessionA)","args":{"pane":"left"}}"#)["ok"] as? Bool,
+                       true, "focusing the left pane should succeed")
+        XCTAssertTrue(try pollOnScreen(target: sessionA, contains: "\(leftTag)-42"),
+                      "the selected session should start with its primary pane on-screen")
+        try blockPane("right", target: sessionA)
+
+        attentionNavDown()
+
+        XCTAssertTrue(try pollActiveNode(equals: sessionA, timeout: 12),
+                      "next-attention should keep the sole attention session selected")
+        XCTAssertTrue(try pollOnScreen(target: sessionA, contains: "\(rightTag)-42"),
+                      "next-attention should reveal the selected session's tagged right pane")
+
+        XCTAssertEqual(try sendCommand(#"{"cmd":"session.focus","target":"\#(sessionA)","args":{"pane":"left"}}"#)["ok"] as? Bool,
+                       true, "focusing the left pane again should succeed")
+        XCTAssertTrue(try pollOnScreen(target: sessionA, contains: "\(leftTag)-42"),
+                      "the primary pane should be on-screen again before previous-attention")
+
+        attentionNavUp()
+
+        XCTAssertTrue(try pollActiveNode(equals: sessionA, timeout: 12),
+                      "previous-attention should keep the sole attention session selected")
+        XCTAssertTrue(try pollOnScreen(target: sessionA, contains: "\(rightTag)-42"),
+                      "previous-attention should reveal the selected session's tagged right pane")
+    }
+
     // a `right`-tagged block on a HIDDEN split: nav reveals it by swapping which pane shows MAXIMIZED (the
     // split stays hidden — split:false — but the right pane is now the on-screen one), not by re-showing the
     // two panes side-by-side.
@@ -406,12 +446,13 @@ final class PaneAwareStatusUITests: ControlAPITestCase {
         XCTAssertEqual(try sendCommand(line)["ok"] as? Bool, true, "session.status \(status) --pane \(pane ?? "-") should succeed")
     }
 
-    /// Seed a pane's shell with `echo <tag>-$((6*7))`, polling until the pane's own buffer carries `<tag>-42`
-    /// (the arithmetic result proves the shell RAN the line, not merely echoed it). Reuses the base
+    /// Seed a pane's shell with `printf '<tag>-%s\n' 42`, polling until the pane's own buffer carries `<tag>-42`
+    /// (the input contains `<tag>-%s`, so only executed output contains the marker). Reuses the base
     /// `pollPaneText` readiness-retry so a freshly-spawned pane's dropped first keystrokes are re-injected.
     private func seedPaneMarker(target: String, pane: String, tag: String) throws {
         let seeded = try pollPaneText(target: target, pane: pane, contains: "\(tag)-42", retype: {
-            _ = try self.sendCommand(self.typeRequest(text: "echo \(tag)-$((6*7))\n", target: target, select: false, pane: pane))
+            _ = try self.sendCommand(self.typeRequest(text: "printf '\(tag)-%s\\n' 42\n",
+                                                      target: target, select: false, pane: pane))
         })
         XCTAssertNotNil(seeded, "seeding the \(pane) pane marker should land in its buffer")
     }
@@ -459,6 +500,11 @@ final class PaneAwareStatusUITests: ControlAPITestCase {
     /// so it dispatches regardless of which surface holds first responder (as `SessionNavUITests` drives ⌥⌘↓).
     private func attentionNavDown() {
         app.typeKey(.downArrow, modifierFlags: [.control, .option])
+    }
+
+    /// Fire the GUI previous-attention shortcut ⌃⌥↑.
+    private func attentionNavUp() {
+        app.typeKey(.upArrow, modifierFlags: [.control, .option])
     }
 
     /// Click the `session-row` whose displayed name (its accessibility VALUE) equals `name`. A renamed

@@ -457,17 +457,26 @@ struct AppStoreAutoFollowTests {
         let idle = store.addSession(toWorkspace: ws.id, cwd: "/idle")!
         let blocked = addBlocked(store, to: ws.id, cwd: "/b", at: 100)
         store.selectSession(idle.id)
-        // the app-target focus bridge relies on this post carrying the auto-followed session id: observe it
-        // (queue nil so the synchronous post delivers inline, before the fire returns) and assert the id.
+        blocked.hasSplit = true
+        let expectedIndicator = AgentIndicator(
+            status: .blocked, autoReset: true, statusPane: .right
+        )
+        store.setAgentIndicator(expectedIndicator, forSession: blocked.id)
+        blocked.statusChangedAt = Date(timeIntervalSince1970: 100)
+        // The app-target focus bridge relies on this post carrying both the destination id and the
+        // pre-selection indicator. Observe synchronously and prove the auto-reset clear cannot erase routing.
         let box = NotificationBox()
         let token = NotificationCenter.default.addObserver(forName: .agtermAutoFollowed, object: nil,
                                                            queue: nil) { note in
             box.sessionID = note.userInfo?[AppStore.autoFollowSessionIDKey] as? UUID
+            box.indicator = note.userInfo?[AppStore.autoFollowIndicatorKey] as? AgentIndicator
         }
         defer { NotificationCenter.default.removeObserver(token) }
         store.autoFollowFire()
         #expect(store.selectedSessionID == blocked.id)
+        #expect(blocked.agentIndicator == AgentIndicator())
         #expect(box.sessionID == blocked.id)
+        #expect(box.indicator == expectedIndicator)
     }
 
     /// Deterministically drains one round of `DispatchQueue.main.async` work by enqueuing a marker after
@@ -484,4 +493,5 @@ struct AppStoreAutoFollowTests {
 /// suspension between register and read, so the single write races nothing.
 private final class NotificationBox: @unchecked Sendable {
     var sessionID: UUID?
+    var indicator: AgentIndicator?
 }

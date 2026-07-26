@@ -47,7 +47,15 @@ final class AppActions {
     /// controls remain separate paths (they never gate on this), so the user is never trapped and can always
     /// dismiss the modal. `frontmostDashboard?.isOpen` mirrors `terminalZoomActive`, resolved on the frontmost
     /// window like the zoom target.
-    var uiActionsEnabled: Bool { !terminalZoomActive && !(frontmostDashboard?.isOpen ?? false) }
+    var uiActionsEnabled: Bool { uiActionsEnabled(for: library.activeWindowID) }
+
+    /// The modal gate for a specific window. Session-addressed entry points use this instead of the
+    /// frontmost-only property when their target may have changed while an external menu was tracking.
+    func uiActionsEnabled(for windowID: WindowInfo.ID?) -> Bool {
+        guard let windowID else { return false }
+        return TerminalZoomRegistry.shared.controller(for: windowID)?.target == nil
+            && DashboardControllerRegistry.shared.controller(for: windowID)?.isOpen != true
+    }
 
     /// Set briefly while a rename is being started, so the focus-restore that runs when a palette
     /// or the quick terminal closes doesn't steal first responder from the inline rename field.
@@ -95,7 +103,8 @@ final class AppActions {
             forName: .agtermAutoFollowed, object: nil, queue: .main
         ) { [weak self] note in
             let sessionID = note.userInfo?[AppStore.autoFollowSessionIDKey] as? UUID
-            MainActor.assumeIsolated { self?.autoFollowed(sessionID) }
+            let indicator = note.userInfo?[AppStore.autoFollowIndicatorKey] as? AgentIndicator
+            MainActor.assumeIsolated { self?.autoFollowed(sessionID, indicator: indicator) }
         }
     }
 
@@ -411,29 +420,31 @@ final class AppActions {
     /// then moves first responder into the moved-to session's focused pane. Each also notes the manual
     /// navigation as user activity so it buys the full idle grace before auto-follow can pull the
     /// selection back (the control `session.go` drives `navigateSession` directly, so it stays silent).
+    /// If a filtered list has no navigation target, the GUI action keeps the current session's live
+    /// indicator so the same reveal/focus behavior still runs for that selection no-op.
     func selectNextSession() {
         guard uiActionsEnabled else { return }
         store?.noteUserActivity()
-        store?.navigateSession(.next)
-        revealActiveBlockedPane()
+        let indicator = store?.navigateSession(.next) ?? store?.activeSession?.agentIndicator
+        revealActiveBlockedPane(captured: indicator)
     }
     func selectPreviousSession() {
         guard uiActionsEnabled else { return }
         store?.noteUserActivity()
-        store?.navigateSession(.previous)
-        revealActiveBlockedPane()
+        let indicator = store?.navigateSession(.previous) ?? store?.activeSession?.agentIndicator
+        revealActiveBlockedPane(captured: indicator)
     }
     func selectFirstSession() {
         guard uiActionsEnabled else { return }
         store?.noteUserActivity()
-        store?.navigateSession(.first)
-        revealActiveBlockedPane()
+        let indicator = store?.navigateSession(.first) ?? store?.activeSession?.agentIndicator
+        revealActiveBlockedPane(captured: indicator)
     }
     func selectLastSession() {
         guard uiActionsEnabled else { return }
         store?.noteUserActivity()
-        store?.navigateSession(.last)
-        revealActiveBlockedPane()
+        let indicator = store?.navigateSession(.last) ?? store?.activeSession?.agentIndicator
+        revealActiveBlockedPane(captured: indicator)
     }
 
     /// Step to the next/previous session needing attention (status `blocked` or `completed`), wrapping
@@ -445,14 +456,14 @@ final class AppActions {
     func selectNextAttentionSession() {
         guard uiActionsEnabled else { return }
         store?.noteUserActivity()
-        store?.navigateSession(.nextAttention)
-        revealActiveBlockedPane()
+        let indicator = store?.navigateSession(.nextAttention) ?? store?.activeSession?.agentIndicator
+        revealActiveBlockedPane(captured: indicator)
     }
     func selectPreviousAttentionSession() {
         guard uiActionsEnabled else { return }
         store?.noteUserActivity()
-        store?.navigateSession(.previousAttention)
-        revealActiveBlockedPane()
+        let indicator = store?.navigateSession(.previousAttention) ?? store?.activeSession?.agentIndicator
+        revealActiveBlockedPane(captured: indicator)
     }
 
     /// Delete a workspace and all of its sessions. Confirms first when the workspace still has
@@ -771,7 +782,7 @@ final class AppActions {
 
     /// Toggle the frontmost window's quick terminal (each window owns its own controller).
     func toggleQuickTerminal() {
-        guard !terminalZoomActive else { return }
+        guard uiActionsEnabled else { return }
         frontmostQuickTerminal?.toggle()
     }
 
@@ -909,14 +920,14 @@ final class AppActions {
     /// `revealActiveBlockedPane` targets the frontmost (= key) store — the firing window here since we gate
     /// on its being key — and reveals the pane that set the status (split/scratch), so the initial jump lands
     /// on the waiting pane, not just the session's plain focused pane.
-    private func autoFollowed(_ sessionID: UUID?) {
+    private func autoFollowed(_ sessionID: UUID?, indicator: AgentIndicator?) {
         guard let sessionID, let windowID = library.windowID(forSession: sessionID),
               WindowRegistry.shared.isKeyWindow(windowID) else { return }
         // never reveal behind the zoom layer: the reveal mutates scratch visibility / splitFocused,
         // exactly the hidden-state writes zoom forbids. The auto-follow SELECTION stands (the user
         // lands on the blocked session when they exit zoom); only the pane reveal is skipped.
         guard TerminalZoomRegistry.shared.controller(for: windowID)?.target == nil else { return }
-        revealActiveBlockedPane()
+        revealActiveBlockedPane(captured: indicator)
     }
 
     /// Per-window generation counters (keyed by the owning window id; bumped in AppActions+Focus). A fresh

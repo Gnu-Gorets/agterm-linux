@@ -45,8 +45,8 @@ extension AppActions {
     /// every user-initiated selection — the auto-follow jump, attention navigation (⌃⌥↑/↓), plain session
     /// nav (⌥⌘↑/↓/first/last), the ⌃P / attention command palette, and a sidebar row click — so however you
     /// reach a blocked session you land on its waiting pane; it is a no-op (plain `focusActiveSession`) for an
-    /// IDLE session (no status set), so ordinary selections are unaffected. `.right` — only WHEN the
-    /// split surface exists
+    /// idle or active session, so ordinary selections and a working agent's informational pane tag do not
+    /// change the user's pane selection. `.right` — only WHEN the split surface exists
     /// (`splitSurface != nil`) — flips `splitFocused` then focuses the split surface via
     /// `focusSplitPane(wantSplit: true)` — a FIXED target, NOT the `splitFocused`-following
     /// `focusActiveSession`: a SHOWN (side-by-side) split's deck re-render churns first responder onto the
@@ -54,13 +54,13 @@ extension AppActions {
     /// then chases the wrong pane; re-asserting the split surface directly wins the race (its `onFocusChange`
     /// re-sets `splitFocused = true`). The gate is `splitSurface != nil` (NOT `hasSplit`), so a promoted
     /// split survivor (which `closePrimaryPane` moves into `surface` with `splitSurface == nil`, re-tagging a
-    /// `.right` block to `.left`) falls through to `focusActiveSession` as the session's sole main pane, and
-    /// a STALE `right` tag on a genuinely single-pane session (a manual `session.status --pane right`, or
-    /// after the split collapsed) does the same, instead of setting `splitFocused = true` with no split
-    /// surface (the `splitFocused` invariant is "true only while the split pane exists"). `.scratch` shows the
+    /// `.right` block to `.left`) explicitly targets the session's sole main pane, and a STALE `right` tag on
+    /// a genuinely single-pane session (a manual `session.status --pane right`, or after the split collapsed)
+    /// does the same, instead of setting `splitFocused = true` with no split surface (the `splitFocused`
+    /// invariant is "true only while the split pane exists"). `.scratch` shows the
     /// scratch only when hidden (a show-if-hidden guard, never a bare toggle that could HIDE a shown one) so
-    /// `topmostSurface` resolves to the scratch; `.left`/nil focus the session's current active surface via
-    /// `focusActiveSession` (the main pane unless a split is focused — no forced flip). The retry loops
+    /// `topmostSurface` resolves to the scratch; `.left`/nil explicitly clear `splitFocused` and target the
+    /// primary surface, even when the right pane held focus before the session was selected. The retry loops
     /// cover a split/scratch surface that materializes a beat after the reveal.
     /// The INVERSE of the `.scratch` show-if-hidden guard: for a NON-scratch target (`left`/`right`/nil)
     /// with the scratch currently SHOWN, hide the covering scratch (keep-alive `toggleScratch`) FIRST so the
@@ -68,14 +68,18 @@ extension AppActions {
     /// both resolve to the covering scratch (`topmostSurface`) and nav never reaches the blocked pane. Only
     /// the scratch cover is dismissed; an active overlay is left alone (closing a running overlay would kill
     /// its program).
-    func revealActiveBlockedPane() {
+    /// Selection callers pass the indicator returned by `AppStore.selectSession` / `navigateSession`,
+    /// captured before either clears an `autoReset` status. This keeps pane routing identical across the
+    /// Dock, navigation, palettes, sidebar/popover clicks, and auto-follow.
+    func revealActiveBlockedPane(captured indicator: AgentIndicator?) {
+        guard let indicator else { focusActiveSession(); return }
         guard let session = store?.activeSession else { focusActiveSession(); return }
-        // reveal is a no-op for an IDLE session: with no status there is nothing to reveal, and the
-        // scratch-hide / split-focus side effects below must never fire on plain navigation to a session
-        // that merely has its (keep-alive) scratch shown. a non-idle block with no `--pane` tag is treated
-        // as `left` and still reveals the main pane (hiding a covering scratch).
-        guard session.agentIndicator.status != .idle else { focusActiveSession(); return }
-        let pane = session.agentIndicator.statusPane
+        // reveal is a no-op unless the status needs attention: scratch-hide / split-focus side effects
+        // must never fire on plain navigation to a session that merely has its (keep-alive) scratch shown
+        // or whose agent is still active. a status needing attention with no `--pane` tag is treated as
+        // `left` and still reveals the main pane.
+        guard indicator.status.needsAttention else { focusActiveSession(); return }
+        let pane = indicator.statusPane
         // a shown scratch covers the panes and masks a non-scratch block; hide it first so the requested
         // pane is revealed. overlays are deliberately not touched — closing a running overlay is destructive.
         if pane != .scratch, session.scratchActive { store?.toggleScratch(session.id) }
@@ -87,7 +91,8 @@ extension AppActions {
             if !session.scratchActive { store?.toggleScratch(session.id) }
             focusActiveSession()
         case .left, .right, .none:
-            focusActiveSession()
+            session.splitFocused = false
+            focusSplitPane(session, wantSplit: false)
         }
     }
 

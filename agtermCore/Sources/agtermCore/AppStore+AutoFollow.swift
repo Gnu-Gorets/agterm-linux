@@ -3,11 +3,12 @@ import Observation
 
 extension Notification.Name {
     /// Posted by `AppStore.autoFollowFire` right after an idle auto-follow moves a window's selection to a
-    /// blocked session, carrying the target session id under `AppStore.autoFollowSessionIDKey`. agtermCore
-    /// is host-free and cannot call the app-target's `focusActiveSession`, so it posts this instead; the
-    /// app-side observer resolves the owning window and — only when that window is key — moves first
-    /// responder into the newly selected session (selection alone does not move it, since the eager deck
-    /// keeps the prior surface as first responder).
+    /// blocked session, carrying the target session id and its pre-selection indicator under
+    /// `AppStore.autoFollowSessionIDKey` / `autoFollowIndicatorKey`. agtermCore is host-free and cannot
+    /// call the app-target's `focusActiveSession`, so it posts this instead; the app-side observer resolves
+    /// the owning window and — only when that window is key — moves first responder into the newly selected
+    /// session (selection alone does not move it, since the eager deck keeps the prior surface as first
+    /// responder).
     public static let agtermAutoFollowed = Notification.Name("agterm.autoFollowed")
 
     /// Posted by `AppStore.setSidebarVisible` whenever a window's sidebar visibility actually changes.
@@ -29,6 +30,10 @@ extension AppStore {
     /// notification. `nonisolated` so the app-target observer (reading it off the notification on the main
     /// queue) and the poster below both reach it without actor hops.
     public nonisolated static let autoFollowSessionIDKey = "sessionID"
+
+    /// The `userInfo` key carrying the destination's pre-selection `AgentIndicator`, paired with
+    /// `autoFollowSessionIDKey` so an `autoReset` status can still route focus after selection clears it.
+    public nonisolated static let autoFollowIndicatorKey = "indicator"
 
     /// Records user interaction with this window (a keystroke or a manual selection). Stamps
     /// `lastActivityAt` UNCONDITIONALLY so the idle metric is independent of the feature being enabled,
@@ -152,12 +157,13 @@ extension AppStore {
         let blocked = attentionSessions.filter { $0.agentIndicator.status == .blocked }
         guard let target = autoFollowTarget(current: activeSession, blocked: blocked,
                                             stayOnActive: autoFollowStayOnActive) else { return }
-        selectSession(target)
+        let indicator = selectSession(target)
         // mute this block: a later idle fire won't yank the user back here after they leave, until the
         // session re-enters blocked (setAgentIndicator resets the flag on that transition).
         session(withID: target)?.autoFollowConsumed = true
-        NotificationCenter.default.post(name: .agtermAutoFollowed, object: nil,
-                                        userInfo: [Self.autoFollowSessionIDKey: target])
+        var userInfo: [String: Any] = [Self.autoFollowSessionIDKey: target]
+        if let indicator { userInfo[Self.autoFollowIndicatorKey] = indicator }
+        NotificationCenter.default.post(name: .agtermAutoFollowed, object: nil, userInfo: userInfo)
     }
 
     /// Milliseconds since the last user activity (`lastActivityAt`), or nil before any activity. Clamped to
