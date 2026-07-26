@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.17.0 - 2026-07-25
+
+### New Features
+
+- an application Dock menu with New Session, Quick Terminal, and Dashboard, plus the window's recent sessions and the ones needing attention, so common actions and session jumps work from the Dock without bringing a window to the front #284 @melonamin
+- selectable shapes for the agent-status glyphs, so blocked, active, and completed differ by silhouette instead of hue alone; picked per status in Settings ▸ Agent Status, or per call with `agtermctl session status --shape` #292 @umputun
+- arrow keys are now part of the keymap chord grammar, so a binding like `map cmd+shift+left previous_session` works; the six actions that already shipped on arrows report their real chords, which also makes them visible to the conflict checker instead of silently double-binding #291 @umputun
+- an opt-in Settings ▸ Interface toggle to show the sidebar only in the active window, collapsing it in the others so a multi-window layout spends its width on terminals #285 @umputun
+- hovering a sidebar agent-status glyph now names the status it stands for #283 @umputun
+
+### Bug Fixes
+
+- honor the macOS Reduce Motion and Reduce Transparency accessibility settings #279 @melonamin
+- a Codex session is marked blocked when its final assistant message asks a question anywhere in the text, not only when it ends in one #282 @umputun
+- a notification banner suppressed because its session is already visible now says so in the log and in the control response, instead of reporting a delivered banner #287 @umputun
+- renaming a session from the menu bar, the palette, or a keybinding no longer starts an inline edit in every other open window, which left a stray editor holding focus there and permanently wedged idle auto-follow off #295 @umputun
+- `agtermctl session focus --pane` now moves focus in a background window while the frontmost window has its quick terminal showing, instead of silently reporting success without moving it f2745a8 @umputun
+
 ## v0.16.1 - 2026-07-22
 
 ### Bug Fixes
