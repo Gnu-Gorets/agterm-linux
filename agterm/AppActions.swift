@@ -420,28 +420,30 @@ final class AppActions {
     /// then moves first responder into the moved-to session's focused pane. Each also notes the manual
     /// navigation as user activity so it buys the full idle grace before auto-follow can pull the
     /// selection back (the control `session.go` drives `navigateSession` directly, so it stays silent).
+    /// If a filtered list has no navigation target, the GUI action keeps the current session's live
+    /// indicator so the same reveal/focus behavior still runs for that selection no-op.
     func selectNextSession() {
         guard uiActionsEnabled else { return }
         store?.noteUserActivity()
-        let indicator = store?.navigateSession(.next)
+        let indicator = store?.navigateSession(.next) ?? store?.activeSession?.agentIndicator
         revealActiveBlockedPane(captured: indicator)
     }
     func selectPreviousSession() {
         guard uiActionsEnabled else { return }
         store?.noteUserActivity()
-        let indicator = store?.navigateSession(.previous)
+        let indicator = store?.navigateSession(.previous) ?? store?.activeSession?.agentIndicator
         revealActiveBlockedPane(captured: indicator)
     }
     func selectFirstSession() {
         guard uiActionsEnabled else { return }
         store?.noteUserActivity()
-        let indicator = store?.navigateSession(.first)
+        let indicator = store?.navigateSession(.first) ?? store?.activeSession?.agentIndicator
         revealActiveBlockedPane(captured: indicator)
     }
     func selectLastSession() {
         guard uiActionsEnabled else { return }
         store?.noteUserActivity()
-        let indicator = store?.navigateSession(.last)
+        let indicator = store?.navigateSession(.last) ?? store?.activeSession?.agentIndicator
         revealActiveBlockedPane(captured: indicator)
     }
 
@@ -454,13 +456,13 @@ final class AppActions {
     func selectNextAttentionSession() {
         guard uiActionsEnabled else { return }
         store?.noteUserActivity()
-        let indicator = store?.navigateSession(.nextAttention)
+        let indicator = store?.navigateSession(.nextAttention) ?? store?.activeSession?.agentIndicator
         revealActiveBlockedPane(captured: indicator)
     }
     func selectPreviousAttentionSession() {
         guard uiActionsEnabled else { return }
         store?.noteUserActivity()
-        let indicator = store?.navigateSession(.previousAttention)
+        let indicator = store?.navigateSession(.previousAttention) ?? store?.activeSession?.agentIndicator
         revealActiveBlockedPane(captured: indicator)
     }
 
