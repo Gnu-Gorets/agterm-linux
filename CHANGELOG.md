@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.17.1 - 2026-07-25
+
+### Improved
+
+- windows can be parked in the Dock over the control API with `agtermctl window minimize` (explicit `on`/`off`/`toggle`), created already parked with `window new --minimized`, and read back through the `minimized` field on `window list`, so a script can show one project's window and hide the rest #294 @umputun
+
+### Bug Fixes
+
+- `window new` replied before its window had attached, so an immediate `window resize` on the returned id failed with `window not open` #294 @umputun
+- `window list` served a stale cache that never refreshed once a window attached, so a newly created window reported no geometry indefinitely #294 @umputun
+- minimizing the frontmost window left it marked frontmost, so `tree`, `session new`, `quick`, and the palette kept routing into a window sitting in the Dock #294 @umputun
+- `window select` reported success without taking frontmost while the app was inactive, which is the state a driving script runs in #294 @umputun
+
 ## v0.17.0 - 2026-07-25
 
 ### New Features
