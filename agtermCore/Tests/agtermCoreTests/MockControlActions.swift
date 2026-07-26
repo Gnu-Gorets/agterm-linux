@@ -62,7 +62,7 @@ final class MockControlActions: ControlActions {
         case overlayResult(target: String?, window: String?)
         case sessionBackground(target: String?, window: String?, ControlSessionBackgroundOptions)
         case sessionText(target: String?, window: String?, ControlSessionTextOptions)
-        case windowNew(String?)
+        case windowNew(String?, minimized: Bool)
         case windowList
         case windowSelect(target: String?)
         case windowClose(target: String?)
@@ -72,6 +72,7 @@ final class MockControlActions: ControlActions {
         case windowMove(target: String?, x: Int, y: Int, display: Int?)
         case windowZoom(target: String?)
         case windowFullscreen(target: String?)
+        case windowMinimize(target: String?, mode: ControlToggleMode)
         case restoreClear
     }
 
@@ -116,6 +117,7 @@ final class MockControlActions: ControlActions {
     var nextWindowMoveResponse = ControlResponse(ok: true)
     var nextWindowZoomResponse = ControlResponse(ok: true)
     var nextWindowFullscreenResponse = ControlResponse(ok: true)
+    var nextWindowMinimizeResponse = ControlResponse(ok: true)
     var nextRestoreClearResponse = ControlResponse(ok: true)
     var nextSessionRestoreResponse = ControlResponse(ok: true)
 
@@ -393,8 +395,8 @@ final class MockControlActions: ControlActions {
         return nextSessionTextResponse
     }
 
-    func windowNew(name: String?) -> ControlResponse {
-        calls.append(.windowNew(name))
+    func windowNew(name: String?, minimized: Bool) async -> ControlResponse {
+        calls.append(.windowNew(name, minimized: minimized))
         return nextWindowNewResponse
     }
 
@@ -441,6 +443,11 @@ final class MockControlActions: ControlActions {
     func windowFullscreen(_ target: String?) -> ControlResponse {
         calls.append(.windowFullscreen(target: target))
         return nextWindowFullscreenResponse
+    }
+
+    func windowMinimize(_ target: String?, mode: ControlToggleMode) async -> ControlResponse {
+        calls.append(.windowMinimize(target: target, mode: mode))
+        return nextWindowMinimizeResponse
     }
 
     func clearRestoreCommands() -> ControlResponse {

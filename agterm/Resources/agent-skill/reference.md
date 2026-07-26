@@ -489,20 +489,26 @@ shell (no controlling terminal — `/dev/tty` errors). See examples.md for usage
 
 ## window
 
-- `window new [name]` — create and open a window; returns its id.
+- `window new [name] [--minimized]` — create and open a window; returns its id. It replies only once
+  the on-screen window exists, so an immediate `window resize`/`move` on the returned id works.
+  `--minimized` parks it in the Dock right after creating it, and leaves frontmost on a window you can
+  still see — for building a set of project windows and ending up on one you are looking at. The window
+  is presented briefly before it is parked, so expect it to appear and take focus on its way to the Dock.
 - `window list` — `result.windows`, each with `id`, `name`, `open`, `active`, `autoFollowMs` (the
   window's Auto-follow timeout in milliseconds, omitted when the setting is Disabled), and
   `sidebarVisible` (whether that window's sidebar is shown, read from the open window's store — omitted
   for a closed window with no live store), and `geometry` (the open window's live frame `{x, y, width,
   height, display}` in the SAME units `window move`/`window resize` take — `x`/`y` top-left relative to
   `display`, y down — omitted for a closed window; the read side of `window move`/`window resize`, so
-  record it, move/resize, then restore the exact frame), plus `fullscreen` and `zoomed` (whether the
-  window is in native full screen / zoomed-to-screen — the read side of `window fullscreen` / `window
-  zoom`, so a script can make those toggles idempotent; both omitted for a closed window). The
-  `geometry`/`fullscreen`/`zoomed` fields stay current — the cache is refreshed when a window
-  moves/resizes/zooms/enters or exits full screen, so a hand-drag or GUI toggle is reflected without needing
-  another command. (`autoFollowMs` still reflects the last cache refresh, since a settings change is rare;
-  and unlike `tree`, `window.list` does NOT carry `idleMs` — the live idle metric would freeze in the cache.)
+  record it, move/resize, then restore the exact frame), plus `fullscreen`, `zoomed` and `minimized`
+  (whether the window is in native full screen / zoomed-to-screen / minimized to the Dock — the read side
+  of `window fullscreen` / `window zoom` / `window minimize`, so a script can act idempotently; all omitted
+  for a closed window). A MINIMIZED window still reports its `geometry` — the frame it comes back to — so a
+  re-align script can include one. The `geometry`/`fullscreen`/`zoomed`/`minimized` fields stay current —
+  the cache is refreshed when a window moves/resizes/zooms/enters or exits full screen/minimizes or
+  restores, so a hand-drag or GUI toggle is reflected without needing another command. (`autoFollowMs`
+  still reflects the last cache refresh, since a settings change is rare; and unlike `tree`, `window.list`
+  does NOT carry `idleMs` — the live idle metric would freeze in the cache.)
 - `window select <id>` — raise it if open, else open it.
 - `window close <id>` — close the on-screen window (the bundle is kept; reopen with select).
 - `window rename <id> <name>`.
@@ -522,6 +528,17 @@ shell (no controlling terminal — `/dev/tty` errors). See examples.md for usage
   via `NSWindow.toggleFullScreen`. A second call exits. The window must be open. This is the control half
   of the View ▸ Toggle Full Screen menu item (⌃⌘F, rebindable as `toggle_fullscreen`) and the green
   traffic-light button — distinct from `zoom`, which only maximizes the frame in the same Space.
+- `window minimize <id> [on|off|toggle]` — minimize the window to the Dock, or restore it, via
+  `NSWindow.miniaturize`/`deminiaturize`. The mode resolves against the window's current state, so `on` and
+  `off` are idempotent and only `toggle` (the default) flips. Both positionals are optional and a window
+  address is always a hex UUID prefix or `active`, so `window minimize on` is understood as the active
+  window. The window must be open, and a window in NATIVE FULL SCREEN is rejected
+  (`cannot minimize a full-screen window — window.fullscreen it first`) because AppKit no-ops miniaturize
+  there. Restoring puts the window back on screen without making it key — use `window select` to restore
+  and raise in one step. This
+  is the control half of ⌘M, the yellow traffic-light button, and the Minimize title-bar double-click
+  action. Read back as `minimized` on `window list`. The state is LIVE-ONLY: it is never persisted, so
+  every window reopens un-minimized after a restart, and a Dock-icon click restores minimized windows.
 
 `window resize`/`move` are control-native (no GUI equivalent — the title bar already drags-to-resize).
 
