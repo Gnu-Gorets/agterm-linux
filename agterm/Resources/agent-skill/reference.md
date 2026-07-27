@@ -733,6 +733,37 @@ isn't realized.
 `agtermctl keymap reload` — re-read and apply `keymap.conf`; returns `result.count` = the number of
 parse diagnostics (0 = clean). App-global (no `--window`).
 
+`agtermctl keymap list` — the read side of `keymap.reload`. App-global, no target and no args. Returns
+`result.keymap`:
+
+- `path` — the `keymap.conf` this came from.
+- `actions[]` — every rebindable built-in: `action` (its `keymap.conf` name), `chord` (the resolved
+  chord in the same kitty syntax the file uses, omitted when the action is keyless), and
+  `overridden: true` when a `map` line moved it off its shipped default. Every action is listed, bound
+  or not, so you can also see which chords are free.
+- `commands[]` — the custom commands: `name`, and `shortcut` omitted for a palette-only one.
+- `diagnostics[]` — `line` + `message` per parse problem (`keymap.reload` returns only the count).
+- `menu[]` — the key equivalents the menu bar carries: `chord`, the owning `menu`, the item `title`, its
+  `selector`, and `enabled: false` when the item is disabled. agterm's own items report `menuAction:`;
+  anything else is an AppKit-supplied item. Nested submenus are included, attributed to their top-level
+  menu. A disabled item's chord is INERT — AppKit consumes the key and fires nothing, including a
+  same-chord sibling — so an entry marked `enabled: false` explains a dead binding by itself.
+
+**`actions` and `menu` can disagree, and that is what this command is for.** SwiftUI rebuilds the menu
+only on the next app activation, so right after `keymap reload` a chord can be correct in `actions` and
+stale in `menu`. It also resolves a chord collision by unbinding agterm's own item, so a stock item can
+end up holding a chord an action claims. If a keybinding "does not work" while `actions` looks right,
+compare the two lists: find the action's `chord`, then look for that chord in `menu` and check which
+item carries it.
+
+One built-in is legitimately absent from `menu`: `undo_close` (⌘Z by default) is delivered by a key
+monitor, not a menu item, so native text undo keeps working in the rename, palette and Settings fields.
+Its missing menu entry is expected and not a fault.
+
+Menu chords use the same vocabulary as the file (`cmd+opt+up`, `cmd+shift+return`), so the two lists
+compare as plain strings. One exception: the globe/fn modifier prints as `fn+`, which no `keymap.conf`
+line can express — such an item is AppKit's own and never matches an action.
+
 ### keymap.conf format
 
 The file lives at `<config dir>/keymap.conf` (default `~/.config/agterm`; the dir is set in Settings ▸
