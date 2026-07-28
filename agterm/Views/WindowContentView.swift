@@ -407,7 +407,7 @@ struct WindowContentView: View {
                                              isActive: deckInteractive && isActive && !session.splitFocused && !overlaid,
                                              deckVisible: visible)
                                     .overlay { paneDim(session.splitFocused) }
-                                    .id(session.id)
+                                    .id(primarySurfaceID(session))
                             } else {
                                 Color.clear
                                     .id("\(session.id.uuidString)-primary-placeholder")
@@ -448,7 +448,7 @@ struct WindowContentView: View {
                     if deckHostsSurface(session: session, surface: .primary) {
                         TerminalView(session: session, surfaceKeyPath: \.surface, makeSurface: makeSurface,
                                      isActive: deckInteractive && isActive && !overlaid, deckVisible: visible)
-                            .id(session.id)
+                            .id(primarySurfaceID(session))
                     } else {
                         Color.clear
                             .id("\(session.id.uuidString)-primary-placeholder")
@@ -585,6 +585,14 @@ struct WindowContentView: View {
             .padding(.top, 8)
             .padding(.trailing, 8)
         }
+    }
+
+    /// Keeps a primary host stable through lazy surface creation and ordinary updates, but remounts it
+    /// when one live surface replaces another (split-survivor promotion). `TerminalView.updateNSView`
+    /// cannot replace the AppKit view that `makeNSView` returned, so session identity alone would keep
+    /// hosting the torn-down prior primary.
+    func primarySurfaceID(_ session: Session) -> String {
+        "\(session.id.uuidString)-primary-\(session.primarySurfaceHostRevision)"
     }
 
     /// Mutes the inactive split pane's TEXT so the active pane stands out, WITHOUT darkening the
