@@ -400,7 +400,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
             /// Whether the session is flagged (tree-mode filled-icon variant). A change re-badges
             /// just this row via `reloadItem`. Always false for workspace rows.
             let flagged: Bool
-            /// Whether the workspace is a member of the focus set (the filled grid icon). Tracks
+            /// Whether the workspace is a member of the focus set (the heavy-weight grid icon). Tracks
             /// MEMBERSHIP only, independent of `focusEnabled`, so marking a workspace re-renders just
             /// that row via `reloadItem` even while the filter is off (with the filter on, the shape
             /// changes too and the rebuild branch takes over). Always false for session rows.
@@ -811,21 +811,25 @@ struct WorkspaceSidebar: NSViewRepresentable {
 
         /// Leading row icons: a 2x2 grid glyph for a workspace, an outlined terminal for a single
         /// session, and a split-rectangle for a split session, rendered as monochrome template symbols.
-        /// The three `.fill` variants mark membership in a set (a solid interior — the same "small
-        /// filled area" idiom the scratch-active toolbar glyph uses): `terminal.fill` /
-        /// `rectangle.split.2x1.fill` for a flagged session, `square.grid.2x2.fill` for a workspace in
-        /// the focus set. A pure symbol swap, not a composited corner badge, so each stays a single
-        /// template `setColors` tints and reserves no extra space.
+        /// A flagged SESSION swaps to the `.fill` variant of its base glyph (a solid interior — the same
+        /// "small filled area" idiom the scratch-active toolbar glyph uses): `terminal.fill` /
+        /// `rectangle.split.2x1.fill`. A workspace in the focus SET keeps the very same
+        /// `square.grid.2x2` outline and only draws it at `.heavy` weight, so every workspace row holds
+        /// one identity and membership costs stroke weight alone — the two markers stay distinct
+        /// (fill = flagged session, heavy = marked workspace) instead of both reading as "filled".
+        /// Never a composited corner badge, so each stays a single template `setColors` tints; the
+        /// weight variant renders 1pt larger (16x15 vs 15x14) but the icon view is pinned to a fixed
+        /// 16x16 box, so neither swap moves the row.
         /// Cached because only a few distinct symbols exist and every row reuses them.
         lazy var workspaceIcon = Self.rowIcon("square.grid.2x2")
-        lazy var focusedWorkspaceIcon = Self.rowIcon("square.grid.2x2.fill")
+        lazy var focusedWorkspaceIcon = Self.rowIcon("square.grid.2x2", weight: .heavy)
         lazy var splitSessionIcon = Self.rowIcon("rectangle.split.2x1")
         lazy var sessionIcon = Self.rowIcon("terminal")
         lazy var flaggedSessionIcon = Self.rowIcon("terminal.fill")
         lazy var flaggedSplitSessionIcon = Self.rowIcon("rectangle.split.2x1.fill")
 
-        private static func rowIcon(_ symbolName: String) -> NSImage? {
-            let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+        private static func rowIcon(_ symbolName: String, weight: NSFont.Weight = .regular) -> NSImage? {
+            let config = NSImage.SymbolConfiguration(pointSize: 13, weight: weight)
             let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
                 .withSymbolConfiguration(config)
             image?.isTemplate = true
