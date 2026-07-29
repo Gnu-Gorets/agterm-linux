@@ -385,10 +385,13 @@ final class ControlServer {
                 .sessionOverlayResult, .sessionBackground, .sessionText, .quick, .quickType, .quickText,
                 .windowNew, .windowList, .windowSelect,
                 .windowClose, .windowRename, .windowDelete, .windowResize, .windowMove, .windowZoom,
-                .windowFullscreen, .windowMinimize, .restoreClear, .dashboard:
+                .windowFullscreen, .windowMinimize,
+                .restoreClear, .dashboard:
             return ControlResponse(ok: false, error: "control dispatcher did not handle \(request.cmd.rawValue)")
         case .debugAppearance:
             return setDebugAppearance(args: request.args)
+        case .pickOpen, .pickResult, .pickCancel:
+            preconditionFailure("pick command returned nil from ControlDispatcher")
         }
     }
 
@@ -464,6 +467,9 @@ final class ControlServer {
             if close {
                 controller.close()
                 return ControlResponse(ok: true)
+            }
+            if PickRegistry.shared.controller(for: windowID)?.pending != nil {
+                return ControlResponse(ok: false, error: "pick pending")
             }
             var sessionIDs: [UUID] = []
             var unresolved: [String] = []
@@ -544,6 +550,9 @@ final class ControlServer {
             scratchFontSize: { ($0.scratchSurface as? GhosttySurfaceView)?.currentFontSize() },
             quickVisible: { windowID.flatMap { QuickTerminalRegistry.shared.controller(for: $0)?.isVisible } ?? false },
             zoomedSurface: { windowID.flatMap { TerminalZoomRegistry.shared.controller(for: $0)?.target?.controlID } },
+            // Resolve through the projected window's registry entry on every tree build. This is deliberately
+            // tree-only: window.list is cache-backed, so mirroring a GUI-resolved pick there would go stale.
+            pickPending: { windowID.flatMap { PickRegistry.shared.controller(for: $0)?.pending?.id } },
             dashboardMembers: {
                 guard let dashboard, dashboard.isOpen else { return nil }
                 return dashboard.members.map(\.controlRef)

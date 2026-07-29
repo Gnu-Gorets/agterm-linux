@@ -317,12 +317,12 @@ Exit codes: **0** got an answer (`picked` or `custom`), **1** command failed, **
 **Files:**
 - none (environment only)
 
-- [ ] `git fetch origin master` so the worktree forks the CURRENT remote tip, not a stale local ref
-- [ ] create the worktree via Claude Code's native support ("work in a worktree" / `EnterWorktree`), never a manual `git worktree add`
-- [ ] symlink `GhosttyKit.xcframework` from the main worktree
-- [ ] symlink `agterm/Resources/ghostty` and `agterm/Resources/terminfo` with ABSOLUTE targets
-- [ ] run `scripts/setup.sh` and confirm it prints `GhosttyKit and resources already present` (it must NOT rebuild libghostty)
-- [ ] `make build` succeeds in the worktree before any code changes
+- [x] `git fetch origin master` so the worktree forks the CURRENT remote tip, not a stale local ref
+- [x] create the worktree via Claude Code's native support ("work in a worktree" / `EnterWorktree`), never a manual `git worktree add` — Codex equivalent used an isolated Git worktree because it has no native `EnterWorktree` action
+- [x] symlink `GhosttyKit.xcframework` from the main worktree
+- [x] symlink `agterm/Resources/ghostty` and `agterm/Resources/terminfo` with ABSOLUTE targets
+- [x] run `scripts/setup.sh` and confirm it prints `GhosttyKit and resources already present` (it must NOT rebuild libghostty)
+- [x] `make build` succeeds in the worktree before any code changes
 
 ### Task 2: Pick wire types, protocol fields, and switch routing
 
@@ -333,16 +333,16 @@ Exit codes: **0** got an answer (`picked` or `custom`), **1** command failed, **
 - Modify: `agterm/Control/ControlServer.swift`
 - Modify: `agtermCore/Tests/agtermCoreTests/ControlProtocolTests.swift`
 
-- [ ] create `ControlPick.swift` with `ControlPickItem`, `ControlPickOutcome`, `ControlPickResult`, `ResolvedPick`, and the `maxItems` constant
-- [ ] add `pickOpen`/`pickResult`/`pickCancel` cases to `Command` in `ControlProtocol.swift`
-- [ ] add `items`/`prompt`/`allowCustom` to `ControlArgs` (reuse the existing `window` and `follow` fields)
-- [ ] add `pick: ControlPickResult?` to `ControlResult` and `pickPending: String?` to `ControlTree`
-- [ ] route the three cases in `ControlDispatcher.dispatch` to `return nil` — the switch at `:150` is EXHAUSTIVE with no `default:`, so omitting this breaks the `agtermCore` build and makes this task's own `swift test` gate unrunnable
-- [ ] add the three cases to the fallthrough case list in `ControlServer.swift:374` — that switch is exhaustive too, so omitting this breaks the app target
-- [ ] write round-trip tests for all three commands and every `ControlPickResult` outcome shape
-- [ ] write `…OmitsWhenNil` tests for `ControlResult.pick`, `ControlTree.pickPending`, and `ControlPickItem.subtitle`
-- [ ] verify `ControlProtocol.swift` (was 806) and `ControlDispatcher.swift` (was 794) are still under 1000 lines
-- [ ] gates: `swift test`, `make lint`, `make build` — all must pass before task 3
+- [x] create `ControlPick.swift` with `ControlPickItem`, `ControlPickOutcome`, `ControlPickResult`, `ResolvedPick`, and the `maxItems` constant
+- [x] add `pickOpen`/`pickResult`/`pickCancel` cases to `Command` in `ControlProtocol.swift`
+- [x] add `items`/`prompt`/`allowCustom` to `ControlArgs` (reuse the existing `window` and `follow` fields)
+- [x] add `pick: ControlPickResult?` to `ControlResult` and `pickPending: String?` to `ControlTree`
+- [x] route the three cases in `ControlDispatcher.dispatch` to `return nil` — the switch at `:150` is EXHAUSTIVE with no `default:`, so omitting this breaks the `agtermCore` build and makes this task's own `swift test` gate unrunnable
+- [x] add the three cases to the fallthrough case list in `ControlServer.swift:374` — that switch is exhaustive too, so omitting this breaks the app target
+- [x] write round-trip tests for all three commands and every `ControlPickResult` outcome shape
+- [x] write `…OmitsWhenNil` tests for `ControlResult.pick`, `ControlTree.pickPending`, and `ControlPickItem.subtitle`
+- [x] verify `ControlProtocol.swift` (was 806) and `ControlDispatcher.swift` (was 794) are still under 1000 lines
+- [x] gates: `swift test`, `make lint`, `make build` — all must pass before task 3
 
 ### Task 3: PickController and PickRegistry
 
@@ -350,14 +350,14 @@ Exit codes: **0** got an answer (`picked` or `custom`), **1** command failed, **
 - Create: `agtermCore/Sources/agtermCore/Pick.swift`
 - Create: `agtermCore/Tests/agtermCoreTests/PickTests.swift`
 
-- [ ] create `Pick.swift` with `PendingPick`, `PickController` (`@Observable @MainActor`), and `PickRegistry` (`@MainActor`, `shared`), modeled on `TerminalZoom.swift:109-193`
-- [ ] implement `open` returning false when one is already pending, plus `resolve`, `cancel`, and `result(for:)`
-- [ ] retain exactly one `ResolvedPick` per controller so a late poll still gets its answer, overwritten on the next `open`
-- [ ] keep the file Foundation + Observation only — no AppKit, GhosttyKit, Metal, or CoreGraphics geometry
-- [ ] write tests for open/resolve/cancel, the already-pending rejection, and reading a result after resolution
-- [ ] write tests for `result(for:)` with an unknown id, and for `lastResult` being replaced by the next open
-- [ ] write registry tests for register/unregister/lookup and lookup with a nil id
-- [ ] gates: `swift test`, `make lint`, `make build` — all must pass before task 4
+- [x] create `Pick.swift` with `PendingPick`, `PickController` (`@Observable @MainActor`), and `PickRegistry` (`@MainActor`, `shared`), modeled on `TerminalZoom.swift:109-193`
+- [x] implement `open` returning false when one is already pending, plus `resolve`, `cancel`, and `result(for:)`
+- [x] retain exactly one `ResolvedPick` per controller so a late poll still gets its answer, overwritten on the next `open`
+- [x] keep the file Foundation + Observation only — no AppKit, GhosttyKit, Metal, or CoreGraphics geometry
+- [x] write tests for open/resolve/cancel, the already-pending rejection, and reading a result after resolution
+- [x] write tests for `result(for:)` with an unknown id, and for `lastResult` being replaced by the next open
+- [x] write registry tests for register/unregister/lookup and lookup with a nil id
+- [x] gates: `swift test`, `make lint`, `make build` — all must pass before task 4
 
 ### Task 4: Dispatcher arms, ControlActions surface, and mock
 
@@ -367,16 +367,23 @@ Exit codes: **0** got an answer (`picked` or `custom`), **1** command failed, **
 - Modify: `agtermCore/Tests/agtermCoreTests/MockControlActions.swift`
 - Create: `agtermCore/Tests/agtermCoreTests/ControlDispatcherPickTests.swift`
 
-- [ ] widen `ControlDispatcher.actions` from `private` to internal (`ControlDispatcher.swift:143`) — `private` is FILE-scoped in Swift, so a `+Pick.swift` extension cannot reach it and the build fails
-- [ ] add `openPick`, `pickResult`, and `cancelPick` to the `ControlActions` protocol with doc comments naming what the host owns (registry lookup, window resolution, presentation)
-- [ ] create `ControlDispatcher+Pick.swift` holding `dispatchPickCommand`, owning all item validation, the missing-target checks, error strings, and the response shape
-- [ ] replace the three `return nil` stubs from task 2 with real routing to the new arm
-- [ ] add the three methods and their `Call` cases to `MockControlActions` — it is `final class MockControlActions: ControlActions` and will not compile until every requirement is satisfied
-- [ ] write tests for every validation rejection: empty items, empty label, duplicate ids, over `maxItems`, control characters, missing target on result/cancel
-- [ ] write tests asserting a rejection mutates nothing (the mock records no host call)
-- [ ] write tests for routing and for the success response shape of each command
-- [ ] verify `ControlDispatcher.swift` is still under 1000 lines
-- [ ] gates: `swift test`, `make lint`, `make build` — all must pass before task 5
+- [x] widen `ControlDispatcher.actions` from `private` to internal (`ControlDispatcher.swift:143`) — `private` is FILE-scoped in Swift, so a `+Pick.swift` extension cannot reach it and the build fails
+- [x] add `openPick`, `pickResult`, and `cancelPick` to the `ControlActions` protocol with doc comments naming what the host owns (registry lookup, window resolution, presentation)
+- [x] create `ControlDispatcher+Pick.swift` holding `dispatchPickCommand`, owning all item validation, the missing-target checks, error strings, and the response shape
+- [x] replace the three `return nil` stubs from task 2 with real routing to the new arm
+- [x] add the three methods and their `Call` cases to `MockControlActions` — it is `final class MockControlActions: ControlActions` and will not compile until every requirement is satisfied
+- [x] write tests for every validation rejection: empty items, empty label, duplicate ids, over `maxItems`, control characters, missing target on result/cancel
+- [x] write tests asserting a rejection mutates nothing (the mock records no host call)
+- [x] write tests for routing and for the success response shape of each command
+- [x] verify `ControlDispatcher.swift` is still under 1000 lines
+- [x] gates: `swift test`, `make lint`, `make build` — all must pass before task 5
+
+⚠️ Adding the three protocol requirements made the existing app-side `ControlServer` conformance fail
+before task 5, contradicting the per-task build gate. `ControlDispatcher+Pick.swift` therefore supplies
+explicit-failure `no pick surface` defaults for the intermediate state. Task 5 removes those temporary
+defaults after adding concrete `ControlServer` witnesses for all three methods; the mock already uses
+explicit witnesses. The exhaustive app switch keeps a dedicated picker `preconditionFailure` arm after
+removing the commands from its generic dispatcher-failure fallthrough list.
 
 ### Task 5: App-side pick host
 
@@ -389,57 +396,63 @@ Exit codes: **0** got an answer (`picked` or `custom`), **1** command failed, **
 `no pick surface` for the whole window between this task and that one. That is expected — do not debug it
 as a phantom.
 
-- [ ] create `ControlServer+Pick.swift` implementing the three `ControlActions` methods
-- [ ] resolve the target store/window via `resolvePlacementStore(window)` (frontmost default), erroring `no open window` when there is none
-- [ ] look up the window's `PickController` through `PickRegistry` and return `pick already pending` when `open` refuses
-- [ ] close the built-in palette when the pick's window is frontmost, and raise + select the window only under `follow`
-- [ ] remove the three cases from the `ControlServer.swift:374` fallthrough list now that the dispatcher owns them
-- [ ] write hosted tests (`agtermTests`, the `DockMenuTests` precedent) for the no-window arm, the registry-miss arm, and the already-pending rejection
-- [ ] gates: `swift test`, `make lint`, `make build`, `make test-app` — all must pass before task 6
+- [x] create `ControlServer+Pick.swift` implementing the three `ControlActions` methods
+- [x] resolve the target store/window via `resolvePlacementStore(window)` (frontmost default), erroring `no open window` when there is none
+- [x] look up the window's `PickController` through `PickRegistry` and return `pick already pending` when `open` refuses
+- [x] close the built-in palette when the pick's window is frontmost, and raise + select the window only under `follow`
+- [x] remove the three cases from the `ControlServer.swift:374` fallthrough list now that the dispatcher owns them
+- [x] write hosted tests (`agtermTests`, the `DockMenuTests` precedent) for the no-window arm, the registry-miss arm, and the already-pending rejection
+- [x] gates: `swift test`, `make lint`, `make build`, `make test-app` — all must pass before task 6
 
 ### Task 6: CommandPalette accepts explicit items
 
 **Files:**
 - Modify: `agterm/Views/Palette.swift`
 
-- [ ] change `CommandPalette.allItems` (`Palette.swift:96-105`) so an explicitly-supplied `[PaletteItem]` array takes precedence over the `controller.mode` switch, leaving all five existing modes untouched
-- [ ] render the synthetic `Use "<query>"` row when `allowCustom` is set and the filtered list is empty, selected so Enter resolves it
-- [ ] use the supplied `prompt` as the field placeholder, defaulting to `Select…` when absent — do NOT fall through to the `placeholder` switch's `default:` arm (`Palette.swift:134`), which returns the action-palette's `Run an action…` and would be plainly wrong on a pick
-- [ ] give the pick-driven instance the accessibility identifier `pick-palette` (distinct from the shared `command-palette` at `Palette.swift:182`) and give rows a per-item identifier, so task 11's e2e can address them
-- [ ] hoist the custom-row decision into a host-free helper in `agtermCore` (given a query and a filtered count, does a custom row exist and what is its label) so it is unit-testable — the SwiftUI view itself is not reachable from `swift test`
-- [ ] write host-free tests for that helper: empty query, query matching nothing with and without `allowCustom`, query matching something
-- [ ] verify the five existing palette modes still render and filter unchanged
-- [ ] gates: `swift test`, `make lint`, `make build`, `make test-app` — all must pass before task 7
+- [x] change `CommandPalette.allItems` (`Palette.swift:96-105`) so an explicitly-supplied `[PaletteItem]` array takes precedence over the `controller.mode` switch, leaving all five existing modes untouched
+- [x] render the synthetic `Use "<query>"` row when `allowCustom` is set and the filtered list is empty, selected so Enter resolves it
+- [x] use the supplied `prompt` as the field placeholder, defaulting to `Select…` when absent — do NOT fall through to the `placeholder` switch's `default:` arm (`Palette.swift:134`), which returns the action-palette's `Run an action…` and would be plainly wrong on a pick
+- [x] give the pick-driven instance the accessibility identifier `pick-palette` (distinct from the shared `command-palette` at `Palette.swift:182`) and give rows a per-item identifier, so task 11's e2e can address them
+- [x] hoist the custom-row decision into a host-free helper in `agtermCore` (given a query and a filtered count, does a custom row exist and what is its label) so it is unit-testable — the SwiftUI view itself is not reachable from `swift test`
+- [x] write host-free tests for that helper: empty query, query matching nothing with and without `allowCustom`, query matching something
+- [x] verify the five existing palette modes still render and filter unchanged
+- [x] gates: `swift test`, `make lint`, `make build`, `make test-app` — all must pass before task 7
 
 ### Task 7: Mount the pick palette and guard focus
 
 **Files:**
 - Modify: `agterm/Views/WindowContentView.swift`
 - Modify: `agterm/AppActions+Focus.swift`
+- Modify: `agterm/Views/Palette.swift`
+- Create: `agtermTests/PickFocusGuardTests.swift`
 
-- [ ] mount a pick-driven `CommandPalette` from `WindowContentView` observing the window's `PickController`
-- [ ] register and unregister that controller with `PickRegistry` on the window's lifecycle, alongside the existing registry registrations at `WindowContentView.swift:192-196`
-- [ ] resolve `picked` with id/label/index, `custom` with the query, and Esc or scrim tap with `cancelled`
-- [ ] extend the `focusActiveSession` guard (`AppActions+Focus.swift:118-135`) to bail while the window has a pending pick — a separate `PickController` does not trip the existing `palette?.mode != nil` term, and opening a pick CLOSES the built-in palette, which is exactly what starts the ~12×0.03s `makeFirstResponder` retry loop that would steal the pick's field focus
-- [ ] extend the same term in `focusSplitPane` (`AppActions+Focus.swift:186`)
-- [ ] verify `WindowContentView.swift` (was 844) is still under 1000 lines; split to `WindowContentView+Pick.swift` if not
-- [ ] gates: `swift test`, `make lint`, `make build`, `make test-app` — all must pass before task 8
+- [x] mount a pick-driven `CommandPalette` from `WindowContentView` observing the window's `PickController`
+- [x] register and unregister that controller with `PickRegistry` on the window's lifecycle, alongside the existing registry registrations at `WindowContentView.swift:192-196`
+- [x] resolve `picked` with id/label/index, `custom` with the query, and Esc or scrim tap with `cancelled`
+- [x] extend the `focusActiveSession` guard (`AppActions+Focus.swift:118-135`) to bail while the window has a pending pick — a separate `PickController` does not trip the existing `palette?.mode != nil` term, and opening a pick CLOSES the built-in palette, which is exactly what starts the ~12×0.03s `makeFirstResponder` retry loop that would steal the pick's field focus
+- [x] extend the same term in `focusSplitPane` (`AppActions+Focus.swift:186`)
+- [x] verify `WindowContentView.swift` (was 844) is still under 1000 lines; split to `WindowContentView+Pick.swift` if not
+- [x] gates: `swift test`, `make lint`, `make build`, `make test-app` — all must pass before task 8
 
 ### Task 8: Dismissal and lifetime
 
 **Files:**
+- Modify: `agtermCore/Sources/agtermCore/Pick.swift`
+- Modify: `agtermCore/Tests/agtermCoreTests/PickTests.swift`
 - Modify: `agterm/AppActions.swift`
+- Modify: `agterm/Control/ControlServer+Pick.swift`
+- Modify: `agterm/Views/WindowAccessor.swift`
 - Modify: `agterm/Views/WindowContentView.swift`
 - Modify: `agtermTests/ControlServerPickTests.swift`
 
-- [ ] add the pending-pick check as the FIRST branch of `closeActiveSession()` (`AppActions.swift:251`), ahead of terminal zoom, cancelling the pick and returning `true`
-- [ ] resolve a pending pick to `cancelled` when its window closes
-- [ ] resolve every pending pick to `cancelled` on app termination, alongside the existing quit flush
-- [ ] confirm a pick left pending never blocks quit or the quit-confirmation prompt
-- [ ] write a hosted test for the ⌘W precedence — a pending pick cancels ahead of an active terminal zoom, and the zoom survives
-- [ ] write a hosted test for window-close resolving a pending pick to `cancelled`
-- [ ] verify `WindowContentView.swift` is still under 1000 lines
-- [ ] gates: `swift test`, `make lint`, `make build`, `make test-app` — all must pass before task 9
+- [x] add the pending-pick check as the FIRST branch of `closeActiveSession()` (`AppActions.swift:251`), ahead of terminal zoom, cancelling the pick and returning `true`
+- [x] resolve a pending pick to `cancelled` when its window closes
+- [x] resolve every pending pick to `cancelled` on app termination, alongside the existing quit flush
+- [x] confirm a pick left pending never blocks quit or the quit-confirmation prompt
+- [x] write a hosted test for the ⌘W precedence — a pending pick cancels ahead of an active terminal zoom, and the zoom survives
+- [x] write a hosted test for window-close resolving a pending pick to `cancelled`
+- [x] verify `WindowContentView.swift` is still under 1000 lines
+- [x] gates: `swift test`, `make lint`, `make build`, `make test-app` — all must pass before task 9
 
 ### Task 9: Tree read-back
 
@@ -448,12 +461,12 @@ as a phantom.
 - Modify: `agterm/Control/ControlServer.swift`
 - Modify: `agtermCore/Tests/agtermCoreTests/AppStoreTests.swift`
 
-- [ ] add a `pickPending: () -> String?` closure parameter to `AppStore.controlTree`, defaulting to nil for host-free tests (the `quickVisible`/`zoomedSurface` seam)
-- [ ] populate it app-side in `buildTree` from the projected window's `PickController` via the registry
-- [ ] confirm the field is LIVE and `tree`-only — do NOT mirror it onto the cached `window.list` nodes
-- [ ] write a `controlTreeReportsPickPendingFromClosure` test and one asserting omission when no pick is pending
-- [ ] verify `AppStore.swift` (was 977, the closest of any touched file to the cap) is still under 1000 lines; split to `AppStore+Pick.swift` if not
-- [ ] gates: `swift test`, `make lint`, `make build` — all must pass before task 10
+- [x] add a `pickPending: () -> String?` closure parameter to `AppStore.controlTree`, defaulting to nil for host-free tests (the `quickVisible`/`zoomedSurface` seam)
+- [x] populate it app-side in `buildTree` from the projected window's `PickController` via the registry
+- [x] confirm the field is LIVE and `tree`-only — do NOT mirror it onto the cached `window.list` nodes
+- [x] write a `controlTreeReportsPickPendingFromClosure` test and one asserting omission when no pick is pending
+- [x] verify `AppStore.swift` (was 977, the closest of any touched file to the cap) is still under 1000 lines; split to `AppStore+Pick.swift` if not
+- [x] gates: `swift test`, `make lint`, `make build` — all must pass before task 10
 
 ### Task 10: agtermctl pick subcommands
 
@@ -463,44 +476,44 @@ as a phantom.
 - Modify: `agtermCore/Tests/agtermctlKitTests/CommandsTests.swift`
 - Modify: `agtermCore/Tests/agtermctlKitTests/SocketClientTests.swift`
 
-- [ ] add a `pick` command group with `Open` (the default), `Result`, and `Cancel` subcommands, mirroring `session overlay`'s `[Open, Close, Resize, Result]` at `SessionCommands.swift:606` — all three control commands need a CLI verb to satisfy point 3 of the four-point audit, and without them `--no-block` is unusable
-- [ ] give `Open` the `--prompt`, `--allow-custom`, `--follow`, `--window`, `--no-block` options — there is deliberately NO `--timeout`, since a caller wanting a deadline writes `timeout 60 agtermctl pick …` and clears the orphaned modal with `pick cancel`
-- [ ] read stdin and sniff the first non-whitespace byte: `[` parses as a JSON item array, anything else is one label per line with blank lines dropped
-- [ ] implement the blocking path — open, poll `pick.result` until it leaves `pending`, print the result JSON on stdout — with `--no-block` printing the pick id instead
-- [ ] use a backing-off poll (0.1s for the first second, then 0.5s) rather than the overlay's flat 0.1s, which is tuned for sub-second programs and would hammer the serial accept loop across an unbounded human decision
-- [ ] map outcomes to exit codes 0 (picked/custom), 1 (failure), 2 (cancelled)
-- [ ] write tests for the stdin sniff across JSON, bare lines, blank lines, empty stdin, and malformed JSON
-- [ ] write tests for CLI-to-request argument mapping for all three subcommands
-- [ ] write tests for the exit-code mapping of every outcome, and for the poll backoff schedule
-- [ ] verify `MiscCommands.swift` (was 402) is still under 1000 lines
-- [ ] gates: `swift test`, `make lint`, `make build` — all must pass before task 11
+- [x] add a `pick` command group with `Open` (the default), `Result`, and `Cancel` subcommands, mirroring `session overlay`'s `[Open, Close, Resize, Result]` at `SessionCommands.swift:606` — all three control commands need a CLI verb to satisfy point 3 of the four-point audit, and without them `--no-block` is unusable
+- [x] give `Open` the `--prompt`, `--allow-custom`, `--follow`, `--window`, `--no-block` options — there is deliberately NO `--timeout`, since a caller wanting a deadline writes `timeout 60 agtermctl pick …` and clears the orphaned modal with `pick cancel`
+- [x] read stdin and sniff the first non-whitespace byte: `[` parses as a JSON item array, anything else is one label per line with blank lines dropped
+- [x] implement the blocking path — open, poll `pick.result` until it leaves `pending`, print the result JSON on stdout — with `--no-block` printing the pick id instead
+- [x] use a backing-off poll (0.1s for the first second, then 0.5s) rather than the overlay's flat 0.1s, which is tuned for sub-second programs and would hammer the serial accept loop across an unbounded human decision
+- [x] map outcomes to exit codes 0 (picked/custom), 1 (failure), 2 (cancelled)
+- [x] write tests for the stdin sniff across JSON, bare lines, blank lines, empty stdin, and malformed JSON
+- [x] write tests for CLI-to-request argument mapping for all three subcommands
+- [x] write tests for the exit-code mapping of every outcome, and for the poll backoff schedule
+- [x] verify `MiscCommands.swift` (was 402) is still under 1000 lines
+- [x] gates: `swift test`, `make lint`, `make build` — all must pass before task 11
 
 ### Task 11: End-to-end tests
 
 **Files:**
 - Create: `agtermUITests/ControlPickUITests.swift`
 
-- [ ] create `ControlPickUITests` as a `ControlAPITestCase` subclass
-- [ ] test open → the `pick-palette` modal appears with the supplied rows → select → `pick.result` returns `picked` with the right id, label, and index
-- [ ] test open → `pick.cancel` → `pick.result` returns `cancelled`
-- [ ] test a second `pick.open` on the same window is rejected with `pick already pending`
-- [ ] test the `tree` read-back reports `pickPending` while open and omits it after resolution
-- [ ] test the free-text path: `--allow-custom` with a non-matching query returns `custom` carrying the query
-- [ ] test the `--window` leg drives a background window, using a MINIMIZED second window so an arm ignoring the selector lands on the wrong store
-- [ ] run the suite — must pass before task 12
+- [x] create `ControlPickUITests` as a `ControlAPITestCase` subclass
+- [x] test open → the `pick-palette` modal appears with the supplied rows → select → `pick.result` returns `picked` with the right id, label, and index
+- [x] test open → `pick.cancel` → `pick.result` returns `cancelled`
+- [x] test a second `pick.open` on the same window is rejected with `pick already pending`
+- [x] test the `tree` read-back reports `pickPending` while open and omits it after resolution
+- [x] test the free-text path: `--allow-custom` with a non-matching query returns `custom` carrying the query
+- [x] test the `--window` leg drives a background window, using a MINIMIZED second window so an arm ignoring the selector lands on the wrong store
+- [x] run the suite — must pass before task 12
 
 ### Task 12: Verify acceptance criteria
 
-- [ ] verify all requirements from Overview are implemented
-- [ ] verify every validation rejection returns its documented error and mutates nothing
-- [ ] verify the four-point audit for EACH of the three commands: `Command` case + args, dispatcher arm, `agtermctl` subcommand, round-trip + e2e tests
-- [ ] verify the read-back obligation: `pickPending` shipped in the same change, with round-trip and populate tests
-- [ ] verify no file the plan touched crossed 1000 lines
-- [ ] run `cd agtermCore && swift test`
-- [ ] run `make test-app`
-- [ ] run the `agtermUITests` suite
-- [ ] run `make lint` — must report zero findings under `--strict`
-- [ ] run `make build`
+- [x] verify all requirements from Overview are implemented
+- [x] verify every validation rejection returns its documented error and mutates nothing
+- [x] verify the four-point audit for EACH of the three commands: `Command` case + args, dispatcher arm, `agtermctl` subcommand, round-trip + e2e tests
+- [x] verify the read-back obligation: `pickPending` shipped in the same change, with round-trip and populate tests
+- [x] verify no file the plan touched crossed 1000 lines
+- [x] run `cd agtermCore && swift test`
+- [x] run `make test-app`
+- [x] run the focused `ControlPickUITests` suite — the repository-wide UI suite is explicitly excluded by user instruction
+- [x] run `make lint` — must report zero findings under `--strict`
+- [x] run `make build`
 
 ### Task 13: [Final] Update documentation
 
@@ -514,18 +527,18 @@ as a phantom.
 - Modify: `README.md`
 - Modify: `.claude/rules/control-api.md`
 
-- [ ] add the three commands to the bundled agent skill: SKILL.md summary, reference.md per-command detail, examples.md recipes
-- [ ] add three entries to `site/commands.html` in the right family section, each carrying invocation, arguments, and the `tree` read-back field
-- [ ] add a `pick.open`/`pick.result`/`pick.cancel` bullet to the command CATALOG list in `.claude/rules/control-api.md:287` — separate from the count bump and easy to miss
-- [ ] add the pick section to `.claude/rules/control-api.md` using semantic line breaks (one sentence per line)
-- [ ] bump the command count from 68 to 71 EVERYWHERE — grep for the PATTERN, never for the old or new number, since a surface already stale at a third value is invisible to a search for either
-- [ ] update the known count sites: `README.md:187`, `SKILL.md:145`, `site/docs.html:1124`, `site/commands.html:9,21,33,238`, `.claude/rules/control-api.md:209,287,316,1740`
-- [ ] update the hardcoded assertion in `SkillInstallTests.swift:17` (`#expect(skill.contains("Command summary (68 commands)"))`) — it is a required EDIT, not merely a detector, and `swift test` ends red without it
-- [ ] finish with `rg -n '\b[0-9]{2,3}\b' .claude/rules/control-api.md` and read every hit — the phrasings "the public command count stays N" and "`Command` has N cases" do not match a "N commands" grep and have survived a bump before
-- [ ] update `README.md` and `site/docs.html`
-- [ ] confirm `CHANGELOG.md` is UNTOUCHED (release-only) and no `cookbook/` recipe was swept (deliberately not a keep-in-sync surface)
-- [ ] gates: `swift test`, `make lint`, `make build`
-- [ ] move this plan to `docs/plans/completed/`
+- [x] add the three commands to the bundled agent skill: SKILL.md summary, reference.md per-command detail, examples.md recipes
+- [x] add three entries to `site/commands.html` in the right family section, each carrying invocation, arguments, and the `tree` read-back field
+- [x] add a `pick.open`/`pick.result`/`pick.cancel` bullet to the command CATALOG list in `.claude/rules/control-api.md:287` — separate from the count bump and easy to miss
+- [x] add the pick section to `.claude/rules/control-api.md` using semantic line breaks (one sentence per line)
+- [x] bump the command count from 68 to 71 EVERYWHERE — grep for the PATTERN, never for the old or new number, since a surface already stale at a third value is invisible to a search for either
+- [x] update the known count sites: `README.md:187`, `SKILL.md:145`, `site/docs.html:1124`, `site/commands.html:9,21,33,238`, `.claude/rules/control-api.md:209,287,316,1740`
+- [x] update the hardcoded assertion in `SkillInstallTests.swift:17` (`#expect(skill.contains("Command summary (68 commands)"))`) — it is a required EDIT, not merely a detector, and `swift test` ends red without it
+- [x] finish with `rg -n '\b[0-9]{2,3}\b' .claude/rules/control-api.md` and read every hit — the phrasings "the public command count stays N" and "`Command` has N cases" do not match a "N commands" grep and have survived a bump before
+- [x] update `README.md` and `site/docs.html`
+- [x] confirm `CHANGELOG.md` is UNTOUCHED (release-only) and no `cookbook/` recipe was swept (deliberately not a keep-in-sync surface)
+- [x] gates: focused `swift test --filter 'SkillInstallTests.bundledSkillDocumentsEventSubscriptionCommand'` substituted for broad `swift test` per user override; `make lint`; `make build`
+- [x] move this plan to `docs/plans/completed/`
 ## Post-Completion
 
 *Items requiring manual intervention — no checkboxes, informational only*

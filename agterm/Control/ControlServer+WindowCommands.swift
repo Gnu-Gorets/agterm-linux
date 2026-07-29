@@ -215,14 +215,15 @@ extension ControlServer {
     }
 
     /// Make `id` the logical frontmost window, the way `WindowAccessor.reportFrontmost` does on the GUI
-    /// path: record it, persist the index, and reconcile the auto-hidden sidebars.
+    /// path: record it, persist the index, and reconcile the auto-hidden sidebars. Shared by every
+    /// control path that presents a window — `window.select`, the minimize hand-off, `pick.open --follow`.
     ///
     /// The control channel needs its own path because `reportFrontmost` fires on `didBecomeKey`, which
     /// AppKit does not deliver while the app is inactive — exactly when a script is driving. Without the
     /// reconcile the window that just became visible keeps its sidebar collapsed until the user next
     /// activates agterm. Idempotent, and the reconcile resolves through `activeWindowID`, which returns
     /// the id assigned just above.
-    private func takeFrontmost(_ id: WindowInfo.ID) {
+    func takeFrontmost(_ id: WindowInfo.ID) {
         guard library.frontmostWindowID != id else { return }
         library.frontmostWindowID = id
         library.saveIndex()
