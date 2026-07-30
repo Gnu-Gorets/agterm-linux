@@ -107,6 +107,80 @@ struct SocketClientTests {
     }
 
     /// A create command's `run()` returns without throwing on `{"ok":true}` and prints the new id.
+    @Test func formatsKeymapWithEveryActionAndTheLiveMenu() {
+        let keymap = Keymap(builtinOverrides: [.closeSession: Chord(mods: [.command], key: "e")], commands: [])
+        let payload = ControlKeymap.project(
+            keymap: keymap, diagnostics: [KeymapDiagnostic(line: 3, message: "unknown action")],
+            path: "/tmp/keymap.conf",
+            menu: [ControlKeymapMenuItem(menu: "File", title: "Close", chord: "cmd+w", selector: "performClose:")]
+        )
+
+        let out = SocketClient.formatKeymap(payload)
+
+        #expect(out.contains("keymap: /tmp/keymap.conf"))
+        #expect(out.contains("* close_session"), "an overridden action is marked")
+        #expect(out.contains("cmd+e"))
+        #expect(out.contains("line 3: unknown action"))
+        #expect(out.contains("cmd+w  File ▸ Close"), "the live menu chord is listed for comparison")
+        // every action appears, keyless ones included, so the listing is the whole set
+        for action in BuiltinAction.allCases { #expect(out.contains(action.rawValue)) }
+    }
+
+    // line 0 is the whole-file / cross-section sentinel, not a real line. The GUI already drops the
+    // number for it (SettingsView.diagnosticLine), so the CLI must not send a reader hunting for line 0.
+    @Test func formatsKeymapDroppingTheLineNumberForWholeFileDiagnostics() {
+        let payload = ControlKeymap.project(
+            keymap: Keymap(builtinOverrides: [:], commands: []),
+            diagnostics: [KeymapDiagnostic(line: 0, message: "conflicts with a built-in; keybind dropped"),
+                          KeymapDiagnostic(line: 7, message: "unknown action")],
+            path: "/tmp/keymap.conf"
+        )
+
+        let out = SocketClient.formatKeymap(payload)
+
+        #expect(out.contains("    conflicts with a built-in; keybind dropped"))
+        #expect(!out.contains("line 0"), "the sentinel must not be printed as a line number")
+        #expect(out.contains("line 7: unknown action"), "a real line number is still shown")
+    }
+
+    // a disabled item's chord is inert, and the default (non-JSON) output is the documented human
+    // workflow — leaving the flag out of the rendering drops the one fact that explains a dead binding.
+    @Test func formatsKeymapMarkingDisabledMenuItems() {
+        let payload = ControlKeymap.project(
+            keymap: Keymap(builtinOverrides: [:], commands: []), diagnostics: [], path: "/tmp/keymap.conf",
+            menu: [ControlKeymapMenuItem(menu: "Navigate", title: "Focus Left Pane", chord: "cmd+opt+left",
+                                         selector: "menuAction:", enabled: false),
+                   ControlKeymapMenuItem(menu: "File", title: "New Session", chord: "cmd+n",
+                                         selector: "menuAction:")]
+        )
+
+        let out = SocketClient.formatKeymap(payload)
+
+        #expect(out.contains("cmd+opt+left  Navigate ▸ Focus Left Pane  (disabled)"))
+        #expect(out.contains("cmd+n  File ▸ New Session\n") || out.hasSuffix("cmd+n  File ▸ New Session"),
+                "an enabled row carries no marker")
+    }
+
+    @Test func formatsKeymapWithoutOptionalSectionsWhenEmpty() {
+        let payload = ControlKeymap.project(keymap: Keymap(builtinOverrides: [:], commands: []),
+                                            diagnostics: [], path: "/tmp/keymap.conf")
+
+        let out = SocketClient.formatKeymap(payload)
+
+        #expect(!out.contains("commands:"))
+        #expect(!out.contains("diagnostics:"))
+        #expect(!out.contains("menu:"), "menu is omitted, not printed empty, when the caller supplied none")
+        #expect(out.contains("close_session"))
+    }
+
+    @Test func formatResponsePicksTheKeymapRenderer() {
+        let payload = ControlKeymap.project(keymap: Keymap(builtinOverrides: [:], commands: []),
+                                            diagnostics: [], path: "/tmp/keymap.conf")
+        let out = SocketClient.formatResponse(ControlResponse(ok: true, result: ControlResult(keymap: payload)),
+                                              json: false)
+        #expect(out.hasPrefix("keymap: /tmp/keymap.conf"))
+    }
+
     @Test func runEchoesNewIdForCreateCommand() throws {
         let server = StubServer(response: ControlResponse(ok: true, result: ControlResult(id: "9f3c")))
         try server.start()
@@ -195,6 +269,346 @@ struct SocketClientTests {
 
         let command = try Session.Overlay.Open.parse(["echo", "--block", "--socket", server.path])
         #expect(throws: ExitCode.failure) { try command.run() }
+    }
+
+    @Test func formatsPickIDAsJSON() throws {
+        let line = try SocketClient.formatPickID("pick-1")
+        let object = try #require(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: String])
+
+        #expect(object == ["id": "pick-1"])
+    }
+
+    @Test func formatsPickResultAsJSON() throws {
+        let result = ControlPickResult(result: .picked, id: "two", label: "Two", index: 1)
+        let line = try SocketClient.formatPickResult(result)
+
+        #expect(try JSONDecoder().decode(ControlPickResult.self, from: Data(line.utf8)) == result)
+    }
+
+    @Test(arguments: [
+        (ControlPickOutcome.pending, Int32(1)),
+        (.picked, Int32(0)),
+        (.custom, Int32(0)),
+        (.cancelled, Int32(2))
+    ])
+    func pickExitCodeMapsEveryOutcome(_ outcome: ControlPickOutcome, _ expected: Int32) {
+        #expect(SocketClient.pickExitCode(for: outcome).rawValue == expected)
+    }
+
+    @Test func pickPollBackoffUsesTenFastSleepsThenSlowSleeps() {
+        #expect((1...10).map(SocketClient.pickPollDelay(afterPendingPoll:)) ==
+            Array(repeating: 0.1, count: 10))
+        #expect(SocketClient.pickPollDelay(afterPendingPoll: 11) == 0.5)
+        #expect(SocketClient.pickPollDelay(afterPendingPoll: 100) == 0.5)
+    }
+
+    @Test func pickNoBlockPrintsIDWithoutPolling() throws {
+        let command = try Pick.Open.parse(["--no-block"])
+        var requests: [ControlRequest] = []
+        var output: [String] = []
+
+        try command.execute(
+            input: Data("One\n".utf8),
+            send: { request in
+                requests.append(request)
+                return ControlResponse(ok: true, result: ControlResult(id: "pick-1"))
+            },
+            sleep: { _ in Issue.record("--no-block must not sleep") },
+            output: { output.append($0) }
+        )
+
+        #expect(requests == [
+            ControlRequest(
+                cmd: .pickOpen,
+                args: ControlArgs(items: [ControlPickItem(id: "One", label: "One")])
+            )
+        ])
+        #expect(try JSONSerialization.jsonObject(with: Data(#require(output.first).utf8)) as? [String: String] ==
+            ["id": "pick-1"])
+    }
+
+    @Test func pickBlockPollsWithBackoffPrintsResultAndExitsZero() throws {
+        let command = try Pick.Open.parse(["--window", "w1"])
+        var requests: [ControlRequest] = []
+        var sleeps: [TimeInterval] = []
+        var output: [String] = []
+        var polls = 0
+
+        try command.execute(
+            input: Data("One\n".utf8),
+            send: { request in
+                requests.append(request)
+                if request.cmd == .pickOpen {
+                    return ControlResponse(ok: true, result: ControlResult(id: "pick-1"))
+                }
+                polls += 1
+                if polls <= 11 {
+                    return ControlResponse(ok: true, result: ControlResult(
+                        pick: ControlPickResult(result: .pending)
+                    ))
+                }
+                return ControlResponse(ok: true, result: ControlResult(
+                    pick: ControlPickResult(result: .picked, id: "One", label: "One", index: 0)
+                ))
+            },
+            sleep: { sleeps.append($0) },
+            output: { output.append($0) }
+        )
+
+        #expect(requests.dropFirst().allSatisfy {
+            $0 == ControlRequest(cmd: .pickResult, target: "pick-1")
+        })
+        #expect(sleeps == Array(repeating: 0.1, count: 10) + [0.5])
+        let result = try JSONDecoder().decode(
+            ControlPickResult.self,
+            from: Data(#require(output.first).utf8)
+        )
+        #expect(result == ControlPickResult(result: .picked, id: "One", label: "One", index: 0))
+    }
+
+    @Test func pickBlockThrowsCancelledExitCodeAfterPrintingResult() throws {
+        let command = try Pick.Open.parse([])
+        var output: [String] = []
+
+        do {
+            try command.execute(
+                input: Data("One\n".utf8),
+                send: { request in
+                    request.cmd == .pickOpen
+                        ? ControlResponse(ok: true, result: ControlResult(id: "pick-1"))
+                        : ControlResponse(ok: true, result: ControlResult(
+                            pick: ControlPickResult(result: .cancelled)
+                        ))
+                },
+                sleep: { _ in Issue.record("a terminal result must not sleep") },
+                output: { output.append($0) }
+            )
+            Issue.record("expected the cancelled exit code")
+        } catch let code as ExitCode {
+            #expect(code.rawValue == 2)
+        }
+
+        let result = try JSONDecoder().decode(
+            ControlPickResult.self,
+            from: Data(#require(output.first).utf8)
+        )
+        #expect(result.result == .cancelled)
+    }
+
+    @Test func pickBlockFailsForOpenErrorAndMalformedResult() throws {
+        let command = try Pick.Open.parse([])
+        var errors: [String] = []
+        #expect(throws: ExitCode.failure) {
+            try command.execute(
+                input: Data("One\n".utf8),
+                send: { _ in ControlResponse(ok: false, error: "boom") },
+                sleep: { _ in },
+                output: { _ in Issue.record("a non-JSON server error must not use stdout") },
+                errorOutput: { errors.append($0) }
+            )
+        }
+        #expect(errors == ["error: boom"])
+
+        errors.removeAll()
+        #expect(throws: ExitCode.failure) {
+            try command.execute(
+                input: Data("One\n".utf8),
+                send: { request in
+                    request.cmd == .pickOpen
+                        ? ControlResponse(ok: true, result: ControlResult(id: "pick-1"))
+                        : ControlResponse(ok: true)
+                },
+                sleep: { _ in },
+                output: { _ in Issue.record("a protocol error must not use stdout") },
+                errorOutput: { errors.append($0) }
+            )
+        }
+        #expect(errors == ["error: pick.result missing result"])
+    }
+
+    @Test func pickBlockCancelsThePickerItCanNoLongerWaitOn() throws {
+        let command = try Pick.Open.parse([])
+        var sent: [ControlRequest] = []
+        // ok, but with no pick payload: the server still holds the picker, so it must be dismissed.
+        let malformedPoll: (ControlRequest) throws -> ControlResponse = { request in
+            sent.append(request)
+            return request.cmd == .pickOpen
+                ? ControlResponse(ok: true, result: ControlResult(id: "pick-1"))
+                : ControlResponse(ok: true)
+        }
+
+        #expect(throws: ExitCode.failure) {
+            try command.execute(input: Data("One\n".utf8), send: malformedPoll,
+                                sleep: { _ in }, output: { _ in }, errorOutput: { _ in })
+        }
+        #expect(sent.map(\.cmd) == [.pickOpen, .pickResult, .pickCancel],
+                "a poll that cannot continue must dismiss the picker it opened")
+        #expect(sent.last?.target == "pick-1")
+
+        sent.removeAll()
+        #expect(throws: ExitCode.failure) {
+            try command.execute(
+                input: Data("One\n".utf8),
+                send: { request in
+                    guard request.cmd != .pickCancel else { throw SocketClientError("socket gone") }
+                    return try malformedPoll(request)
+                },
+                sleep: { _ in }, output: { _ in }, errorOutput: { _ in }
+            )
+        }
+        #expect(sent.map(\.cmd) == [.pickOpen, .pickResult],
+                "a failing cancel is best effort and must not replace the poll failure")
+    }
+
+    @Test func pickBlockDoesNotCancelWhenTheServerAlreadyLostThePicker() throws {
+        let command = try Pick.Open.parse([])
+        var sent: [ControlRequest] = []
+
+        #expect(throws: ExitCode.failure) {
+            try command.execute(
+                input: Data("One\n".utf8),
+                send: { request in
+                    sent.append(request)
+                    return request.cmd == .pickOpen
+                        ? ControlResponse(ok: true, result: ControlResult(id: "pick-1"))
+                        : ControlResponse(ok: false, error: "unknown pick: pick-1")
+                },
+                sleep: { _ in }, output: { _ in }, errorOutput: { _ in }
+            )
+        }
+
+        #expect(sent.map(\.cmd) == [.pickOpen, .pickResult],
+                "the poll carries no window selector, so a not-ok result means there is nothing left to cancel")
+    }
+
+    @Test func pickBlockCancelsWhenThePollItselfThrows() throws {
+        let command = try Pick.Open.parse([])
+        var sent: [ControlRequest] = []
+
+        #expect(throws: SocketClientError.self) {
+            try command.execute(
+                input: Data("One\n".utf8),
+                send: { request in
+                    sent.append(request)
+                    switch request.cmd {
+                    case .pickOpen: return ControlResponse(ok: true, result: ControlResult(id: "pick-1"))
+                    case .pickResult: throw SocketClientError("no response from /tmp/agterm.sock")
+                    default: return ControlResponse(ok: true)
+                    }
+                },
+                sleep: { _ in }, output: { _ in }, errorOutput: { _ in }
+            )
+        }
+
+        #expect(sent.map(\.cmd) == [.pickOpen, .pickResult, .pickCancel],
+                "a transport failure mid-wait must still dismiss the picker rather than leave it pending")
+        #expect(sent.last?.target == "pick-1")
+    }
+
+    @Test func pickBlockRoutesJSONServerErrorThroughInjectedStdout() throws {
+        let command = try Pick.Open.parse(["--json"])
+        var output: [String] = []
+
+        #expect(throws: ExitCode.failure) {
+            try command.execute(
+                input: Data("One\n".utf8),
+                send: { _ in ControlResponse(ok: false, error: "boom") },
+                sleep: { _ in },
+                output: { output.append($0) },
+                errorOutput: { _ in Issue.record("a JSON server error must not use stderr") }
+            )
+        }
+
+        let response = try JSONDecoder().decode(ControlResponse.self, from: Data(#require(output.first).utf8))
+        #expect(!response.ok)
+        #expect(response.error == "boom")
+    }
+
+    @Test(arguments: [
+        (ControlPickOutcome.picked, Int32(0)),
+        (.custom, Int32(0)),
+        (.pending, Int32(1)),
+        (.cancelled, Int32(2)),
+    ])
+    func pickResultExecutesRequestPrintsJSONAndMapsExit(
+        _ outcome: ControlPickOutcome,
+        _ expectedExit: Int32
+    ) throws {
+        let command = try Pick.Result.parse(["pick-1", "--window", "w1"])
+        var request: ControlRequest?
+        var output: [String] = []
+        let run = {
+            try command.execute(
+                send: {
+                    request = $0
+                    return ControlResponse(ok: true, result: ControlResult(
+                        pick: ControlPickResult(result: outcome)
+                    ))
+                },
+                output: { output.append($0) }
+            )
+        }
+
+        if expectedExit == 0 {
+            try run()
+        } else {
+            do {
+                try run()
+                Issue.record("expected mapped exit \(expectedExit)")
+            } catch let code as ExitCode {
+                #expect(code.rawValue == expectedExit)
+            }
+        }
+        #expect(request == ControlRequest(
+            cmd: .pickResult,
+            target: "pick-1",
+            args: ControlArgs(window: "w1")
+        ))
+        #expect(try JSONDecoder().decode(
+            ControlPickResult.self,
+            from: Data(#require(output.first).utf8)
+        ).result == outcome)
+    }
+
+    @Test func pickResultRoutesServerAndProtocolErrorsThroughInjectedStderr() throws {
+        let command = try Pick.Result.parse(["pick-1"])
+        var errors: [String] = []
+
+        #expect(throws: ExitCode.failure) {
+            try command.execute(
+                send: { _ in ControlResponse(ok: false, error: "boom") },
+                output: { _ in Issue.record("a non-JSON server error must not use stdout") },
+                errorOutput: { errors.append($0) }
+            )
+        }
+        #expect(errors == ["error: boom"])
+
+        errors.removeAll()
+        #expect(throws: ExitCode.failure) {
+            try command.execute(
+                send: { _ in ControlResponse(ok: true) },
+                output: { _ in Issue.record("a protocol error must not use stdout") },
+                errorOutput: { errors.append($0) }
+            )
+        }
+        #expect(errors == ["error: pick.result missing result"])
+    }
+
+    @Test func pickResultRoutesJSONServerErrorThroughInjectedStdout() throws {
+        let command = try Pick.Result.parse(["pick-1", "--json"])
+        var output: [String] = []
+
+        #expect(throws: ExitCode.failure) {
+            try command.execute(
+                send: { _ in ControlResponse(ok: false, error: "boom") },
+                output: { output.append($0) },
+                errorOutput: { _ in Issue.record("a JSON server error must not use stderr") }
+            )
+        }
+
+        let response = try JSONDecoder().decode(ControlResponse.self, from: Data(#require(output.first).utf8))
+        #expect(!response.ok)
+        #expect(response.error == "boom")
     }
 
     @Test func formatResponseBareOk() {

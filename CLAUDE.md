@@ -97,8 +97,9 @@ surface ownership, and the C-boundary concurrency contract before changing the b
 - `scripts/run.sh` — setup, `xcodegen generate`, `xcodebuild` Debug, then launch.
 - `scripts/build.sh` — same but Release, no launch.
 - `cd agtermCore && swift test` — run the host-free unit tests (`scripts/test.sh` wraps this).
+- `scripts/test-app.sh` — run the application-hosted AppKit unit tests with the isolated `agtermTests` scheme.
 - `Makefile` — a thin front door over the scripts: `make prep`/`build` (Debug,
-  no launch)/`run`/`release`/`deploy` (Release build + copy to `~/Applications`)/`test`/`lint`/`dist VERSION=x.y.z [PUBLISH=1]`
+  no launch)/`run`/`release`/`deploy` (Release build + copy to `~/Applications`)/`test`/`test-app`/`lint`/`dist VERSION=x.y.z [PUBLISH=1]`
   (the `release.sh` DMG)/`clean`; a bare `make` lists them.
   The scripts stay the source of truth — only `build`, `deploy`, and `lint` carry their own recipe.
 - `make lint` runs `swiftlint lint --strict` over the tree, configured by `.swiftlint.yml` at the repo
@@ -109,11 +110,12 @@ surface ownership, and the C-boundary concurrency contract before changing the b
   tunes `line_length` (200) and `cyclomatic_complexity` (`ignores_case_statements`,
   so the flat 44-arm command dispatch isn't "complex"), allows 2-deep type nesting,
   and caps source files at 1000 lines / 800-line type bodies.
-  Test files get a 2000-line budget via two nested `.swiftlint.yml` configs
-  (`agtermUITests/` and `agtermCore/Tests/`) that override only `file_length`/`type_body_length` and inherit everything else from the root.
+  Test files get a 2000-line budget via nested `.swiftlint.yml` configs in `agtermCore/Tests/`,
+  `agtermTests/`, and `agtermUITests/`.
+  Those configs override only `file_length`/`type_body_length` and inherit everything else from the root.
   `--strict` promotes warnings to failures, so the tree must stay swiftlint-clean (zero findings).
 
-The app must build, `swift test` must stay green, and `make lint` must pass after every change.
+The app must build, `swift test` and `make test-app` must stay green, and `make lint` must pass after every change.
 
 - **Manage file sizes for real — source files stay under 1000 lines, tests under a hard 2000 (= 2×).**
   In OUR OWN work: when you touch a long file, PROPOSE splitting/relocating it toward that rather than
@@ -208,6 +210,22 @@ The app must build, `swift test` must stay green, and `make lint` must pass afte
   The XCUITests no longer collide either: the `.debug` bundle id means XCUITest's launch-time terminate
   hits only the `.debug` instance, not the deployed `com.umputun.agterm`,
   and they still use an isolated `AGTERM_STATE_DIR`/socket.
+- **NEVER run a MUTATING `agtermctl` command against the DEFAULT socket — that socket is the user's LIVE
+  daily driver.**
+  The kill/relaunch ban below is only part of the rule: a bare `agtermctl window move|resize|minimize|new`,
+  `session new|close|type`, `workspace …` reaches the DEPLOYED app, because `agtermctl` on PATH is the
+  deployed copy and its socket auto-resolves to `~/Library/Application Support/agterm/agterm.sock`.
+  This has already cost real damage: a review subagent "checked" the bundled `skills/agterm/examples.md`
+  window-stacking recipe by RUNNING it and restacked all four of the user's live windows onto one frame.
+  Read-only probes (`tree`, `window list`) are tolerable; anything that WRITES must target an isolated
+  instance with an explicit `--socket <tmp>/agterm.sock`.
+  **Never "test" a bundled recipe or doc example by executing it** — read it statically, or run it against
+  an isolated instance.
+- **Every DISPATCHED SUBAGENT must carry that constraint VERBATIM in its prompt.**
+  A subagent inherits the same PATH and socket default, so it reaches the daily driver exactly as easily as
+  you do, and it never reads this file unless told to.
+  Any agent prompt that could plausibly lead to running the app or its CLI must state: never execute
+  `agterm`/`agtermctl` against the default socket, never launch or quit the app, static reading only.
 - **NEVER kill or relaunch the deployed `~/Applications/agterm.app` — it is the user's REAL,
   in-use daily terminal with LIVE sessions.** BANNED: `pkill agterm` / `pkill -x agterm`,
   `osascript -e 'tell application "agterm" to quit'`, and ANY quit-then-relaunch of the deployed app
@@ -263,7 +281,7 @@ The app must build, `swift test` must stay green, and `make lint` must pass afte
   open to trigger those rules:
   **`CHANGELOG.md` is RELEASE-ONLY — never touch it in a feature PR.**
   It is written only at release time (the `docs: update changelog for vX.Y.Z` commit / the release flow).
-  A feature's own doc updates go to `README.md`, the bundled `agterm/Resources/agent-skill/`,
+  A feature's own doc updates go to `README.md`, the bundled `plugins/agterm/skills/agterm/`,
   and the relevant `.claude/rules/*.md` note — not the changelog.
 
 ## GhosttyKit.xcframework
@@ -354,21 +372,31 @@ always in context:
   read-modify-write, and idempotency checks all need the read leg.
   Every state-mutating command pairs with a read field:
   `session.background`/`background`, `notify`+`session.seen`/`unseen`,
-  `session.status`/`status`+`statusPane` (+`statusBlink`/`statusColor` for `--blink`/`--color`),
+  `session.status`/`status`+`statusPane` (+`statusBlink`/`statusColor`/`statusShape` for
+  `--blink`/`--color`/`--shape`),
   `session.flag`/`flagged`, `session.focus`/`splitFocused`, `session.resize`/`splitRatio`,
   `session.overlay.resize`/`overlaySizePercent`, `sidebar`/`sidebarVisible`, `sidebar.mode`/`sidebarMode`,
   `workspace.focus`/`focused`, `quick`/`quickVisible`,
-  `window.move`+`window.resize`/`geometry`, `window.fullscreen`+`window.zoom`/`fullscreen`+`zoomed`.
+  `window.move`+`window.resize`/`geometry`, `window.fullscreen`+`window.zoom`/`fullscreen`+`zoomed`,
+  `window.minimize`/`minimized`.
   When adding a state-mutating command, ask "how does a script read back what I just set?" and add that
   field in the SAME change.
   `session.overlay.resize` shipped write-only and the `overlaySizePercent` read-back was missed until a
   tmux-zoom script needed record-then-restore, so it went in as a separate follow-up.
+- **An argument whose value rides a control EVENT owes the CLI's human line too, not just the payload
+  field.**
+  When you audit the legs of a per-call argument, count `EventFormatter.human`
+  (`agtermctlKit/EventCommands.swift`) as one of them: a value added to `ControlEventPayload` with no
+  matching arm there is silently dropped from `agtermctl events` in its default, non-`--json` mode, so
+  the human reader of the stream cannot explain a change the payload does describe.
+  `session.status --shape` was tracked as five legs and turned out to have six — the formatter was found
+  only during the final acceptance sweep, after every other leg was already in.
 - **The bundled agent skill is the fourth keep-in-sync surface.**
   Whenever you change the Control API (commands/args/returns), the keymap format,
-  or the window/workspace/session/pane model, update `agterm/Resources/agent-skill/` (SKILL.md + reference.md
+  or the window/workspace/session/pane model, update `plugins/agterm/skills/agterm/` (SKILL.md + reference.md
   + examples.md + troubleshooting.md + scripts, incl. the command count) so the installed agent-driver
   doc stays accurate.
-  The app-repo `agterm/Resources/agent-skill/` is the SINGLE source of truth — edit ONLY there.
+  The app-repo `plugins/agterm/skills/agterm/` is the SINGLE source of truth — edit ONLY there.
   NEVER edit, copy into, or "mirror" the installed copies at `~/.claude/skills/agterm/` or `~/.codex/skills/agterm/`;
   they are install OUTPUTS that Help ▸ Install Agent Skill (`SkillInstaller`) regenerates from the bundle,
   so a manual edit there is wrong and must never even be offered (`~/.claude/skills/agterm/` is snapshotted
@@ -383,6 +411,19 @@ always in context:
   It MUST gain, lose, or update an entry for EVERY control-command add/change/remove, in lockstep with
   the agent skill and `.claude/rules/control-api.md` (a new `Command` case owes a new commands.html entry).
   See the `## Website` section below for the deploy model.
+- **The cookbook (`cookbook/`) is deliberately NOT a keep-in-sync surface — do not add it as a sixth.**
+  It is full of `agtermctl` invocations, so the reflex on a control-API change is to sweep it like the skill
+  and the site; that reflex is wrong here, and the exemption is a decision, not an oversight.
+  Recipes are pinned snapshots: each one's *Requirements* names the MINIMUM agterm version it needs,
+  and that pin is the contract.
+  A recipe is fixed reactively — when someone reports it broke — and dropped if it stays broken and nobody
+  claims it.
+  So a control-API change carries NO obligation to sweep `cookbook/`, and a PR is not incomplete for
+  leaving it alone.
+  The control API grows by addition, so real breakage is rare, and an honest reactive contract beats a
+  per-feature tax that would quietly stop being paid.
+  The `cookbook` CI job (`.claude/rules/ci.md`) checks layout, index, headings and shell hygiene only;
+  nothing checks a recipe against the current command surface.
 
 ## Website
 
@@ -453,11 +494,11 @@ This only changes raw-text line breaks — the rendered markdown is identical �
   `window.*` control.
   Triggers on `WindowLibrary`/`WindowGeometry`/`QuitPrompt`, `QuickTerminal.swift`,
   and the multi-window/quick-terminal UI tests.
-- `control-api.md` — the full 59-command control catalog, the three protocol layers,
+- `control-api.md` — the full control-command catalog, the three protocol layers,
   addressing, and the CLI/hooks/skill installers.
   Triggers on `ControlServer.swift`, `ControlProtocol`/`ControlResolve`,
   `agtermctlKit`/`agtermctl`, the three installers + their host-free `*Install` logic,
-  `Resources/agent-skill/`, and the control UI tests.
+  `plugins/agterm/skills/agterm/`, and the control UI tests.
 - `settings.md` — `AppSettings`/`SettingsModel`, the 6-tab Settings scene,
   ghostty-config emission, window translucency.
   Triggers on `SettingsModel.swift`, `SettingsView`/`SettingsCatalog`/`WindowAppearance`/`NSColor+AgtermHex`,

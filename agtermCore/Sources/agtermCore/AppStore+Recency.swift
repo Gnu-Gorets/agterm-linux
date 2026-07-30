@@ -7,4 +7,13 @@ extension AppStore {
     public func recentSessions(limit: Int) -> [UUID] {
         sessionRecency.top(limit, in: Set(workspaces.flatMap { $0.sessions.map(\.id) }))
     }
+
+    /// The recent-session navigation candidates shared by the title-bar popover and Dock menu:
+    /// most-recent first, limited to the visible navigation scope, with the current session removed
+    /// because selecting it would not navigate anywhere.
+    public func navigableRecentSessions(limit: Int) -> [UUID] {
+        var valid = Set(navigableSessions.map(\.id))
+        if let activeID = activeSession?.id { valid.remove(activeID) }
+        return sessionRecency.top(limit, in: valid)
+    }
 }

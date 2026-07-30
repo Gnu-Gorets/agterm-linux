@@ -79,7 +79,8 @@ final class SessionSwitcher {
     /// Snapshot the MRU order (live sessions only, capped at `maxCandidates`) and pre-select the previous
     /// session. No-op when there's nothing to switch to (fewer than two sessions). The candidate set is
     /// scoped to the VISIBLE/FILTERED sessions (`navigableSessions` — the flagged set in flagged mode, the
-    /// focused workspace's sessions when focused, else all), so clearing the flag/focus restores the full MRU.
+    /// sessions of the workspaces MARKED in the focus set while the filter applies, else all), so clearing
+    /// the flag or suspending the filter restores the full MRU.
     private func begin() {
         guard let store else { return }
         let valid = Set(store.navigableSessions.map(\.id))
@@ -122,6 +123,7 @@ final class SessionSwitcher {
 struct SessionSwitcherOverlay: View {
     let switcher: SessionSwitcher
     let store: AppStore
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     var body: some View {
         GeometryReader { geo in
@@ -142,10 +144,16 @@ struct SessionSwitcherOverlay: View {
             }
         }
         .padding(6)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .background(panelBackground, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.1)))
         .shadow(radius: 24)
         .accessibilityIdentifier("session-switcher")
+    }
+
+    private var panelBackground: AnyShapeStyle {
+        reduceTransparency
+            ? AnyShapeStyle(Color(nsColor: .windowBackgroundColor))
+            : AnyShapeStyle(.regularMaterial)
     }
 
     @ViewBuilder private func row(_ id: UUID, selected: Bool) -> some View {
@@ -169,13 +177,15 @@ struct SessionSwitcherRow: View {
     /// color themes the title with it and the subtitle at 0.6 opacity (the recent-sessions popover's look).
     var foreground: Color?
     /// Optional leading agent-status glyph — the attention popover sets it; the Ctrl-Tab overlay and the
-    /// recent-sessions popover leave it nil. `statusColorHex` is the per-call `session.status --color` tint.
+    /// recent-sessions popover leave it nil. `statusColorHex` is the per-call `session.status --color` tint,
+    /// `statusShape` its per-call `--shape` silhouette.
     var status: AgentStatus?
     var statusColorHex: String?
+    var statusShape: StatusShape?
 
     var body: some View {
         HStack {
-            if let status { StatusGlyph(status: status, colorHex: statusColorHex) }
+            if let status { StatusGlyph(status: status, colorHex: statusColorHex, shape: statusShape) }
             VStack(alignment: .leading, spacing: 1) {
                 Text(title).foregroundStyle(foreground ?? Color.primary)
                 Text(subtitle)

@@ -78,6 +78,45 @@ public enum ControlSidebarViewMode: Equatable, Sendable {
     }
 }
 
+/// The four modes `workspace.focus` accepts: `on` replaces the marked set with the target and enables
+/// the filter, `off` removes the target (disabling once the set empties), `toggle` replace-toggles
+/// (clears when the set is exactly the target and enabled, else replaces with the target and enables),
+/// and `add` inserts the target WITHOUT touching the filter flag — marking alone, so a set can be built
+/// member by member with the whole tree still on screen (an add that enabled the filter would hide the
+/// rows the next add needs). There is deliberately no membership-TOGGLE mode — the row menu's membership
+/// item computes its own direction from what it just read and maps to `add` or `off`. Raw values are the
+/// wire tokens.
+public enum ControlWorkspaceFocusMode: String, CaseIterable, Equatable, Sendable {
+    case on, off, toggle, add
+
+    /// The accepted names pipe-joined (`on|off|toggle|add`) — the compact form the dispatcher's rejection
+    /// message uses. Derived from `allCases`, like `StatusShape.validNamesList`, so no message can go
+    /// stale when the set changes.
+    public static var validNamesList: String { validNames.joined(separator: "|") }
+
+    /// The accepted names comma-joined (`on, off, toggle, add`) — the prose form the `agtermctl workspace
+    /// focus` local rejection message uses.
+    public static var validNamesPhrase: String { validNames.joined(separator: ", ") }
+
+    /// What this mode does to the marked set AND to the filter flag, in one clause — the building block of
+    /// the `agtermctl workspace focus` argument help, so that help cannot go stale when a case is added
+    /// (the `StatusShape.validNamesPhrase`-builds-its-own-help precedent). Every clause names the filter
+    /// effect, since `add`'s "leaves the flag alone" reads as the exception unless the others say so too.
+    public var helpSummary: String {
+        switch self {
+        case .on: return "on (mark it alone and apply the filter)"
+        case .off: return "off (unmark it; the filter switches off as the set empties)"
+        case .toggle: return "toggle (replace-toggle and apply the filter, the default; clears when it is the only marked one AND the filter is applied)"
+        case .add: return "add (mark it alongside the others, leaving the filter flag alone)"
+        }
+    }
+
+    /// Every mode's `helpSummary`, comma-joined — the whole `--help` sentence, derived from `allCases`.
+    public static var helpPhrase: String { allCases.map(\.helpSummary).joined(separator: ", ") }
+
+    private static var validNames: [String] { allCases.map(\.rawValue) }
+}
+
 /// The mutually exclusive move forms accepted by `session.move`.
 public enum ControlSessionMove: Equatable, Sendable {
     case reorder(ReorderDirection)
@@ -134,14 +173,18 @@ public struct ControlSessionCreateOptions: Equatable, Sendable {
 }
 
 /// Parsed `session.status` payload. Sound validation and playback stay host-side; `color` is the
-/// per-call `#rrggbb` glyph-tint override (validated for hex in the dispatcher), threaded onto the
-/// ephemeral `AgentIndicator`.
+/// per-call `#rrggbb` glyph-tint override (validated for hex in the dispatcher) and `shape` the per-call
+/// silhouette override (parsed to `StatusShape` in the dispatcher), both threaded onto the ephemeral
+/// `AgentIndicator`.
 public struct ControlSessionStatusUpdate: Equatable, Sendable {
     public let status: AgentStatus
     public let blink: Bool?
     public let autoReset: Bool?
     public let sound: String?
     public let color: String?
+    /// The per-call glyph silhouette, or nil to fall back to the Settings shape / the built-in plain
+    /// circle. Already validated — the dispatcher rejects an unknown raw value before any mutation.
+    public let shape: StatusShape?
     /// Which pane set the status (`left`=main, `right`=split, `scratch`), or nil when unspecified. Stamped
     /// onto the indicator so pane-scoped keystroke-clear and pane-aware navigation know which surface blocked.
     public let pane: StatusPane?
@@ -153,12 +196,14 @@ public struct ControlSessionStatusUpdate: Equatable, Sendable {
     public let paneID: String?
 
     public init(status: AgentStatus, blink: Bool?, autoReset: Bool?, sound: String?,
-                color: String? = nil, pane: StatusPane? = nil, paneID: String? = nil) {
+                color: String? = nil, shape: StatusShape? = nil,
+                pane: StatusPane? = nil, paneID: String? = nil) {
         self.status = status
         self.blink = blink
         self.autoReset = autoReset
         self.sound = sound
         self.color = color
+        self.shape = shape
         self.pane = pane
         self.paneID = paneID
     }

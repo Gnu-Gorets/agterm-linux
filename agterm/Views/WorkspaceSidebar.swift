@@ -117,9 +117,11 @@ struct WorkspaceSidebar: NSViewRepresentable {
         // sidebarMode flips the whole data source between the tree and the flat flagged list; reading it
         // here registers the observer so a mode change re-invokes updateNSView and reconcile rebuilds.
         _ = store.sidebarMode
-        // focusedWorkspaceID restricts the tree to one root (via visibleWorkspaces); reading it registers
-        // the observer so a focus flip re-invokes updateNSView and reconcile takes the rebuild branch.
-        _ = store.focusedWorkspaceID
+        // the marked set restricts the tree to its members (via visibleWorkspaces) while the filter is on;
+        // BOTH fields are read so either a membership change or a filter flip re-invokes updateNSView and
+        // reconcile takes the rebuild branch.
+        _ = store.focusedWorkspaceIDs
+        _ = store.focusEnabled
         context.coordinator.reconcile()
         context.coordinator.syncSelection()
     }
@@ -221,15 +223,18 @@ struct WorkspaceSidebar: NSViewRepresentable {
             renameController.onRenameEnded = { [weak self] in self?.focusActiveTerminal() }
             // the menu/palette can't reach the inline editor directly, so they post a
             // notification and this coordinator starts the edit on the selected row.
+            // Scoped by `object: store` like expand/collapse below: the selected-session guard in the
+            // handlers is NOT a per-window scope (every open window has a selected session), so an
+            // object: nil pairing started an inline edit in EVERY window — each leaving an editor the
+            // user never opened, plus an unbalanced `suppressAutoFollow` that wedged that window's idle
+            // auto-follow off for good.
             NotificationCenter.default.addObserver(self, selector: #selector(beginRenameSessionNotified),
-                                                   name: .agtermBeginRenameSession, object: nil)
+                                                   name: .agtermBeginRenameSession, object: store)
             NotificationCenter.default.addObserver(self, selector: #selector(beginRenameWorkspaceNotified),
-                                                   name: .agtermBeginRenameWorkspace, object: nil)
+                                                   name: .agtermBeginRenameWorkspace, object: store)
             // expand/collapse target ONLY the frontmost window's sidebar: AppActions posts these with the
             // frontmost store as the object, and registering with `object: store` lets NotificationCenter
             // deliver only to the Coordinator whose store matches — so other windows' sidebars stay put.
-            // (The rename observers above are object: nil and self-scope via the selected-session guard;
-            // expand/collapse have no such natural per-window guard, so they scope by the store object.)
             NotificationCenter.default.addObserver(self, selector: #selector(expandWorkspacesNotified),
                                                    name: .agtermExpandWorkspaces, object: store)
             NotificationCenter.default.addObserver(self, selector: #selector(collapseWorkspacesNotified),
@@ -240,6 +245,9 @@ struct WorkspaceSidebar: NSViewRepresentable {
             // a theme change (new terminal foreground) re-tints the visible rows in place.
             NotificationCenter.default.addObserver(self, selector: #selector(appearanceChanged),
                                                    name: .agtermAppearanceChanged, object: nil)
+            // Reduce Motion does not alter row model content, so re-apply visible status glyphs explicitly.
+            NotificationCenter.default.addObserver(self, selector: #selector(accessibilityDisplayOptionsChanged),
+                                                   name: .agtermAccessibilityDisplayOptionsChanged, object: nil)
         }
 
         isolated deinit {
@@ -294,6 +302,10 @@ struct WorkspaceSidebar: NSViewRepresentable {
             // re-apply the sidebar content inset in case a settings change requires recomputing it (the
             // inset itself is mode-independent, so this is a cheap re-assert, not a per-mode recalculation).
             applySidebarContentInset(outlineView?.enclosingScrollView)
+        }
+
+        @objc private func accessibilityDisplayOptionsChanged() {
+            reapplyStatusGlyphs()
         }
 
         /// Re-apply the sidebar row height + fonts when the sidebar font-size setting changed. The font size
@@ -388,6 +400,11 @@ struct WorkspaceSidebar: NSViewRepresentable {
             /// Whether the session is flagged (tree-mode filled-icon variant). A change re-badges
             /// just this row via `reloadItem`. Always false for workspace rows.
             let flagged: Bool
+            /// Whether the workspace is a member of the focus set (the heavy-weight grid icon). Tracks
+            /// MEMBERSHIP only, independent of `focusEnabled`, so marking a workspace re-renders just
+            /// that row via `reloadItem` even while the filter is off (with the filter on, the shape
+            /// changes too and the rebuild branch takes over). Always false for session rows.
+            let focusMember: Bool
         }
 
         /// The session's own agent-status indicator (or `.idle` for an unknown id / workspace row). Shown
@@ -425,8 +442,9 @@ struct WorkspaceSidebar: NSViewRepresentable {
         /// The structural shape for the current mode: the workspace tree (workspace id + ordered session
         /// ids) in `.tree`, or a single flat group of the flagged session ids in `.flagged`. A change here
         /// means an add/remove/move/reorder (or a flag/unflag in flagged mode) and forces a full rebuild.
-        /// The tree case derives from `visibleWorkspaces` (the focused workspace alone when focused, else
-        /// all), so a focus on/off — which changes the rendered root set — registers as a shape change.
+        /// The tree case derives from `visibleWorkspaces` (the marked set when the focus filter is on,
+        /// else all), so marking a workspace or flipping the filter — either of which changes the
+        /// rendered root set — registers as a shape change.
         private func currentShape() -> [TreeShape] {
             switch store.sidebarMode {
             case .tree:
@@ -472,7 +490,8 @@ struct WorkspaceSidebar: NSViewRepresentable {
         /// and `snapshotRowContent` so the change-detection snapshot and the diff can't drift.
         private func rowContent(forWorkspace workspace: Workspace) -> RowContent {
             RowContent(label: workspace.name, hasSplit: false, unseen: effectiveUnseen(workspace.unseenCount),
-                       indicator: AgentIndicator(), flagged: false)
+                       indicator: AgentIndicator(), flagged: false,
+                       focusMember: store.focusedWorkspaceIDs.contains(workspace.id))
         }
 
         /// The visible content of a session row. The single builder shared by `reloadChangedContentRows`
@@ -482,7 +501,8 @@ struct WorkspaceSidebar: NSViewRepresentable {
         private func rowContent(forSession session: Session, workspaceName: String) -> RowContent {
             RowContent(label: rowLabel(for: session, workspaceName: workspaceName), hasSplit: session.hasSplit,
                        unseen: effectiveUnseen(session.unseenCount),
-                       indicator: effectiveIndicator(forSession: session.id), flagged: session.flagged)
+                       indicator: effectiveIndicator(forSession: session.id), flagged: session.flagged,
+                       focusMember: false)
         }
 
         /// Rebuilds `roots` from the store, reusing cached node instances by id so
@@ -505,8 +525,8 @@ struct WorkspaceSidebar: NSViewRepresentable {
                 return
             }
 
-            // render only the visible workspaces: the focused workspace's subtree alone when focus is set
-            // (and that workspace still exists), else the full tree.
+            // render only the visible workspaces: the marked set's subtrees when the focus filter is on,
+            // else the full tree.
             var seen = Set<UUID>()
             var newRoots: [SidebarNode] = []
             for workspace in store.visibleWorkspaces {
@@ -532,13 +552,19 @@ struct WorkspaceSidebar: NSViewRepresentable {
 
             // restore expansion from the tracked set rather than the live outline state: a flagged-mode
             // reload drops the workspace nodes, so the outline forgets they were expanded, but the tracked
-            // set remembers across the interlude. A freshly-focused workspace is expanded unconditionally —
-            // focus is a "zoom in", so its sessions must show even if the workspace was collapsed. This
-            // re-apply is a VIEW restore, not a user action, so suppress the persist: a focused-but-collapsed
-            // workspace must keep its persisted collapse (the zoom-in shows it, but doesn't un-collapse it).
+            // set remembers across the interlude. A filter applied to a SINGLE marked workspace also
+            // force-expands it — that case is a "zoom in" on one workspace, so its sessions must show even
+            // if the row was collapsed. The force stops at one member on purpose: with a working SET the
+            // tree is a list of workspaces, not a zoom, and re-expanding every member on each rebuild
+            // (any session add/close/move re-shapes the tree) would undo the user's collapse of a member
+            // over and over while `tree` still reported it `collapsed` — a visible read-back divergence.
+            // This re-apply is a VIEW restore, not a user action, so suppress the persist: a
+            // marked-but-collapsed workspace must keep its persisted collapse (the zoom-in shows it, but
+            // doesn't un-collapse it).
             outline.reloadData()
             suppressExpansionPersist = true
-            for node in roots where expandedWorkspaceIDs.contains(node.id) || node.id == store.focusedWorkspaceID {
+            let forceExpanded = store.soleFocusedWorkspaceID
+            for node in roots where expandedWorkspaceIDs.contains(node.id) || forceExpanded == node.id {
                 outline.expandItem(node)
             }
             suppressExpansionPersist = false
@@ -585,8 +611,8 @@ struct WorkspaceSidebar: NSViewRepresentable {
         }
 
         /// Expands every workspace row — the "Expand Workspaces" user action. Seeds the tracked expansion
-        /// from the live `store.workspaces`, NOT the current `roots` (a single subtree when a workspace is
-        /// focused), so unfocusing back to the full tree remembers every workspace as expanded. The
+        /// from the live `store.workspaces`, NOT the current `roots` (only the marked set's subtrees while
+        /// the focus filter is on), so turning the filter off remembers every workspace as expanded. The
         /// per-item callbacks are suppressed; the whole-tree state is persisted once via
         /// `setWorkspacesExpanded` since this is a deliberate all-workspace command.
         func expandAll() {
@@ -730,10 +756,12 @@ struct WorkspaceSidebar: NSViewRepresentable {
             // auto-follow's own jump never reaches here) counts as activity: it buys the full idle grace
             // before auto-follow can pull the selection back.
             store.noteUserActivity()
-            store.selectSession(activeID, sidebarSelection: selectedIDs)
+            let indicator = store.selectSession(activeID, sidebarSelection: selectedIDs)
             // land on the selected session's blocked pane when it carries a pane-tagged block (a no-op
             // otherwise), async so it runs after the selection + the sidebar's own focus-restore settle.
-            DispatchQueue.main.async { [weak self] in self?.actions.revealActiveBlockedPane() }
+            DispatchQueue.main.async { [weak self] in
+                self?.actions.revealActiveBlockedPane(captured: indicator)
+            }
         }
 
         /// Returns keyboard focus to the active session's terminal after a sidebar
@@ -783,19 +811,25 @@ struct WorkspaceSidebar: NSViewRepresentable {
 
         /// Leading row icons: a 2x2 grid glyph for a workspace, an outlined terminal for a single
         /// session, and a split-rectangle for a split session, rendered as monochrome template symbols.
-        /// The two `flagged*` variants swap to the `.fill` SF Symbol (a solid interior — the same
-        /// "small filled area" idiom the scratch-active toolbar glyph uses): `terminal.fill` for a
-        /// single session, `rectangle.split.2x1.fill` for a split. A pure symbol swap, not a composited
-        /// corner badge, so it stays a single template `setColors` tints and reserves no extra space.
+        /// A flagged SESSION swaps to the `.fill` variant of its base glyph (a solid interior — the same
+        /// "small filled area" idiom the scratch-active toolbar glyph uses): `terminal.fill` /
+        /// `rectangle.split.2x1.fill`. A workspace in the focus SET keeps the very same
+        /// `square.grid.2x2` outline and only draws it at `.heavy` weight, so every workspace row holds
+        /// one identity and membership costs stroke weight alone — the two markers stay distinct
+        /// (fill = flagged session, heavy = marked workspace) instead of both reading as "filled".
+        /// Never a composited corner badge, so each stays a single template `setColors` tints; the
+        /// weight variant renders 1pt larger (16x15 vs 15x14) but the icon view is pinned to a fixed
+        /// 16x16 box, so neither swap moves the row.
         /// Cached because only a few distinct symbols exist and every row reuses them.
         lazy var workspaceIcon = Self.rowIcon("square.grid.2x2")
+        lazy var focusedWorkspaceIcon = Self.rowIcon("square.grid.2x2", weight: .heavy)
         lazy var splitSessionIcon = Self.rowIcon("rectangle.split.2x1")
         lazy var sessionIcon = Self.rowIcon("terminal")
         lazy var flaggedSessionIcon = Self.rowIcon("terminal.fill")
         lazy var flaggedSplitSessionIcon = Self.rowIcon("rectangle.split.2x1.fill")
 
-        private static func rowIcon(_ symbolName: String) -> NSImage? {
-            let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+        private static func rowIcon(_ symbolName: String, weight: NSFont.Weight = .regular) -> NSImage? {
+            let config = NSImage.SymbolConfiguration(pointSize: 13, weight: weight)
             let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
                 .withSymbolConfiguration(config)
             image?.isTemplate = true

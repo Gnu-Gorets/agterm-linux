@@ -33,8 +33,10 @@ events for its current process run. Independent readers do not consume one anoth
 The five event kinds and payloads are:
 
 - `status`: `name`, normalized `status` (`idle`|`active`|`blocked`|`completed`), a `blink` boolean,
-  and optional `pane` and `color`. Reasserting the same normalized status emits nothing; clearing emits
-  `idle`.
+  and optional `pane`, `color` and `shape` (the last two being the per-call `--color`/`--shape`
+  overrides). An event fires whenever the whole indicator changes, not just the state name — so a
+  change to `blink`, `pane`, `color` or `shape` alone is a real event you can watch, while re-asserting
+  an identical indicator emits nothing. Clearing emits `idle`.
 - `notify`: `name`, effective `title`, and `body`. It is emitted after target and foreground-focus
   suppression checks, including when desktop banners are disabled.
 - `session.created` / `session.closed`: session `name`, emitted when the session enters or leaves a
@@ -80,7 +82,7 @@ SIGTERM use normal process behavior.
   `text`, `background`, `status`, `copy`, …) that must act on the session you run in — otherwise it hits
   whatever the user has selected. `overlay open` opens in the background without switching the user
   (both full and floating); pass `--follow` to additionally SELECT the target, switching the user to it.
-- `--window <id|prefix|active>` (on session/workspace/tree/font/notify commands) picks which window's
+- `--window <id|prefix|active>` (on session/workspace/tree/font/notify/pick commands) picks which window's
   tree to act on; default is the frontmost. With `--window` set, that window must be open. Without it,
   an id/prefix session target is matched across all open windows.
 - `window.*` commands take the window selector as a positional argument, default `active` (frontmost).
@@ -109,8 +111,12 @@ flagged working-set), `status` (the agent-status — `active`|`completed`|`block
 idle), `statusPane` (which pane set that status — `left` (main) | `right` (split) | `scratch` — the
 `--pane` value from `session status`, omitted when unset or idle; gated on the same non-idle condition
 as `status`, so it is never reported without a `status`), `statusBlink` (`true` when the status glyph is
-set to blink — the `--blink` value; omitted when idle or not blinking) and `statusColor` (the `#rrggbb`
-glyph-tint override — the `--color` value; omitted when idle or using the default color),
+set to blink — the `--blink` value; omitted when idle or not blinking), `statusColor` (the `#rrggbb`
+glyph-tint override — the `--color` value; omitted when idle or using the configured color) and
+`statusShape` (the glyph silhouette override — the `--shape` value, one of
+`circle`|`square`|`triangle`|`diamond`|`capsule`|`star`; omitted when idle or using the configured shape.
+Like `statusColor` it reports the PER-CALL override only, so a shape picked in Settings reads back as
+absent),
 `foreground`/`splitForeground` (the live argv of each pane's foreground
 process — what it is running — omitted when the pane sits at its shell prompt, and also for a
 setuid/setgid foreground process like `top` or `sudo`, whose argv macOS refuses to expose),
@@ -132,20 +138,28 @@ so a script can zoom them without changing split/scratch visibility first. Cavea
 derive from the session's own flags, not from zoom — and `visible` reads false for a pane behind a
 FLOATING overlay even though it is visually on screen; address by `id`/`kind`, and read the zoom state
 from the top-level `zoomedSurface`. Workspace nodes carry
-`id`, `name`, `active`, `sessions`, `focused` (whether the sidebar
-tree is collapsed to this workspace — the read side of `workspace focus`, distinct from `active` the
-SELECTED workspace; omitted unless this is the focused one, and absent entirely when nothing is focused),
-and `collapsed` (whether this workspace is COLLAPSED in the sidebar tree — the read side of
+`id`, `name`, `active`, `sessions`, `focused` (whether this workspace is a MEMBER of the sidebar's focus
+set — the read side of `workspace focus`, distinct from `active` the SELECTED workspace; omitted on
+non-members, and absent entirely when nothing is marked. Membership is reported INDEPENDENTLY of whether
+the filter is applied, so a marked-but-not-filtering set reads back too; a workspace ROW RENDERS in the
+sidebar iff `sidebarVisible && sidebarMode == "tree" && (!workspaceFilter || focused)`, every term on the
+same tree response — the sidebar hidden renders nothing, `flagged` mode renders a flat flagged-session
+list with NO workspace rows whatever the filter says, `tree` mode with the filter OFF renders the whole
+tree regardless of membership, and only `tree` mode with the filter ON narrows visibility to the
+members), and `collapsed` (whether this workspace is COLLAPSED in the sidebar tree — the read side of
 `workspace collapse`/`workspace expand` and `workspace new --collapsed`; `true` when collapsed, omitted
 when expanded, so an all-expanded tree carries no `collapsed` keys).
 
-The tree object itself carries ten top-level read-only fields: `idleMs` (milliseconds since the last
+The tree object itself carries twelve top-level read-only fields: `idleMs` (milliseconds since the last
 user input in the window, omitted before any activity), `autoFollowMs` (the window's Auto-follow
 timeout in milliseconds, omitted when the setting is Disabled), `sidebarVisible` (whether the
 window's sidebar is currently shown — the read side of the write-only `sidebar` command, so a script
 can restore it, e.g. a tmux-style zoom that hides the sidebar and must re-show it only when it was
 visible before), `sidebarMode` (`tree` or `flagged` — the sidebar view mode, the read side of
-`sidebar mode`), `quickVisible` (whether the window's quick terminal is currently shown — the read
+`sidebar mode`), `workspaceFilter` (whether the window's workspace focus filter is currently APPLIED —
+the flag half of the focus set, whose member half is each workspace node's `focused`; the read side of
+`workspace filter`, so a script can record the filter state, restore it, or make the toggle idempotent),
+`quickVisible` (whether the window's quick terminal is currently shown — the read
 side of the write-only `quick` command, so a script can make the toggle idempotent), `zoomedSurface`
 (the control id of the surface terminal zoom currently fills the window with —
 `surface:<session-id>:<kind>` or `quick`; omitted when nothing is zoomed — the read side of the
@@ -156,18 +170,24 @@ no dashboard is open): `dashboardMembers` (the pane refs the open dashboard show
 as both), `dashboardHighlighted` (the highlighted cell's pane ref — the one Enter jumps into, focusing
 that exact pane), `dashboardFontSize` (the absolute font size in points applied to the cells, omitted when
 the mode is `untouched`), and `dashboardFontMode` (`auto` for `--auto-size`, `fixed` for `--font-size`, or
-`untouched`). `idleMs` is live
+`untouched`), plus `pickPending` (the id of the native picker currently awaiting an answer in this
+window, omitted when none is pending). `idleMs` is live
 and grows while the window is idle, so it is on `tree` only, never `window.list`; `sidebarVisible` is on
-both; `sidebarMode`, `quickVisible`, `zoomedSurface`, and the four `dashboard*` fields are `tree`-only
-(a GUI/keyboard change would leave a cached copy stale).
-All ten are read-only projections of GUI state.
+both; `sidebarMode`, `workspaceFilter`, `quickVisible`, `zoomedSurface`, the four `dashboard*` fields, and
+`pickPending`
+are `tree`-only (a GUI/keyboard change would leave a cached copy stale).
+All twelve are read-only projections of GUI state.
 
 ## workspace
 
 - `workspace new [name] [--collapsed] [--window W]` — create a workspace; returns its id. Name defaults
   to an auto-generated one. `--collapsed` creates it CLOSED in the sidebar tree so a script can build a
   workspace and fill it with `session new --no-select` without it ever opening (a fresh workspace is
-  expanded by default). Read the state back from the tree workspace node's `collapsed` flag.
+  expanded by default), and for the same reason a `--collapsed` create is kept OUT of the workspace focus
+  set — it never widens a marked working set. A PLAIN `workspace new` while the filter is applied JOINS
+  the marked set instead, so a foreground create is visible rather than hidden behind the filter (the
+  same auto-reveal the GUI's New Workspace button has). Read the state back from the tree workspace
+  node's `collapsed` flag, and the membership from its `focused` flag.
 - `workspace rename <name> [--target] [--window W]`.
 - `workspace delete [--target] [--window W]` — keep-at-least-one; deleting the last workspace errors.
 - `workspace select [--target] [--window W]`.
@@ -175,13 +195,36 @@ All ten are read-only projections of GUI state.
   or invalid `--to` errors. Note: `--target active` resolves to the current workspace, which with no
   selected session falls back to the last workspace; address a specific workspace by id to step the
   same one.
-- `workspace focus [on|off|toggle] [--target] [--window W]` — collapse the sidebar tree to a single
-  workspace's subtree (hiding the others), or restore the full tree; returns the workspace id. `on`
-  focuses the target, `off` unfocuses it only when it is the currently focused one, `toggle` (default)
-  flips. Per-window and persisted; orthogonal to `sidebar mode` (the flagged flat list ignores focus).
-  While a workspace is focused, `session go` navigation is scoped to that workspace's sessions (and to
-  the flagged set in flagged mode); an explicit `session select` of a session outside the focused
-  workspace still auto-unfocuses to reveal it. An unknown mode errors.
+- `workspace focus [on|off|toggle|add] [--target] [--window W]` — mark or unmark ONE workspace in the
+  sidebar's focus SET; returns the workspace id. The sidebar renders the marked workspaces when the
+  filter is applied, all of them when it is not. `on` sets the marked set to just this workspace and
+  APPLIES the filter (the single-workspace zoom); `off` removes it, and the filter switches off once the
+  set empties; `toggle` (the default) replace-toggles — it clears when the set is exactly this workspace
+  and the filter is applied, else sets the set to just this workspace and applies it; `add` inserts it
+  into the set leaving the filter flag EXACTLY as it was. `add` never switches the filter on: that is
+  what makes a multi-workspace set buildable, since a mark that narrowed the tree would hide the rows
+  still to be marked, so mark several and apply once with `workspace filter on`.
+  Per-window and persisted; orthogonal to `sidebar mode` (the flagged flat list ignores the filter).
+  While the filter is applied, `session go` navigation is scoped to the marked workspaces' sessions (and
+  to the flagged set in flagged mode); an explicit `session select` of a session outside the set switches
+  the filter OFF while KEEPING the set, so re-applying it costs one `workspace filter on`. A workspace
+  created while the filter is applied joins the set, so it is visible without breaking the filter — except
+  a `workspace new --collapsed` (or a `session new --no-select --create-workspace`), whose whole point is a
+  quiet background build.
+  Read membership back from the tree workspace node's `focused` flag. An unknown mode errors.
+- `workspace filter [on|off|toggle] [--window W]` — apply or suspend the whole window's workspace focus
+  filter WITHOUT touching the marked set, so peeking at the full tree and coming back costs one call each
+  way. Window-scoped: it takes NO `--target` (it flips the window's filter, not one workspace's
+  membership), and `--window` picks the window like `sidebar expand`/`sidebar collapse`, defaulting to
+  the frontmost. `toggle` is the default; idempotent (delta-computed); an unknown mode errors, and
+  `no open window` when none is open. `on` with an EMPTY marked set is REFUSED — it returns ok having
+  changed nothing, which is what keeps the filter term of the row-visibility contract exact:
+  `workspaceFilter == true` with nothing marked cannot occur, so an applied filter always has at least one
+  visible member (the full predicate, including the sidebar-mode term, is on the `focused` field above).
+  Read it
+  back from the tree top-level `workspaceFilter`. The GUI half is the sidebar's bottom-bar grid button
+  (filled while applied, disabled with nothing marked), View ▸ Toggle Workspace Filter, the ⌃⇧P palette
+  entry, and the `toggle_workspace_filter` keymap action.
 - `workspace collapse [--target] [--window W]` — collapse ONE workspace's subtree in the sidebar tree
   (hide its sessions); returns the workspace id. The per-workspace counterpart of `sidebar collapse`
   (which collapses ALL but the active workspace) — this targets exactly the addressed workspace and does
@@ -225,8 +268,8 @@ All ten are read-only projections of GUI state.
   it is added to the sidebar but NOT selected or focused, so the current selection and focus are left
   untouched (the new node is not `active` in `tree` — that flag is the read-back); omit it for the default
   select-and-focus behavior. Every other addressing/placement option composes with it, and a background
-  `--create-workspace` create does not clear a focused-workspace filter either (it leaves the sidebar view
-  put instead of revealing the new workspace).
+  `--create-workspace` create does not widen the workspace focus set either (the new workspace stays
+  unmarked, so the filtered sidebar view is left put instead of revealing it).
 - `session duplicate [--target] [--window W]` — create a fresh session in the SAME workspace as the
   target, inserted directly AFTER it, rooted at the target's focused-pane working directory (the live
   OSC 7 cwd the sidebar row shows and `session reveal` opens); selects + focuses the new session and
@@ -252,8 +295,8 @@ All ten are read-only projections of GUI state.
   directory in Finder. Errors when that directory no longer exists.
 - `session go --to next|prev|first|last|next-attention|prev-attention [--window W]` — move the
   selection relative to the CURRENT one (no `--target`). Operates over the VISIBLE/FILTERED set: the
-  flagged sessions in flagged mode, the focused workspace's sessions when a workspace is focused, else
-  all sessions (clearing the flag/focus restores the full set). next/prev wrap around at the ends (last→first,
+  flagged sessions in flagged mode, the marked workspaces' sessions while the focus filter is applied,
+  else all sessions (clearing the flag / suspending the filter restores the full set). next/prev wrap around at the ends (last→first,
   first→last); first/last jump to the ends of that set; next-attention/prev-attention step only through the filtered
   sessions needing attention (status blocked/completed), wrapping. Returns the newly selected id.
 - `session move <workspace> [--target] [--window W]` — relocate the session to another workspace
@@ -331,9 +374,11 @@ All ten are read-only projections of GUI state.
   `0.05..0.95` and persisted, and the applied (clamped) fraction is printed (and returned as `result.ratio`
   under `--json`). Errors when the session has no split. Resizing a hidden split updates the stored
   fraction; it takes effect when the split is next shown.
-- `session status <idle|active|completed|blocked> [--blink] [--auto-reset] [--sound NAME] [--color #rrggbb] [--pane left|right|scratch] [--pane-id TOKEN] [--target] [--window W]` —
-  set the sidebar agent-status glyph. `--blink` pulses it (for attention). `--auto-reset` clears it
-  back to idle once the session is visited (use for a one-shot completion flash). `--sound` plays a
+- `session status <idle|active|completed|blocked> [--blink] [--auto-reset] [--sound NAME] [--color #rrggbb] [--shape circle|square|triangle|diamond|capsule|star] [--pane left|right|scratch] [--pane-id TOKEN] [--target] [--window W]` —
+  set the sidebar agent-status glyph. `--blink` requests an attention pulse; macOS Reduce Motion
+  suppresses the repeating sidebar and dashboard animation while keeping the status visible, and the
+  pulse resumes when Reduce Motion is disabled. `--auto-reset` clears it back to idle once the session
+  is visited (use for a one-shot completion flash). `--sound` plays a
   one-shot sound when the status is set: `default` (the system alert sound) or a system sound name
   (`Basso`, `Blow`, `Bottle`, `Frog`, `Funk`, `Glass`, `Hero`, `Morse`, `Ping`, `Pop`, `Purr`,
   `Sosumi`, `Submarine`, `Tink`; also any custom sound in `~/Library/Sounds`) — an unknown name errors.
@@ -342,14 +387,25 @@ All ten are read-only projections of GUI state.
   `--color` (`#rrggbb`) overrides the glyph tint for THIS call only — it rides the status, so the next
   `session status` without `--color` reverts to the Settings-configured color (a malformed hex errors).
   Use it to distinguish states beyond the fixed palette (e.g. a caller-specific blocked color).
+  `--shape` (`circle`, `square`, `triangle`, `diamond`, `capsule`, `star`) overrides the glyph SILHOUETTE
+  the same way — it rides the status, so the next `session status` without `--shape` reverts to the
+  Settings-configured shape, else the built-in plain circle (an unknown name errors, listing the six).
+  Shape is a second channel alongside the tint, so a session stays distinguishable at a glance and for a
+  color-blind user; use it to mark one session for the length of a run.
+  The value is read back on `tree` as the session node's `statusShape` (the per-call override only, like
+  `statusColor`), and rides the `status` control event's `shape` payload field so an `events` consumer can
+  explain a shape-only change.
+  A `--shape` on `idle` is accepted and ignored, since an idle session draws no glyph.
   `--pane` (`left`|`right`|`scratch`, `left`=main, `right`=split; defaults to `left` when omitted) records
   which pane set the status. It has two effects: (1) keystroke-clear becomes pane-scoped — a status set
   from a background pane survives typing in a DIFFERENT pane (so a `right`- or `scratch`-tagged block is
   no longer wiped by foreground typing in the main pane, and only a keystroke in the OWNING pane clears
-  it), and (2) any user-initiated GUI selection of the session lands on the tagged pane — auto-follow,
+  it), and (2) when the status needs attention (`blocked`/`completed`), any user-initiated GUI selection of
+  the session lands on the tagged pane — auto-follow,
   the attention-nav (⌃⌥↑/⌃⌥↓, the Navigate menu), plain session nav (⌥⌘↑/↓/first/last),
-  the command palettes, and a sidebar row click all reveal and focus it, flipping to the split or
-  showing a hidden scratch instead of the main pane. (The socket `session go next-attention|prev-attention`
+  the command palettes, a sidebar row click, and a Dock-menu session row all reveal and focus it, flipping to the split or
+  showing a hidden scratch instead of the main pane. An `active` status keeps the existing pane selection.
+  (The socket `session go next-attention|prev-attention`
   only STEPS the selection to attention sessions; it does not itself move focus into the tagged pane — the
   reveal is a GUI/auto-follow concern.) An agent that runs in a split or scratch should set its own pane so
   the user lands on it. The value is read back on `tree` as the session node's `statusPane`. An invalid
@@ -421,8 +477,10 @@ All ten are read-only projections of GUI state.
 - `session background color <#rrggbb> [--target] [--window W]` — set a SOLID terminal background color
   (the `background` key, not an image). Takes no opacity: the color is drawn at the Settings window
   translucency (solid when translucency is off; blurred/translucent when on), so it honors your
-  opacity/blur instead of forcing the pane opaque like the image/text watermark. Errors on a malformed
-  color (must be a `#rrggbb` hex value).
+  opacity/blur instead of forcing the pane opaque like the image/text watermark. macOS Reduce
+  Transparency temporarily presents it as opaque and unblurred without changing the saved opacity/blur;
+  the requested presentation returns when Reduce Transparency is disabled. Errors on a malformed color
+  (must be a `#rrggbb` hex value).
 - `session background clear [--target] [--window W]` — remove the session's background.
   Per session (applies to the session's pane(s)); persisted, so it survives a relaunch. An image/text
   watermark makes the pane render OPAQUE, overriding window translucency (an image is invisible at 0
@@ -460,9 +518,15 @@ All ten are read-only projections of GUI state.
 **Displaying an image inline.** This skill bundles `scripts/show-image.sh`. It opens an overlay (a
 real terminal surface) and renders the image there via the kitty graphics protocol, which ghostty —
 agterm's engine — draws natively. No kitty binary and no external image viewer are used; the encoder
-is plain `base64` + `printf`. Run it as `bash <skill-dir>/scripts/show-image.sh <image> [size-percent]`
-(the skill installs to `~/.claude/skills/agterm/` and `~/.codex/skills/agterm/`, so the path is
-`~/.claude/skills/agterm/scripts/show-image.sh` or `~/.codex/skills/agterm/scripts/show-image.sh`).
+is plain `base64` + `printf`. Run it as `bash <skill-dir>/scripts/show-image.sh <image> [size-percent]`,
+resolving `<skill-dir>` as the directory `SKILL.md` was loaded from rather than a fixed path — the skill
+ships both as a plugin (`~/.claude/plugins/cache/…`, `~/.codex/plugins/cache/…`) and as the app's own
+copy (`~/.claude/skills/agterm/`, `~/.codex/skills/agterm/`), and the script sits beside `SKILL.md` in
+every one of them.
+The image is scaled to fit the overlay and centered in it (uniform, aspect preserved, up or down): the
+script asks the terminal for its pixel and cell geometry over `/dev/tty`, reads the image dimensions
+with `sips`, and gives the graphics command an explicit cell box. If the terminal does not answer the
+geometry query it falls back to drawing at native pixel size in the top-left corner.
 Two simpler routes fail and are why the overlay is needed: emitting graphics escapes to the agent's own
 tool stdout (the harness escapes the control bytes) and running an image viewer in the agent's tool
 shell (no controlling terminal — `/dev/tty` errors). See examples.md for usage.
@@ -496,20 +560,26 @@ sandbox-local executable path.
 
 ## window
 
-- `window new [name]` — create and open a window; returns its id.
+- `window new [name] [--minimized]` — create and open a window; returns its id. It replies only once
+  the on-screen window exists, so an immediate `window resize`/`move` on the returned id works.
+  `--minimized` parks it in the Dock right after creating it, and leaves frontmost on a window you can
+  still see — for building a set of project windows and ending up on one you are looking at. The window
+  is presented briefly before it is parked, so expect it to appear and take focus on its way to the Dock.
 - `window list` — `result.windows`, each with `id`, `name`, `open`, `active`, `autoFollowMs` (the
   window's Auto-follow timeout in milliseconds, omitted when the setting is Disabled), and
   `sidebarVisible` (whether that window's sidebar is shown, read from the open window's store — omitted
   for a closed window with no live store), and `geometry` (the open window's live frame `{x, y, width,
   height, display}` in the SAME units `window move`/`window resize` take — `x`/`y` top-left relative to
   `display`, y down — omitted for a closed window; the read side of `window move`/`window resize`, so
-  record it, move/resize, then restore the exact frame on macOS), plus `fullscreen` and `zoomed` (whether the
-  window is in native full screen / zoomed-to-screen — the read side of `window fullscreen` / `window
-  zoom`, so a script can make those toggles idempotent; both omitted for a closed window). The
-  `geometry`/`fullscreen`/`zoomed` fields stay current — the cache is refreshed when a window
-  moves/resizes/zooms/enters or exits full screen, so a hand-drag or GUI toggle is reflected without needing
-  another command. (`autoFollowMs` still reflects the last cache refresh, since a settings change is rare;
-  and unlike `tree`, `window.list` does NOT carry `idleMs` — the live idle metric would freeze in the cache.)
+  record it, move/resize, then restore the exact frame), plus `fullscreen`, `zoomed` and `minimized`
+  (whether the window is in native full screen / zoomed-to-screen / minimized — the read side
+  of `window fullscreen` / `window zoom` / `window minimize`, so a script can act idempotently; all omitted
+  for a closed window). On macOS, a minimized window still reports its `geometry` — the frame it comes back to — so a
+  re-align script can include one. The `geometry`/`fullscreen`/`zoomed`/`minimized` fields stay current —
+  the cache is refreshed when a window moves/resizes/zooms/enters or exits full screen/minimizes or
+  restores, so a hand-drag or GUI toggle is reflected without needing another command. (`autoFollowMs`
+  still reflects the last cache refresh, since a settings change is rare; and unlike `tree`, `window.list`
+  does NOT carry `idleMs` — the live idle metric would freeze in the cache.)
   The GTK Linux frontend omits `geometry`: it restores and clamps size, but GTK4 does not provide
   reliable restorable x/y placement on Wayland or X11.
 - `window select <id>` — raise it if open, else open it.
@@ -531,6 +601,17 @@ sandbox-local executable path.
   via `NSWindow.toggleFullScreen`. A second call exits. The window must be open. This is the control half
   of the View ▸ Toggle Full Screen menu item (⌃⌘F, rebindable as `toggle_fullscreen`) and the green
   traffic-light button — distinct from `zoom`, which only maximizes the frame in the same Space.
+- `window minimize <id> [on|off|toggle]` — minimize the window to the Dock, or restore it, via
+  `NSWindow.miniaturize`/`deminiaturize`. The mode resolves against the window's current state, so `on` and
+  `off` are idempotent and only `toggle` (the default) flips. Both positionals are optional and a window
+  address is always a hex UUID prefix or `active`, so `window minimize on` is understood as the active
+  window. The window must be open, and a window in NATIVE FULL SCREEN is rejected
+  (`cannot minimize a full-screen window — window.fullscreen it first`) because AppKit no-ops miniaturize
+  there. Restoring puts the window back on screen without making it key — use `window select` to restore
+  and raise in one step. This
+  is the control half of ⌘M, the yellow traffic-light button, and the Minimize title-bar double-click
+  action. Read back as `minimized` on `window list`. The state is LIVE-ONLY: it is never persisted, so
+  every window reopens un-minimized after a restart, and a Dock-icon click restores minimized windows.
 
 `window resize`/`move` are control-native (no GUI equivalent — the title bar already drags-to-resize).
 
@@ -604,6 +685,50 @@ Invalid invocations error (rejected at the CLI and re-checked server-side): `--f
 `--auto-size`, a non-positive `--font-size`, `--close` combined with ids, `--mru`, or a font option,
 `--mru` combined with explicit ids, and an open with neither ids nor `--mru`.
 
+## pick
+
+`agtermctl pick [--prompt TEXT] [--allow-custom] [--follow] [--window W] [--no-block]` reads choices
+from stdin and opens a native fuzzy picker in the target window. `pick` defaults to the open subcommand,
+so `agtermctl pick open` is not required.
+
+The first non-whitespace input byte selects the format. `[` starts a JSON array of objects with required
+`id` and `label` strings plus an optional `subtitle`; any other input is split into lines, blank and
+whitespace-only lines are dropped, and each remaining line becomes both the id and label. Item ids must
+be unique, labels must not be empty, labels and subtitles may not contain control characters, and a
+picker accepts at most 1,000 items. An empty list is rejected.
+
+`--prompt` sets the query field's placeholder text. `--allow-custom` adds a row for a nonmatching query and
+returns it as a custom result. A background `--window` target is not raised by default; `--follow`
+raises it. Only one picker can be pending in a window, and a second open fails with
+`pick already pending`.
+
+The default call polls until the user answers and prints one bare JSON result:
+
+```json
+{"result":"picked","id":"production","label":"Production","index":1}
+{"result":"custom","query":"new target"}
+{"result":"cancelled"}
+```
+
+Picked and custom results exit 0. Cancellation exits 2. Protocol, validation, transport, and server
+failures exit 1. The blocking client polls every 100 ms for the first second, then every 500 ms.
+
+`--no-block` returns immediately with `{"id":"<pick-id>"}`. Use
+`agtermctl pick result <pick-id> [--window W]` for a one-shot read; it prints the same bare result JSON,
+including `{"result":"pending"}`, and exits 1 while pending. Use
+`agtermctl pick cancel <pick-id> [--window W]` to cancel it. Result and cancel require the exact picker
+id. Without `--window`, the globally unique id keeps result/cancel pinned to its owning window even if
+the frontmost window changes. With `--window`, a live or close-retained result must belong to that
+window. A wrong id returns `unknown pick: <id>`.
+
+Read the live picker id from the tree's top-level `pickPending` field. It is omitted after selection,
+custom input, cancellation, or window closure. Closing the picker, closing its window, and ⌘W resolve it
+as cancelled. App termination cancels in-memory picker state before stopping the socket, but a client
+whose next poll races process shutdown may observe a transport failure instead of the final cancellation.
+A terminal result stays readable by its own id after the next picker opens in that window, and after the
+window closes — including permanent window deletion — so a blocking caller always reads back the answer
+it waited for. Results age out oldest-first: the 8 most recent per open window, and 32 across closed ones.
+
 ## quick
 
 `agtermctl quick [show|hide|toggle]` — the frontmost window's quick terminal (a single scratch
@@ -638,8 +763,8 @@ workspace tree and the flat flagged working-set list (the durable per-session `f
 is labeled `session : workspace`, even across workspaces). `toggle` is the default; idempotent
 (delta-computed); an unknown mode is an error, and `no open window` when none is open. Persisted
 per-window. While in `flagged` mode, `session go` navigation (and the Ctrl-Tab MRU switcher) is scoped
-to the flagged sessions only; back in `tree` it spans the focused workspace's sessions (when focused)
-or all sessions. The GUI half is the bottom-bar flag button, View ▸ Show Flagged / Show All, and the
+to the flagged sessions only; back in `tree` it spans the marked workspaces' sessions (while the focus
+filter is applied) or all sessions. The GUI half is the bottom-bar flag button, View ▸ Show Flagged / Show All, and the
 ⌃⇧P palette. Use with `session flag` to build and view a cross-workspace working set.
 
 `agtermctl sidebar expand [--window W]` — expand every workspace row in a window's sidebar tree.
@@ -664,6 +789,12 @@ An explicit control notification bypasses focused-pane suppression; the terminal
 suppressed when its exact surface is already focused in the active window. Control-native (no
 GUI/menu equivalent).
 
+The banner is gated by **Settings ▸ Notifications ▸ Show notification banners**; the unseen badge is
+not. With banners off the command still succeeds and still raises the badge, but nothing reaches macOS
+— so it answers `ok` with an advisory `result.text` (`badge updated, but "Show notification banners" is
+off, so no banner was posted`) instead of a bare `ok`. Treat the presence of `result.text` as "no banner
+appeared"; a delivered notification carries none. The badge itself reads back on `tree` as `unseen`.
+
 For agentic attention (waiting on input, or a finished result), prefer `session status` over `notify`
 and OSC 9/777. The two overlap, either can raise an "I need you" signal, but a notification is a
 one-shot banner and badge with no lasting state, while `session status` is a typed, persistent state
@@ -687,6 +818,37 @@ isn't realized.
 `agtermctl keymap reload` — re-read and apply `keymap.conf`; returns `result.count` = the number of
 parse diagnostics (0 = clean). App-global (no `--window`).
 
+`agtermctl keymap list` — the read side of `keymap.reload`. App-global, no target and no args. Returns
+`result.keymap`:
+
+- `path` — the `keymap.conf` this came from.
+- `actions[]` — every rebindable built-in: `action` (its `keymap.conf` name), `chord` (the resolved
+  chord in the same kitty syntax the file uses, omitted when the action is keyless), and
+  `overridden: true` when a `map` line moved it off its shipped default. Every action is listed, bound
+  or not, so you can also see which chords are free.
+- `commands[]` — the custom commands: `name`, and `shortcut` omitted for a palette-only one.
+- `diagnostics[]` — `line` + `message` per parse problem (`keymap.reload` returns only the count).
+- `menu[]` — the key equivalents the menu bar carries: `chord`, the owning `menu`, the item `title`, its
+  `selector`, and `enabled: false` when the item is disabled. agterm's own items report `menuAction:`;
+  anything else is an AppKit-supplied item. Nested submenus are included, attributed to their top-level
+  menu. A disabled item's chord is INERT — AppKit consumes the key and fires nothing, including a
+  same-chord sibling — so an entry marked `enabled: false` explains a dead binding by itself.
+
+**`actions` and `menu` can disagree, and that is what this command is for.** SwiftUI rebuilds the menu
+only on the next app activation, so right after `keymap reload` a chord can be correct in `actions` and
+stale in `menu`. It also resolves a chord collision by unbinding agterm's own item, so a stock item can
+end up holding a chord an action claims. If a keybinding "does not work" while `actions` looks right,
+compare the two lists: find the action's `chord`, then look for that chord in `menu` and check which
+item carries it.
+
+One built-in is legitimately absent from `menu`: `undo_close` (⌘Z by default) is delivered by a key
+monitor, not a menu item, so native text undo keeps working in the rename, palette and Settings fields.
+Its missing menu entry is expected and not a fault.
+
+Menu chords use the same vocabulary as the file (`cmd+opt+up`, `cmd+shift+return`), so the two lists
+compare as plain strings. One exception: the globe/fn modifier prints as `fn+`, which no `keymap.conf`
+line can express — such an item is AppKit's own and never matches an action.
+
 ### keymap.conf format
 
 The file lives at `<config dir>/keymap.conf` (default `~/.config/agterm`; the dir is set in Settings ▸
@@ -699,11 +861,14 @@ Key Mapping). Two verbs, line-based; blank lines and `#` comments ignored:
   sequence (chords joined by `>`, e.g. `ctrl+a>g`). No chord → palette-only.
 
 A **chord** is modifier words joined by `+` then a base key: modifiers `ctrl`, `cmd`, `opt`, `shift`;
-base key is a single character or `tab`/`space`/`return`/`delete`. A key typed with Shift is written
-`shift+<base>` (`shift+/` = `?`, `shift+=` = `+`, `shift+5` = `%`) — the base key, not the shifted glyph.
-Arrows aren't expressible, and `+`/`>` can't be a bare key token (they are the separators), though those
-keys are bindable via `shift+=`/`shift+.`. Some chords are reserved (the Ctrl-Tab switcher, Ctrl-1/2 pane
-focus, and Linux Ctrl+, Preferences shortcut) and cannot be rebound.
+base key is a single character or `tab`/`space`/`return`/`delete`/`left`/`right`/`up`/`down`. A key typed
+with Shift is written `shift+<base>` (`shift+/` = `?`, `shift+=` = `+`, `shift+5` = `%`) — the base key,
+not the shifted glyph. `+`/`>` can't be a bare key token (they are the separators), though those keys are
+bindable via `shift+=`/`shift+.`. A `map` line may not bind a bare, modifier-less arrow (`map left …`) —
+a built-in rides an always-on menu key-equivalent, so a bare arrow would swallow the key everywhere;
+any modifier makes it bindable. Some chords are reserved (the Ctrl-Tab switcher, Ctrl-1/2 pane focus,
+and Linux Ctrl+, Preferences shortcut)
+and cannot be bound.
 
 Custom-command tokens (expanded into the `/bin/sh -c` line, raw — prefer the quoted `$AGT_*` env form
 for untrusted content). A remote host can set the session title (OSC) and working directory (OSC 7),
@@ -724,7 +889,8 @@ controller incarnation remains open.
 
 Built-in action names for `map` include: `new_window`, `new_workspace`, `new_session`,
 `open_directory`, `rename_session`, `duplicate_session`, `close_session`, `reopen_recent`, `undo_close`, `clear_status`, `increase_font_size`,
-`decrease_font_size`, `reset_font_size`, `toggle_split`, `toggle_scratch`, `toggle_sidebar`, `quick_terminal`,
+`decrease_font_size`, `reset_font_size`, `toggle_split`, `toggle_scratch`, `toggle_sidebar`,
+`focus_workspace`, `toggle_workspace_filter`, `quick_terminal`,
 `session_palette`, `command_palette`, `custom_command_palette`, `dashboard`, and the navigation actions (`previous_session`, `next_session`,
 `first_session`, `last_session`, `previous_attention_session`, `next_attention_session`,
 `focus_left_pane`, `focus_right_pane`, `select_theme`). Editing the keymap from a terminal: open
@@ -805,8 +971,12 @@ here is app-global and touches only the captured commands, not those overrides.
 `no overlay` / `still running` / `no result` (overlay), `invalid flag mode` (session flag),
 `invalid fit` / `invalid position` / `invalid opacity` / `invalid color` / `text too long` /
 `unsupported image (PNG or JPEG only)` / `no such image file` / `image path must not contain control characters` / `invalid background mode` (session background),
-`invalid sidebar mode` (sidebar), `invalid focus mode` (workspace focus),
-`no open window` (quick/sidebar), `quick terminal not open` / `quick terminal not realized` (quick type) /
+`invalid sidebar mode` (sidebar),
+`invalid focus mode: <value> (on|off|toggle|add)` (workspace focus over the raw socket; the `agtermctl`
+CLI rejects the same value locally with `mode must be one of: on, off, toggle, add`),
+`invalid workspace filter mode: <value>` (workspace filter over the raw socket; the CLI rejects it
+locally with `mode must be on, off, or toggle`),
+`no open window` (quick/sidebar/workspace filter), `quick terminal not open` / `quick terminal not realized` (quick type) /
 `failed to read surface buffer` (quick text / session text),
 `invalid restore mode` / `session.restore set requires a command` / `command must not contain control characters` /
 `command too long (max 1024 bytes)` / `the scratch terminal is never restored` / `unknown pane id` /
@@ -815,6 +985,9 @@ restore; a `session restore --pane right` on a session with no split also return
 `window not open`
 (resize/move/`--window`), `unknown theme: <name>` (theme set), `unknown sound: <name>` (session status --sound),
 `invalid color (expected #rrggbb)` (session status --color),
+`invalid shape: <value> (circle|square|triangle|diamond|capsule|star)` (session status --shape over the
+raw socket; the `agtermctl` CLI rejects the same value locally with
+`shape must be one of: circle, square, triangle, diamond, capsule, star`),
 `--pane must be left, right, or scratch` (the `--pane` value check — the `agtermctl` CLI rejects a bad pane
 with this for session status/type/text, and over the raw socket `session.status` returns this same string;
 `session.type`/`session.text` over the raw socket instead return `invalid pane: <value>`). Unknown commands fail to decode and return a structured error, never a crash.

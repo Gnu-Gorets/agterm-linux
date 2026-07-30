@@ -73,8 +73,55 @@ struct CommandsTests {
         #expect(try request(["workspace", "focus", "on", "--target", "9f3c"]) == expected)
     }
 
+    @Test func workspaceFocusAddWithTarget() throws {
+        let expected = ControlRequest(cmd: .workspaceFocus, target: "9f3c", args: ControlArgs(mode: "add"))
+        #expect(try request(["workspace", "focus", "add", "--target", "9f3c"]) == expected)
+    }
+
     @Test func workspaceFocusRejectsBadMode() {
-        #expect(throws: (any Error).self) { try Agtermctl.parseAsRoot(["workspace", "focus", "sideways"]) }
+        // rejected by validate() before any request is built; pin the exact allCases-derived message so an
+        // unrelated parse failure can't pass for it.
+        #expect(validationMessage(["workspace", "focus", "sideways"]) == "mode must be one of: on, off, toggle, add")
+    }
+
+    @Test func workspaceFocusHelpListsEveryModeAndWhatItDoesToTheFilter() {
+        // the abstract AND the argument's per-mode prose are both built from allCases, so `--help` can't go
+        // stale when a mode is added. Asserting the raw values alone was NOT enough — the abstract carries
+        // those on its own, so a hand-written argument help could rot undetected; assert each mode's whole
+        // clause (which names its effect on the filter flag) survives into the rendered help.
+        let help = Workspace.Focus.helpMessage(columns: 400)
+        for mode in ControlWorkspaceFocusMode.allCases {
+            #expect(help.contains(mode.rawValue), "workspace focus help should list \(mode.rawValue), got: \(help)")
+            #expect(help.contains(mode.helpSummary),
+                    "workspace focus help should explain \(mode.rawValue)'s filter effect, got: \(help)")
+        }
+    }
+
+    @Test func workspaceFilterDefaultsToggle() throws {
+        #expect(try request(["workspace", "filter"]) == ControlRequest(cmd: .workspaceFilter, args: ControlArgs(mode: "toggle")))
+    }
+
+    @Test func workspaceFilterOn() throws {
+        #expect(try request(["workspace", "filter", "on"]) == ControlRequest(cmd: .workspaceFilter, args: ControlArgs(mode: "on")))
+    }
+
+    @Test func workspaceFilterOff() throws {
+        #expect(try request(["workspace", "filter", "off"]) == ControlRequest(cmd: .workspaceFilter, args: ControlArgs(mode: "off")))
+    }
+
+    @Test func workspaceFilterThreadsWindow() throws {
+        let expected = ControlRequest(cmd: .workspaceFilter, args: ControlArgs(mode: "on", window: "win"))
+        #expect(try request(["workspace", "filter", "on", "--window", "win"]) == expected)
+    }
+
+    @Test func workspaceFilterRejectsBadMode() {
+        #expect(validationMessage(["workspace", "filter", "sideways"]) == "mode must be on, off, or toggle")
+    }
+
+    @Test func workspaceFilterTakesNoTarget() {
+        // window-scoped: it flips the whole window's filter, so a --target would imply it acts on one
+        // workspace. Carrying only ClientOptions is what makes the flag unknown here.
+        #expect(throws: (any Error).self) { try Agtermctl.parseAsRoot(["workspace", "filter", "on", "--target", "9f3c"]) }
     }
 
     @Test func workspaceCollapseDefaultsActive() throws {
@@ -525,6 +572,41 @@ struct CommandsTests {
         #expect(validationMessage(["session", "status", "blocked", "--color", "nope"]) == "color must be a #rrggbb hex value")
     }
 
+    @Test func sessionStatusWithShape() throws {
+        let req = try request(["session", "status", "blocked", "--shape", "triangle"])
+        #expect(req.cmd == .sessionStatus)
+        #expect(req.args?.status == "blocked")
+        #expect(req.args?.shape == "triangle")
+        #expect(req == ControlRequest(cmd: .sessionStatus, target: "active",
+                                      args: ControlArgs(status: "blocked", shape: "triangle")))
+    }
+
+    @Test(arguments: StatusShape.allCases)
+    func sessionStatusAcceptsEveryShape(_ shape: StatusShape) throws {
+        #expect(try request(["session", "status", "active", "--shape", shape.rawValue]).args?.shape == shape.rawValue)
+    }
+
+    @Test func sessionStatusWithoutShape() throws {
+        let req = try request(["session", "status", "active"])
+        #expect(req.args?.shape == nil)
+    }
+
+    @Test func sessionStatusRejectsUnknownShape() {
+        // an unknown shape is rejected by validate() before any request is built, so it never reaches the
+        // socket; pin the exact allCases-derived message so an unrelated parse failure can't pass for it.
+        #expect(validationMessage(["session", "status", "blocked", "--shape", "hexagon"])
+            == "shape must be one of: circle, square, triangle, diamond, capsule, star")
+    }
+
+    @Test func sessionStatusShapeHelpListsEveryShape() {
+        // the --shape help is built from allCases like the validation message, so `--help` can't go stale
+        // when the set changes; assert every raw value survives into the rendered help.
+        let help = Session.Status.helpMessage(columns: 200)
+        for shape in StatusShape.allCases {
+            #expect(help.contains(shape.rawValue), "--shape help should list \(shape.rawValue), got: \(help)")
+        }
+    }
+
     @Test func sessionStatusWithPane() throws {
         let expected = ControlRequest(cmd: .sessionStatus, target: "s1",
                                       args: ControlArgs(pane: "right", status: "blocked"))
@@ -842,6 +924,93 @@ struct CommandsTests {
             ControlRequest(cmd: .surfaceZoom, target: "active", args: ControlArgs(mode: "hide", window: "win")))
     }
 
+    // MARK: - pick
+
+    @Test func pickDefaultsToOpen() throws {
+        #expect(try Agtermctl.parseAsRoot(["pick"]) is Pick.Open)
+    }
+
+    @Test func pickOpenSniffsJSONArray() throws {
+        let input = Data("""
+          [
+            {"id":"one","label":"One","subtitle":"First"},
+            {"id":"two","label":"Two"}
+          ]
+        """.utf8)
+
+        #expect(try Pick.Open.parseItems(input) == [
+            ControlPickItem(id: "one", label: "One", subtitle: "First"),
+            ControlPickItem(id: "two", label: "Two")
+        ])
+    }
+
+    @Test func pickOpenSniffsBareLines() throws {
+        #expect(try Pick.Open.parseItems(Data("One\nTwo\n".utf8)) == [
+            ControlPickItem(id: "One", label: "One"),
+            ControlPickItem(id: "Two", label: "Two")
+        ])
+    }
+
+    @Test func pickOpenDropsBlankLines() throws {
+        #expect(try Pick.Open.parseItems(Data("\nOne\n \t \n\nTwo\n".utf8)) == [
+            ControlPickItem(id: "One", label: "One"),
+            ControlPickItem(id: "Two", label: "Two")
+        ])
+    }
+
+    @Test func pickOpenAcceptsEmptyStdinAsNoItems() throws {
+        #expect(try Pick.Open.parseItems(Data()).isEmpty)
+    }
+
+    @Test func pickOpenRejectsMalformedJSON() {
+        #expect(throws: (any Error).self) {
+            try Pick.Open.parseItems(Data("[{\"id\":\"one\"".utf8))
+        }
+    }
+
+    @Test func pickOpenMapsEveryOptionToRequest() throws {
+        let command = try Pick.Open.parse([
+            "--prompt", "Choose one", "--allow-custom", "--follow",
+            "--window", "w1", "--no-block"
+        ])
+        let items = [ControlPickItem(id: "One", label: "One")]
+        let expected = ControlRequest(
+            cmd: .pickOpen,
+            args: ControlArgs(
+                follow: true, items: items, prompt: "Choose one",
+                allowCustom: true, window: "w1"
+            )
+        )
+
+        #expect(try command.makeRequest(input: Data("One\n".utf8)) == expected)
+        #expect(command.noBlock)
+    }
+
+    @Test func pickOpenDefaultsToBlockingWithoutOptionalArgs() throws {
+        let command = try Pick.Open.parse([])
+        let items = [ControlPickItem(id: "One", label: "One")]
+
+        #expect(try command.makeRequest(input: Data("One\n".utf8)) ==
+            ControlRequest(cmd: .pickOpen, args: ControlArgs(items: items)))
+        #expect(!command.noBlock)
+    }
+
+    @Test func pickResultMapsIDAndWindow() throws {
+        #expect(try request(["pick", "result", "pick-1", "--window", "w1"]) ==
+            ControlRequest(cmd: .pickResult, target: "pick-1", args: ControlArgs(window: "w1")))
+    }
+
+    @Test func pickCancelMapsIDAndWindow() throws {
+        #expect(try request(["pick", "cancel", "pick-1", "--window", "w1"]) ==
+            ControlRequest(cmd: .pickCancel, target: "pick-1", args: ControlArgs(window: "w1")))
+    }
+
+    @Test func pickOpenHasNoTimeoutOption() {
+        #expect(throws: (any Error).self) {
+            try Agtermctl.parseAsRoot(["pick", "--timeout", "60"])
+        }
+    }
+
     // MARK: - dashboard
 
     @Test func dashboardOpenWithIdsAndFontSize() throws {
@@ -1004,6 +1173,15 @@ struct CommandsTests {
         #expect(throws: (any Error).self) { try Agtermctl.parseAsRoot(["keymap", "reload", "--window", "w1"]) }
     }
 
+    @Test func keymapList() throws {
+        #expect(try request(["keymap", "list"]) == ControlRequest(cmd: .keymapList))
+    }
+
+    @Test func keymapListRejectsWindowSelector() {
+        // keymap.list is app-global like keymap.reload, so --window is meaningless.
+        #expect(throws: (any Error).self) { try Agtermctl.parseAsRoot(["keymap", "list", "--window", "w1"]) }
+    }
+
     @Test func configReload() throws {
         #expect(try request(["config", "reload"]) == ControlRequest(cmd: .configReload))
     }
@@ -1065,6 +1243,14 @@ struct CommandsTests {
         #expect(try request(["window", "new"]) == ControlRequest(cmd: .windowNew, args: ControlArgs(name: nil)))
     }
 
+    @Test func windowNewMinimized() throws {
+        #expect(try request(["window", "new", "Work", "--minimized"])
+            == ControlRequest(cmd: .windowNew, args: ControlArgs(name: "Work", minimized: true)))
+        // omitted rather than false, so an un-flagged create stays byte-identical on the wire
+        #expect(try request(["window", "new", "Work"])
+            == ControlRequest(cmd: .windowNew, args: ControlArgs(name: "Work", minimized: nil)))
+    }
+
     @Test func windowList() throws {
         #expect(try request(["window", "list"]) == ControlRequest(cmd: .windowList))
     }
@@ -1120,6 +1306,30 @@ struct CommandsTests {
 
     @Test func windowFullscreenDefaultsActive() throws {
         #expect(try request(["window", "fullscreen"]) == ControlRequest(cmd: .windowFullscreen, target: "active"))
+    }
+
+    @Test func windowMinimize() throws {
+        #expect(try request(["window", "minimize", "9f3c", "on"])
+            == ControlRequest(cmd: .windowMinimize, target: "9f3c", args: ControlArgs(mode: "on")))
+        #expect(try request(["window", "minimize", "9f3c", "off"])
+            == ControlRequest(cmd: .windowMinimize, target: "9f3c", args: ControlArgs(mode: "off")))
+    }
+
+    @Test func windowMinimizeDefaultsActiveAndToggle() throws {
+        #expect(try request(["window", "minimize"])
+            == ControlRequest(cmd: .windowMinimize, target: "active", args: ControlArgs(mode: "toggle")))
+    }
+
+    @Test func windowMinimizeBareModeTargetsActive() throws {
+        // both positionals are optional, so a bare mode word would otherwise bind to the id. A window
+        // address is a hex UUID prefix or `active`, never a mode word, so the recovery can't misfire.
+        #expect(try request(["window", "minimize", "on"])
+            == ControlRequest(cmd: .windowMinimize, target: "active", args: ControlArgs(mode: "on")))
+        #expect(try request(["window", "minimize", "toggle"])
+            == ControlRequest(cmd: .windowMinimize, target: "active", args: ControlArgs(mode: "toggle")))
+        // an id that merely looks like a mode word is still an id (hex `0ff`, not the word `off`)
+        #expect(try request(["window", "minimize", "0ff"])
+            == ControlRequest(cmd: .windowMinimize, target: "0ff", args: ControlArgs(mode: "toggle")))
     }
 
     @Test func windowDeleteDefaultsActive() throws {

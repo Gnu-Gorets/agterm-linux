@@ -172,25 +172,39 @@ public final class WindowLibrary {
         stores[id] != nil
     }
 
+    /// Auto-hide-inactive-sidebars driver: the frontmost open window shows its sidebar and every OTHER
+    /// open window collapses its own. With a single open window it force-shows that (active) window's
+    /// sidebar and collapses nothing. Host-free so it is unit-testable; the app-side caller gates it on the
+    /// `autoHideSidebarInactiveWindows` setting and invokes it on every frontmost change (and once when the
+    /// toggle flips on). `setSidebarVisible` no-ops a window already in its target state, so the
+    /// write/persist/notify happens only for the windows that actually change.
+    public func applyInactiveWindowSidebarHiding() {
+        guard let active = activeWindowID else { return }
+        for id in openIDs() {
+            stores[id]?.setSidebarVisible(id == active)
+        }
+    }
+
     /// The window set projected into the `window.list` control payload (id/name + open/active flags),
     /// in window order.
     /// The `geometry` closure supplies each open window's live on-screen frame; it is app-side (the NSWindow
     /// handles live in `WindowRegistry`, not this host-free model), defaulting to nil so unit tests and any
     /// non-AppKit caller get a geometry-free list.
     public func controlWindowNodes(geometry: (WindowInfo.ID) -> ControlWindowFrame? = { _ in nil },
-                                   flags: (WindowInfo.ID) -> (fullscreen: Bool, zoomed: Bool)? = { _ in nil })
+                                   flags: (WindowInfo.ID) -> (fullscreen: Bool, zoomed: Bool, minimized: Bool)? = { _ in nil })
         -> [ControlWindowNode] {
         let active = activeWindowID
         return windows.map {
             // reach each open store for its auto-follow timeout + sidebar visibility (per-window state); a
-            // closed window has no store and reports nil for both. The frame + fullscreen/zoom flags come
-            // from the app-side closures (nil for a closed window with no NSWindow).
+            // closed window has no store and reports nil for both. The frame + fullscreen/zoom/minimized
+            // flags come from the app-side closures (nil for a closed window with no NSWindow).
             let live = flags($0.id)
             return ControlWindowNode(id: $0.id.uuidString, name: $0.name, open: isOpen($0.id), active: $0.id == active,
                                      autoFollowMs: stores[$0.id]?.autoFollowMs,
                                      sidebarVisible: stores[$0.id]?.sidebarVisible,
                                      geometry: geometry($0.id),
-                                     fullscreen: live?.fullscreen, zoomed: live?.zoomed)
+                                     fullscreen: live?.fullscreen, zoomed: live?.zoomed,
+                                     minimized: live?.minimized)
         }
     }
 

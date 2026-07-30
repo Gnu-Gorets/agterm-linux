@@ -1,4 +1,5 @@
 import agtermCore
+import AppKit
 import SwiftUI
 
 /// One selectable palette entry: a title (and optional subtitle, e.g. a session's cwd), an optional
@@ -10,8 +11,7 @@ struct PaletteItem: Identifiable {
     /// The action's keyboard shortcut hint shown right-aligned, nil for items with no shortcut.
     /// Rebindable built-ins read the live keymap (`AppActions.shortcutGlyph`) so it tracks rebinds and
     /// render as macOS menu glyphs (e.g. `⌘⇧E`); custom commands show their raw kitty shortcut string
-    /// (e.g. `cmd+shift+e`). The six arrow-bound actions, not expressible as a `Chord`, keep their
-    /// hardcoded glyph fallback.
+    /// (e.g. `cmd+shift+e`).
     let shortcut: String?
     /// A small trailing badge label (e.g. `custom` for user-defined keymap commands), nil for none.
     let badge: String?
@@ -21,6 +21,9 @@ struct PaletteItem: Identifiable {
     /// Per-call `#rrggbb` glyph-tint override for the leading status glyph (the session's
     /// `AgentIndicator.color`), so the attention row matches the sidebar; nil = the default status color.
     let statusColor: String?
+    /// Per-call silhouette override for the leading status glyph (the session's `AgentIndicator.shape`),
+    /// so the attention row matches the sidebar; nil = the Settings shape for that status.
+    let statusShape: StatusShape?
     /// Fired when this item BECOMES the selection (keyboard navigation), distinct from `run` (Enter/
     /// click). Only the `.themes` palette sets it — it drives the live theme preview; nil everywhere
     /// else, so the other palettes have no selection side effect.
@@ -29,7 +32,7 @@ struct PaletteItem: Identifiable {
 
     init(id: String? = nil, title: String, subtitle: String? = nil, shortcut: String? = nil,
          badge: String? = nil, status: AgentStatus? = nil, statusColor: String? = nil,
-         onSelect: (() -> Void)? = nil, run: @escaping () -> Void) {
+         statusShape: StatusShape? = nil, onSelect: (() -> Void)? = nil, run: @escaping () -> Void) {
         self.id = id ?? title
         self.title = title
         self.subtitle = subtitle
@@ -37,6 +40,7 @@ struct PaletteItem: Identifiable {
         self.badge = badge
         self.status = status
         self.statusColor = statusColor
+        self.statusShape = statusShape
         self.onSelect = onSelect
         self.run = run
     }
@@ -79,6 +83,17 @@ final class PaletteController {
 struct CommandPalette: View {
     let controller: PaletteController
     let actions: AppActions
+    /// Caller-provided rows for a control-API pick. A non-nil array replaces the built-in mode's
+    /// catalog, including when the array is empty.
+    let explicitItems: [PaletteItem]?
+    /// Search-field prompt for an explicit picker; nil uses the neutral picker default.
+    let prompt: String?
+    /// Whether an unmatched, non-empty explicit-picker query can be submitted as free text.
+    let allowCustom: Bool
+    let onCustom: ((String) -> Void)?
+    /// Called when an explicit picker is dismissed or completes. Built-in palettes leave this nil and
+    /// continue to close through `PaletteController`; a pick uses it to resolve cancellation.
+    let onDismiss: (() -> Void)?
 
     @State private var query = ""
     @State private var selection = 0
@@ -88,7 +103,20 @@ struct CommandPalette: View {
     @State private var filtered: [PaletteItem] = []
     @FocusState private var fieldFocused: Bool
 
+    init(controller: PaletteController, actions: AppActions, items: [PaletteItem]? = nil,
+         prompt: String? = nil, allowCustom: Bool = false, onCustom: ((String) -> Void)? = nil,
+         onDismiss: (() -> Void)? = nil) {
+        self.controller = controller
+        self.actions = actions
+        self.explicitItems = items
+        self.prompt = prompt
+        self.allowCustom = allowCustom
+        self.onCustom = onCustom
+        self.onDismiss = onDismiss
+    }
+
     private var allItems: [PaletteItem] {
+        if let explicitItems { return explicitItems }
         switch controller.mode {
         case .actions: return actions.paletteActions()
         case .sessions: return actions.paletteSessions()
@@ -109,7 +137,7 @@ struct CommandPalette: View {
         // to the alphabetical tie-break below — every row scores 0 for an empty query, so that tie-break
         // would re-sort them A→Z and Return would jump to the alphabetically-first session, not the blocked
         // one. fuzzy filtering still applies once the user types.
-        if controller.mode == .attention, q.isEmpty {
+        if explicitItems == nil, controller.mode == .attention, q.isEmpty {
             filtered = allItems
             selection = filtered.isEmpty ? 0 : min(selection, filtered.count - 1)
             return
@@ -117,10 +145,16 @@ struct CommandPalette: View {
         filtered = fuzzyRank(query: q, items: allItems) { item in
             item.subtitle.map { [item.title, $0] } ?? [item.title]
         }
+        if explicitItems != nil,
+           let label = pickCustomRowLabel(query: q, filteredCount: filtered.count, allowCustom: allowCustom) {
+            let value = q
+            filtered = [PaletteItem(id: "pick-custom", title: label) { onCustom?(value) }]
+        }
         selection = filtered.isEmpty ? 0 : min(selection, filtered.count - 1)
     }
 
     private var placeholder: String {
+        if explicitItems != nil { return prompt ?? "Select…" }
         switch controller.mode {
         case .sessions: return "Go to session…"
         case .themes: return "Select a theme…"
@@ -135,7 +169,10 @@ struct CommandPalette: View {
     /// the current theme's row; leaving it (to another mode or closed) reverts any uncommitted preview.
     /// Idempotent — `AppActions` guards begin/cancel on its active flag.
     private func syncThemeSession() {
-        guard controller.mode == .themes else { actions.cancelThemePreview(); return }
+        guard explicitItems == nil, controller.mode == .themes else {
+            actions.cancelThemePreview()
+            return
+        }
         actions.beginThemePreview()
         if let index = filtered.firstIndex(where: { $0.id == actions.currentThemeID }) { selection = index }
     }
@@ -145,7 +182,9 @@ struct CommandPalette: View {
             ZStack(alignment: .top) {
                 Color.black.opacity(0.2)
                     .contentShape(Rectangle())
-                    .onTapGesture { controller.close() }
+                    .onTapGesture { dismiss() }
+                    .accessibilityElement()
+                    .accessibilityIdentifier(explicitItems == nil ? "palette-scrim" : "pick-scrim")
                 panel
                     .frame(width: 520)
                     .padding(.top, geo.size.height * 0.12)
@@ -165,20 +204,22 @@ struct CommandPalette: View {
                     .onChange(of: query) { selection = 0; updateFiltered(); previewSelected() }
                     .onKeyPress(.downArrow) { move(1); return .handled }
                     .onKeyPress(.upArrow) { move(-1); return .handled }
-                    .onKeyPress(.escape) { controller.close(); return .handled }
+                    .onKeyPress(.escape) { dismiss(); return .handled }
             }
             .padding(12)
             Divider()
             results
         }
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        // Keep the live material in its own invalidation boundary: arrow-key selection changes
+        // rebuild the palette content, but must not recreate/re-resolve the whole panel backdrop.
+        .background { PalettePanelBackground() }
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.1)))
         .shadow(radius: 24)
-        .accessibilityIdentifier("command-palette")
+        .accessibilityIdentifier(explicitItems == nil ? "command-palette" : "pick-palette")
         .onAppear {
             fieldFocused = true
             updateFiltered()
-            syncThemeSession()
+            if explicitItems == nil { syncThemeSession() }
             // a palette opened from a title-bar button (the attention bell) mounts while that button
             // still holds first responder, so the synchronous focus above loses the race and the field
             // never takes the keyboard. re-assert on the next runloop tick — after the click settles —
@@ -186,8 +227,15 @@ struct CommandPalette: View {
             // this is a no-op (see swiftui focus-pattern: onAppear focus may need a main-async kick).
             DispatchQueue.main.async { fieldFocused = true }
         }
-        .onChange(of: controller.mode) { selection = 0; updateFiltered(); syncThemeSession() }
-        .onDisappear { actions.cancelThemePreview() }
+        .onChange(of: controller.mode) {
+            guard explicitItems == nil else { return }
+            selection = 0
+            updateFiltered()
+            syncThemeSession()
+        }
+        .onDisappear {
+            if explicitItems == nil { actions.cancelThemePreview() }
+        }
     }
 
     private var results: some View {
@@ -195,7 +243,7 @@ struct CommandPalette: View {
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(Array(filtered.enumerated()), id: \.element.id) { index, item in
-                        row(item, index: index)
+                        PaletteRow(item: item, isSelected: index == selection)
                             .id(item.id)
                             .onTapGesture { runItem(item) }
                     }
@@ -207,15 +255,70 @@ struct CommandPalette: View {
                 // live theme preview: navigating a row applies it (no-op for non-theme palettes,
                 // whose items carry no onSelect).
                 filtered[sel].onSelect?()
-                withAnimation(.easeOut(duration: 0.1)) { proxy.scrollTo(filtered[sel].id, anchor: .center) }
+                // With no anchor, scrollTo is a no-op while the row is already visible and performs
+                // only the minimum reveal at an edge. Animating a center-anchored scroll on every
+                // key-repeat event continually interrupted layout/compositing and made the whole
+                // material-backed palette flash.
+                proxy.scrollTo(filtered[sel].id)
             }
         }
     }
 
-    private func row(_ item: PaletteItem, index: Int) -> some View {
+    private func move(_ delta: Int) {
+        guard !filtered.isEmpty else { return }
+        selection = max(0, min(selection + delta, filtered.count - 1))
+    }
+
+    /// Preview the currently-selected item (fires its `onSelect`). Called after a filter re-orders the
+    /// list so the new top match previews even when `selection` stayed 0 (no `onChange(of: selection)`).
+    /// A no-op for non-theme palettes — only theme rows carry an `onSelect`.
+    private func previewSelected() {
+        guard filtered.indices.contains(selection) else { return }
+        filtered[selection].onSelect?()
+    }
+
+    private func runSelected() {
+        guard filtered.indices.contains(selection) else { return }
+        runItem(filtered[selection])
+    }
+
+    private func runItem(_ item: PaletteItem) {
+        item.run()
+        dismiss()
+    }
+
+    private func dismiss() {
+        if explicitItems == nil { controller.close() }
+        onDismiss?()
+    }
+}
+
+/// The panel's live material is deliberately a separate view type so selection state changes in
+/// `CommandPalette` do not invalidate and re-resolve the entire backdrop.
+private struct PalettePanelBackground: View {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    @ViewBuilder var body: some View {
+        if reduceTransparency {
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(nsColor: .windowBackgroundColor))
+        } else {
+            RoundedRectangle(cornerRadius: 12)
+                .fill(.regularMaterial)
+        }
+    }
+}
+
+/// A real row view gives SwiftUI a narrow diffing boundary: selection changes update the previous
+/// and next rows instead of rebuilding every row helper in the lazy stack.
+private struct PaletteRow: View {
+    let item: PaletteItem
+    let isSelected: Bool
+
+    var body: some View {
         HStack {
             if let status = item.status {
-                StatusGlyph(status: status, colorHex: item.statusColor)
+                StatusGlyph(status: status, colorHex: item.statusColor, shape: item.statusShape)
             }
             VStack(alignment: .leading, spacing: 1) {
                 Text(item.title)
@@ -246,30 +349,8 @@ struct CommandPalette: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(index == selection ? Color.accentColor.opacity(0.25) : Color.clear)
+        .background(isSelected ? Color.accentColor.opacity(0.25) : Color.clear)
         .contentShape(Rectangle())
-    }
-
-    private func move(_ delta: Int) {
-        guard !filtered.isEmpty else { return }
-        selection = max(0, min(selection + delta, filtered.count - 1))
-    }
-
-    /// Preview the currently-selected item (fires its `onSelect`). Called after a filter re-orders the
-    /// list so the new top match previews even when `selection` stayed 0 (no `onChange(of: selection)`).
-    /// A no-op for non-theme palettes — only theme rows carry an `onSelect`.
-    private func previewSelected() {
-        guard filtered.indices.contains(selection) else { return }
-        filtered[selection].onSelect?()
-    }
-
-    private func runSelected() {
-        guard filtered.indices.contains(selection) else { return }
-        runItem(filtered[selection])
-    }
-
-    private func runItem(_ item: PaletteItem) {
-        item.run()
-        controller.close()
+        .accessibilityIdentifier("palette-item-\(item.id)")
     }
 }

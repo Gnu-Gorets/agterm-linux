@@ -63,6 +63,88 @@ final class PaneAwareStatusUITests: ControlAPITestCase {
         XCTAssertNotEqual(sessionB, sessionA, "sanity: the parked session is distinct")
     }
 
+    // A sole attention session is already selected, so both attention-nav directions are selection no-ops:
+    // `navigateSession` returns nil after wrapping back to the current row. They must still read the live
+    // indicator and reveal its tagged pane instead of falling back to the currently focused main pane.
+    func testAttentionNavRevealsTaggedPaneWhenSoleAttentionSessionIsAlreadySelected() throws {
+        let sessionA = try activeSessionID()
+        XCTAssertEqual(try sendCommand(#"{"cmd":"session.split","target":"\#(sessionA)","args":{"mode":"on"}}"#)["ok"] as? Bool,
+                       true, "split on should succeed")
+        XCTAssertTrue(pollActiveSessionSplit(true, timeout: 10), "the session should report split:true")
+
+        let leftTag = "PAWNL-\(UUID().uuidString.prefix(8))"
+        let rightTag = "PAWNR-\(UUID().uuidString.prefix(8))"
+        try seedPaneMarker(target: sessionA, pane: "left", tag: leftTag)
+        try seedPaneMarker(target: sessionA, pane: "right", tag: rightTag)
+
+        XCTAssertEqual(try sendCommand(#"{"cmd":"session.focus","target":"\#(sessionA)","args":{"pane":"left"}}"#)["ok"] as? Bool,
+                       true, "focusing the left pane should succeed")
+        XCTAssertTrue(try pollOnScreen(target: sessionA, contains: "\(leftTag)-42"),
+                      "the selected session should start with its primary pane on-screen")
+        try blockPane("right", target: sessionA)
+
+        attentionNavDown()
+
+        XCTAssertTrue(try pollActiveNode(equals: sessionA, timeout: 12),
+                      "next-attention should keep the sole attention session selected")
+        XCTAssertTrue(try pollOnScreen(target: sessionA, contains: "\(rightTag)-42"),
+                      "next-attention should reveal the selected session's tagged right pane")
+
+        XCTAssertEqual(try sendCommand(#"{"cmd":"session.focus","target":"\#(sessionA)","args":{"pane":"left"}}"#)["ok"] as? Bool,
+                       true, "focusing the left pane again should succeed")
+        XCTAssertTrue(try pollOnScreen(target: sessionA, contains: "\(leftTag)-42"),
+                      "the primary pane should be on-screen again before previous-attention")
+
+        attentionNavUp()
+
+        XCTAssertTrue(try pollActiveNode(equals: sessionA, timeout: 12),
+                      "previous-attention should keep the sole attention session selected")
+        XCTAssertTrue(try pollOnScreen(target: sessionA, contains: "\(rightTag)-42"),
+                      "previous-attention should reveal the selected session's tagged right pane")
+    }
+
+    // The INVERSE of the test above, and the reason plain nav and attention nav must not share a fallback:
+    // a PLAIN ⌥⌘↓ that resolves to the session already selected must leave the user's pane alone. In a
+    // one-element filtered set (flagged mode, a single flag) `next` wraps back onto the current session, so
+    // `navigateSession` re-selects it and — since `selectSession` does not short-circuit a same-target select
+    // — still hands back an indicator. Revealing on that would clear `splitFocused` and drop the user onto
+    // the primary pane on a keystroke that moved nothing.
+    func testPlainNavNoOpKeepsTheFocusedSplitPane() throws {
+        let sessionA = try activeSessionID()
+        XCTAssertEqual(try sendCommand(#"{"cmd":"session.split","target":"\#(sessionA)","args":{"mode":"on"}}"#)["ok"] as? Bool,
+                       true, "split on should succeed")
+        XCTAssertTrue(pollActiveSessionSplit(true, timeout: 10), "the session should report split:true")
+
+        let leftTag = "PNOL-\(UUID().uuidString.prefix(8))"
+        let rightTag = "PNOR-\(UUID().uuidString.prefix(8))"
+        try seedPaneMarker(target: sessionA, pane: "left", tag: leftTag)
+        try seedPaneMarker(target: sessionA, pane: "right", tag: rightTag)
+
+        // the user is working in the split (right) pane while the agent blocks in the MAIN pane. An UNTAGGED
+        // block is treated as `left`, which is what a plain `agtermctl session status blocked` sends, and a
+        // left-scoped block is not cleared by typing in the right pane, so the state persists into the nav.
+        XCTAssertEqual(try sendCommand(#"{"cmd":"session.focus","target":"\#(sessionA)","args":{"pane":"right"}}"#)["ok"] as? Bool,
+                       true, "focusing the right pane should succeed")
+        XCTAssertTrue(try pollOnScreen(target: sessionA, contains: "\(rightTag)-42"),
+                      "the split pane should be the on-screen surface before nav")
+        try blockPane("blocked", pane: nil, target: sessionA)
+
+        // narrow the navigable set to this one session so ⌥⌘↓ wraps onto it instead of moving elsewhere.
+        XCTAssertEqual(try sendCommand(#"{"cmd":"session.flag","target":"\#(sessionA)","args":{"mode":"on"}}"#)["ok"] as? Bool,
+                       true, "flagging the session should succeed")
+        XCTAssertEqual(try sendCommand(#"{"cmd":"sidebar.mode","args":{"mode":"flagged"}}"#)["ok"] as? Bool,
+                       true, "switching to flagged mode should succeed")
+
+        app.typeKey(.downArrow, modifierFlags: [.command, .option])
+
+        XCTAssertTrue(try pollActiveNode(equals: sessionA, timeout: 12),
+                      "the wrapping step should keep the same session selected")
+        XCTAssertFalse(try pollOnScreen(target: sessionA, contains: "\(leftTag)-42", timeout: 3),
+                       "a plain nav that moved nothing must not pull the on-screen surface onto the primary pane")
+        XCTAssertTrue(try pollOnScreen(target: sessionA, contains: "\(rightTag)-42"),
+                      "the split pane the user was working in should still be the on-screen surface")
+    }
+
     // a `right`-tagged block on a HIDDEN split: nav reveals it by swapping which pane shows MAXIMIZED (the
     // split stays hidden — split:false — but the right pane is now the on-screen one), not by re-showing the
     // two panes side-by-side.
@@ -94,7 +176,7 @@ final class PaneAwareStatusUITests: ControlAPITestCase {
         XCTAssertTrue(try pollActiveNode(equals: sessionA, timeout: 12), "attention-nav should land on the blocked session")
         XCTAssertTrue(try pollOnScreen(target: sessionA, contains: "\(rightTag)-42"),
                       "the reveal should swap the hidden split to show the right pane maximized")
-        XCTAssertEqual(try sessionNode(id: sessionA)?["split"] as? Bool, false,
+        XCTAssertEqual(try sessionNode(id: sessionA)["split"] as? Bool, false,
                        "the split stays hidden after the reveal — the right pane is shown maximized, not side-by-side")
     }
 
@@ -178,6 +260,21 @@ final class PaneAwareStatusUITests: ControlAPITestCase {
         app.staticTexts["session-row"].firstMatch.click()
         usleep(800_000)
 
+        // the `right` case needs a LIVE split. `setAgentIndicator` coerces a `.right` tag to `.left` on a
+        // session with no split (the promoted-survivor normalization, pinned host-free by
+        // AppStorePaneTests.setAgentIndicatorCoercesRightToLeftWithoutLiveSplit), which would hand the block
+        // to the very pane this test types into and let the Escape clear it — a `right` tag is only a
+        // BACKGROUND pane once the right pane really exists. Opening the split focuses the NEW right pane,
+        // so hand focus back to the main pane before typing.
+        XCTAssertEqual(try sendCommand(#"{"cmd":"session.split","target":"\#(sessionA)","args":{"mode":"on"}}"#)["ok"] as? Bool,
+                       true, "session.split on should succeed")
+        XCTAssertTrue(try pollSplit(sessionA, timeout: 10), "the split should be live before tagging the right pane")
+        XCTAssertEqual(try sendCommand(#"{"cmd":"session.focus","target":"\#(sessionA)","args":{"pane":"left"}}"#)["ok"] as? Bool,
+                       true, "session.focus left should succeed")
+        XCTAssertTrue(try pollSplitFocused(sessionA, expected: false, timeout: 10),
+                      "focus should be back on the main pane before typing")
+        usleep(800_000)
+
         // a right- or scratch-tagged block survives Escape typed into the main pane.
         for tag in ["right", "scratch"] {
             try blockPane("blocked", pane: tag, target: sessionA)
@@ -187,7 +284,7 @@ final class PaneAwareStatusUITests: ControlAPITestCase {
             usleep(600_000)
             XCTAssertTrue(app.staticTexts["agent-status"].exists,
                           "typing in the main pane must NOT clear a \(tag)-tagged block")
-            XCTAssertEqual(try sessionNode(id: sessionA)?["status"] as? String, "blocked",
+            XCTAssertEqual(try sessionNode(id: sessionA)["status"] as? String, "blocked",
                            "the \(tag)-tagged block should still read blocked after main-pane typing")
             XCTAssertEqual(try sendCommand(#"{"cmd":"session.status","target":"\#(sessionA)","args":{"status":"idle"}}"#)["ok"] as? Bool,
                            true, "clearing to idle should succeed")
@@ -329,7 +426,7 @@ final class PaneAwareStatusUITests: ControlAPITestCase {
         var stayedShown = true
         for _ in 0..<8 {
             usleep(250_000)
-            if try sessionNode(id: sessionA)?["scratch"] as? Bool != true { stayedShown = false; break }
+            if try sessionNode(id: sessionA)["scratch"] as? Bool != true { stayedShown = false; break }
         }
         XCTAssertTrue(stayedShown, "the shown scratch must stay shown after selecting the idle session (reveal is a no-op)")
         XCTAssertTrue(try pollOnScreen(target: sessionA, contains: "\(scratchTag)-42"),
@@ -391,12 +488,13 @@ final class PaneAwareStatusUITests: ControlAPITestCase {
         XCTAssertEqual(try sendCommand(line)["ok"] as? Bool, true, "session.status \(status) --pane \(pane ?? "-") should succeed")
     }
 
-    /// Seed a pane's shell with `echo <tag>-$((6*7))`, polling until the pane's own buffer carries `<tag>-42`
-    /// (the arithmetic result proves the shell RAN the line, not merely echoed it). Reuses the base
+    /// Seed a pane's shell with `printf '<tag>-%s\n' 42`, polling until the pane's own buffer carries `<tag>-42`
+    /// (the input contains `<tag>-%s`, so only executed output contains the marker). Reuses the base
     /// `pollPaneText` readiness-retry so a freshly-spawned pane's dropped first keystrokes are re-injected.
     private func seedPaneMarker(target: String, pane: String, tag: String) throws {
         let seeded = try pollPaneText(target: target, pane: pane, contains: "\(tag)-42", retype: {
-            _ = try self.sendCommand(self.typeRequest(text: "echo \(tag)-$((6*7))\n", target: target, select: false, pane: pane))
+            _ = try self.sendCommand(self.typeRequest(text: "printf '\(tag)-%s\\n' 42\n",
+                                                      target: target, select: false, pane: pane))
         })
         XCTAssertNotNil(seeded, "seeding the \(pane) pane marker should land in its buffer")
     }
@@ -444,6 +542,11 @@ final class PaneAwareStatusUITests: ControlAPITestCase {
     /// so it dispatches regardless of which surface holds first responder (as `SessionNavUITests` drives ⌥⌘↓).
     private func attentionNavDown() {
         app.typeKey(.downArrow, modifierFlags: [.control, .option])
+    }
+
+    /// Fire the GUI previous-attention shortcut ⌃⌥↑.
+    private func attentionNavUp() {
+        app.typeKey(.upArrow, modifierFlags: [.control, .option])
     }
 
     /// Click the `session-row` whose displayed name (its accessibility VALUE) equals `name`. A renamed
@@ -495,19 +598,9 @@ final class PaneAwareStatusUITests: ControlAPITestCase {
         return try onScreenText(target)?.contains(needle) ?? false
     }
 
-    /// The session node (case-insensitive id) from a fresh `tree`, across all workspaces, or nil.
-    private func sessionNode(id: String) throws -> [String: Any]? {
-        let tree = try sendCommand(#"{"cmd":"tree"}"#)
-        guard let result = tree["result"] as? [String: Any],
-              let t = result["tree"] as? [String: Any],
-              let workspaces = t["workspaces"] as? [[String: Any]] else { return nil }
-        let sessions = workspaces.flatMap { ($0["sessions"] as? [[String: Any]]) ?? [] }
-        return sessions.first { ($0["id"] as? String)?.lowercased() == id.lowercased() }
-    }
-
     /// The `statusPane` read-back of `target` from the tree (nil when idle/unspecified).
     private func statusPane(of target: String) throws -> String? {
-        try sessionNode(id: target)?["statusPane"] as? String
+        try sessionNode(id: target)["statusPane"] as? String
     }
 
     /// The id (lowercased) of the tree's `active` (= selected) session, or nil.
@@ -535,9 +628,9 @@ final class PaneAwareStatusUITests: ControlAPITestCase {
     private func pollScratch(id target: String, equals expected: Bool, timeout: TimeInterval) throws -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if try sessionNode(id: target)?["scratch"] as? Bool == expected { return true }
+            if try sessionNodeIfPresent(id: target)?["scratch"] as? Bool == expected { return true }
             usleep(250_000)
         }
-        return try sessionNode(id: target)?["scratch"] as? Bool == expected
+        return try sessionNodeIfPresent(id: target)?["scratch"] as? Bool == expected
     }
 }

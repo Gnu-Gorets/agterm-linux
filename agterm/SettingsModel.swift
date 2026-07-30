@@ -79,9 +79,11 @@ final class SettingsModel {
         applySidebarFontSize()
         applyBaseFontSize()
         applyAgentStatusColors()
+        applyAgentStatusShapes()
         applyRestoreRunningCommand()
         applyAttentionButtonEnabled()
         applyInterfaceElements()
+        applyAutoHideSidebarInactiveWindows()
         // create the commented starter keymap on first launch, then load + parse it.
         ensureStarterKeymap()
         loadKeymap()
@@ -241,6 +243,16 @@ final class SettingsModel {
     // chrome flag, not a ghostty key: persistAndApply() no-ops the config but rides .agtermAppearanceChanged.
     func setAttentionButtonEnabled(_ value: Bool?) { settings.attentionButtonEnabled = value; persistAndApply() }
 
+    /// Persist whether only the frontmost window shows its sidebar. A behavior flag, not a ghostty key, so
+    /// `persistAndApply()` no-ops the config; it pushes the `GhosttyApp` mirror the frontmost-change driver
+    /// reads. Turning it ON collapses every inactive window's sidebar immediately, rather than waiting for
+    /// the next window-focus change.
+    func setAutoHideSidebarInactiveWindows(_ value: Bool?) {
+        settings.autoHideSidebarInactiveWindows = value
+        persistAndApply()
+        if value == true { library.applyInactiveWindowSidebarHiding() }
+    }
+
     /// Show or hide a single title-bar / sidebar-footer chrome element, then persist. Toggling `visible`
     /// off adds the element to `hiddenInterfaceElements`, on removes it; an empty result maps back to nil so
     /// `settings.json` stays minimal. A GUI-only chrome flag, not a ghostty key — `persistAndApply()`
@@ -267,6 +279,12 @@ final class SettingsModel {
     func setActiveStatusColorHex(_ hex: String?) { settings.activeStatusColorHex = hex; persistAndApply() }
     func setBlockedStatusColorHex(_ hex: String?) { settings.blockedStatusColorHex = hex; persistAndApply() }
     func setCompletedStatusColorHex(_ hex: String?) { settings.completedStatusColorHex = hex; persistAndApply() }
+    /// Persist an agent-status glyph silhouette, stored as the `StatusShape` raw string (nil keeps that
+    /// status on the default plain circle, so `settings.json` stays minimal). `persistAndApply` pushes
+    /// the mirror and posts `.agtermAppearanceChanged`, which repaints the visible glyphs live.
+    func setActiveStatusShape(_ shape: StatusShape?) { settings.activeStatusShape = shape?.rawValue; persistAndApply() }
+    func setBlockedStatusShape(_ shape: StatusShape?) { settings.blockedStatusShape = shape?.rawValue; persistAndApply() }
+    func setCompletedStatusShape(_ shape: StatusShape?) { settings.completedStatusShape = shape?.rawValue; persistAndApply() }
     /// Persist the system sound played when a session enters `blocked` (nil/empty = none). Not a ghostty
     /// key and nothing renders it continuously, so it only saves — `ControlServer` reads it on demand.
     func setBlockedStatusSoundName(_ name: String?) { settings.blockedStatusSoundName = name; try? settingsStore.save(settings) }
@@ -394,11 +412,15 @@ final class SettingsModel {
     }
 
     /// Reset the whole Agent Status section to defaults (the "Reset to defaults" button): the three glyph
-    /// colors back to the system defaults AND the blocked sound back to none.
+    /// colors back to the system defaults, the three glyph shapes back to the default plain circle,
+    /// AND the blocked sound back to none.
     func resetAgentStatus() {
         settings.activeStatusColorHex = nil
         settings.blockedStatusColorHex = nil
         settings.completedStatusColorHex = nil
+        settings.activeStatusShape = nil
+        settings.blockedStatusShape = nil
+        settings.completedStatusShape = nil
         settings.blockedStatusSoundName = nil
         persistAndApply()
     }
@@ -660,9 +682,11 @@ final class SettingsModel {
         applySidebarFontSize()
         applyBaseFontSize()
         applyAgentStatusColors()
+        applyAgentStatusShapes()
         applyRestoreRunningCommand()
         applyAttentionButtonEnabled()
         applyInterfaceElements()
+        applyAutoHideSidebarInactiveWindows()
         // refresh the app chrome (title bar + sidebar + quick terminal) with the new terminal color,
         // window translucency, and toolbar style immediately, rather than only when the window next
         // re-keys. The title-bar re-sync and the cwd-subtitle drop both ride this notification.
@@ -707,6 +731,10 @@ final class SettingsModel {
         GhosttyApp.shared.setHiddenInterfaceElements(settings.resolvedHiddenInterfaceElements)
     }
 
+    private func applyAutoHideSidebarInactiveWindows() {
+        GhosttyApp.shared.setAutoHideSidebarInactiveWindows(settings.autoHideSidebarInactiveWindows ?? false)
+    }
+
     /// Push the current auto-follow configuration into a single window's store. Called when a window's
     /// store is first resolved (`ContentView.resolveStore`) so a newly opened window honors the setting:
     /// the store is built host-free in `WindowLibrary` and can't read these settings itself, so — unlike
@@ -748,6 +776,12 @@ final class SettingsModel {
         GhosttyApp.shared.setAgentStatusColors(activeHex: settings.activeStatusColorHex,
                                                blockedHex: settings.blockedStatusColorHex,
                                                completedHex: settings.completedStatusColorHex)
+    }
+
+    private func applyAgentStatusShapes() {
+        GhosttyApp.shared.setAgentStatusShapes(active: settings.effectiveStatusShape(for: .active),
+                                               blocked: settings.effectiveStatusShape(for: .blocked),
+                                               completed: settings.effectiveStatusShape(for: .completed))
     }
 
     /// Write the ghostty config lines (font/size/theme + the translucency pins) to the file

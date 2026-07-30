@@ -5,6 +5,7 @@ description: >
   control socket. Use when running inside an agterm session and asked to control the terminal:
   create, rename, close, select, or reorder sessions and workspaces; split panes; toggle the
   per-session scratch terminal; open or close overlay terminals and read their exit status; display
+  the native fuzzy picker with caller-supplied choices and poll or cancel it; display
   an image inline via a bundled helper script; type
   into a session, copy its selection, or search its scrollback; post desktop notifications; manage windows (new, list,
   select, close, resize, move); change font size; or reload and edit the keymap and the agterm-scoped
@@ -15,9 +16,9 @@ description: >
   feature request / question as a GitHub Discussion.
 when_to_use: >
   Trigger on: agterm, agtermctl, agterm control socket, session.new, session.close, session.type,
-  session.split, session.scratch, session.focus, session.resize, surface.zoom, dashboard, session.go, session.copy, session.paste, session.selectall, session.text, session.search, session.status,
-  session.flag, session.seen, session.reveal, session.duplicate, session.background, session.overlay, workspace.new, workspace.select, workspace.move, workspace.focus, window.new, window.list,
-  window.select, window.resize, window.move, window.zoom, window.fullscreen, quick terminal, sidebar, sidebar.mode, sidebar.expand, sidebar.collapse, flagged, notify, font.inc, keymap.reload, config.reload,
+  session.split, session.scratch, session.focus, session.resize, surface.zoom, dashboard, pick, pick.open, pick.result, pick.cancel, native picker, session.go, session.copy, session.paste, session.selectall, session.text, session.search, session.status,
+  session.flag, session.seen, session.reveal, session.duplicate, session.background, session.overlay, workspace.new, workspace.select, workspace.move, workspace.focus, workspace.filter, window.new, window.list,
+  window.select, window.resize, window.move, window.zoom, window.fullscreen, window.minimize, quick terminal, sidebar, sidebar.mode, sidebar.expand, sidebar.collapse, flagged, notify, font.inc, keymap.reload, keymap.list, config.reload,
   theme.set, theme.list, events, events.read, event subscription, select theme, edit keymap, show an image, display an image inline, show-image,
   AGTERM_SESSION_ID, AGTERM_SOCKET, and asks to drive or script agterm. Also: troubleshoot agterm,
   keymap editor won't open, custom action / custom command not working, agterm logs, file an agterm
@@ -101,9 +102,10 @@ sidebar is currently shown — the read side of the write-only `sidebar` command
 terminal is shown — the read side of the write-only `quick` command). List windows with
 `agtermctl window list --json`; each window also reports `autoFollowMs`, `sidebarVisible`, `geometry`
 (the live frame `{x, y, width, height, display}` in the units `window move`/`window resize` take — the
-read side, so record it then restore the exact frame), and `fullscreen`/`zoomed` (the read side of
-`window fullscreen`/`window zoom`, so a script can make those toggles idempotent) — all omitted for a
-closed window, but not the live `idleMs`, which is `tree`-only.
+read side, so record it then restore the exact frame), and `fullscreen`/`zoomed`/`minimized` (the read side
+of `window fullscreen`/`window zoom`/`window minimize`, so a script can act idempotently) — all omitted for
+a closed window, but not the live `idleMs`, which is `tree`-only. A MINIMIZED window still reports its
+`geometry` (the frame it comes back to), so a re-align script can include it.
 
 On the GTK Linux frontend, window size is restored and clamped to a connected display, but `geometry`
 is omitted because GTK4 cannot reliably read and restore x/y placement. Wayland compositors own window
@@ -146,7 +148,7 @@ prompt concatenates with yours, and the program starts on the merged line. (`--n
 focus, but the newline and shared-buffer hazards of `type`-as-launcher remain — `--command` is still the
 rule.) After `--command`, confirm in `tree --json` that the new node's `foreground` shows your program running, not a bare shell prompt.
 
-## Command summary (65 commands)
+## Command summary (71 commands)
 
 Run `agtermctl <area> <cmd> --help` for exact flags. Full detail in **reference.md**; recipes in
 **examples.md**.
@@ -159,8 +161,9 @@ persisted restore-command override set via `session restore` — the read side: 
 = pinned to nothing (a plain shell), a command = the shell line that runs on the next launch), `status` (the agent-status set
 via `session status`: `active`|`completed`|`blocked`, omitted when idle), `statusPane` (which pane set
 that status: `left` (main) | `right` (split) | `scratch`, from `session status --pane`, omitted when
-unset or idle), `statusBlink`/`statusColor` (the status glyph's `--blink` flag and `--color` `#rrggbb`
-override from `session status`, omitted when idle / not blinking / default color), `background` (the background
+unset or idle), `statusBlink`/`statusColor`/`statusShape` (the status glyph's `--blink` flag, its `--color`
+`#rrggbb` tint and its `--shape` silhouette from `session status`, omitted when idle / not blinking / using
+the configured color or shape — the tint and the silhouette report the per-call override only), `background` (the background
 spec — image/text watermark or solid color — set via `session background`, omitted when none — the read side of set/clear),
 `unseen` (the unseen-notification badge count — raised by `notify`/OSC 9/777, cleared by `session
 seen` — omitted when zero), `commandWait` (whether a `--command` session was created with `--wait` to
@@ -181,6 +184,8 @@ the open dashboard shows, in grid order — `<session-id>:left` for a primary pa
 a split pane, so a split session appears as both), `dashboardHighlighted` (the highlighted cell's pane ref —
 the one Enter jumps into, focusing that exact pane), `dashboardFontSize` (the absolute font size in points
 applied to the cells, omitted when untouched), and `dashboardFontMode` (`auto`|`fixed`|`untouched`).
+The top level also carries `pickPending`, the id of the native picker currently awaiting an answer in
+that window, omitted when no pick is pending.
 
 **events**: continuously print control events, subscribing from the current tail when no cursor is
 given. Use `--json` for one bare event object per line; filter with repeatable or comma-separated
@@ -190,10 +195,20 @@ one process run. Cursor run changes, expiry, and ahead-of-tail errors are fatal 
 rebaselined. There is no terminal-output event stream.
 
 **workspace** — `new [name] [--collapsed]` (`--collapsed` creates it closed in the sidebar so you can fill
-it with `session new --no-select` without it opening) · `rename <name>` · `delete` · `select` ·
+it with `session new --no-select` without it opening, and keeps it out of the focus set; a plain create
+joins the marked set while the filter is applied, so it is visible) · `rename <name>` · `delete` · `select` ·
 `move --to up|down|top|bottom` ·
-`focus [on|off|toggle]` (collapse the sidebar tree to a single workspace; read back which workspace is
-focused from the tree workspace node's `focused` flag) ·
+`focus [on|off|toggle|add]` (mark ONE workspace in the sidebar's focus set — `on` marks it alone and
+applies the filter, `off` unmarks it, `toggle` (default) replace-toggles, and `add` marks it alongside
+the others WITHOUT switching the filter on; read membership back from the tree workspace node's
+`focused` flag) ·
+`filter [on|off|toggle]` (apply or suspend that filter for the whole window WITHOUT losing the marked
+set — no `--target`; read it back from the tree top-level `workspaceFilter`. Build a working set with
+repeated `focus add`, then apply it once with `filter on`; a workspace row renders iff
+`sidebarVisible && sidebarMode == "tree" && (!workspaceFilter || focused)` — no workspace row renders at
+all with the sidebar hidden or in `flagged` mode, the whole tree renders while the filter is off, and
+only while it is on does visibility narrow to the members — and `filter on` with nothing marked is
+refused so the pair can never lie) ·
 `collapse [--target W] [--window W]` · `expand [--target W] [--window W]` (collapse/expand ONE workspace
 in the sidebar tree — the per-workspace pair, distinct from the all-workspace `sidebar expand`/`collapse`;
 read the open/closed state back from the tree workspace node's `collapsed` flag, `true` when collapsed and
@@ -254,7 +269,7 @@ omitted when expanded).
   equivalent — bind it via a `command "agtermctl session resize …"` custom action). `--split-ratio` sets
   the absolute left-pane fraction (0..1, clamped to 0.05..0.95); `--grow-left`/`--grow-right` nudge it by
   a fraction. Prints the applied (clamped) fraction.
-- `status <idle|active|completed|blocked> [--blink] [--auto-reset] [--sound NAME] [--color #rrggbb] [--pane left|right|scratch] [--pane-id TOKEN]` — set the sidebar agent glyph (`--sound default` or a system sound name plays a one-shot sound; `--color` tints the glyph for this call only, reverting on the next status set without it; `--pane` records which pane set it — `left`=main, `right`=split, `scratch` — so foreground typing in another pane won't clear it and any user-initiated GUI selection (auto-follow, attention-nav ⌃⌥↑/↓, plain session nav, the command palettes, a sidebar row click) reveals the blocking pane, read back as the tree `statusPane` field; the socket `session go next-attention` only steps the selection, it does not itself reveal the pane; `--pane-id` is the hook-forwarded stable surface token (`$AGTERM_PANE_ID`) that resolves the pane's live slot and overrides a stale `--pane` after a promote + re-split — scripts set `--pane` directly and leave `--pane-id` to the hook).
+- `status <idle|active|completed|blocked> [--blink] [--auto-reset] [--sound NAME] [--color #rrggbb] [--shape SHAPE] [--pane left|right|scratch] [--pane-id TOKEN]` — set the sidebar agent glyph (`--sound default` or a system sound name plays a one-shot sound; `--color` tints the glyph for this call only, reverting on the next status set without it; `--shape` (`circle`, `square`, `triangle`, `diamond`, `capsule`, `star`) picks its silhouette for this call only and reverts the same way, read back as the tree `statusShape` field; `--pane` records which pane set it — `left`=main, `right`=split, `scratch` — so foreground typing in another pane won't clear it and any user-initiated GUI selection (auto-follow, attention-nav ⌃⌥↑/↓, plain session nav, the command palettes, a Dock-menu session, a sidebar row click) reveals that pane when the status needs attention (`blocked`/`completed`); `active` preserves the existing pane selection; the pane reads back as the tree `statusPane` field; the socket `session go next-attention` only steps the selection, it does not itself reveal the pane; `--pane-id` is the hook-forwarded stable surface token (`$AGTERM_PANE_ID`) that resolves the pane's live slot and overrides a stale `--pane` after a promote + re-split — scripts set `--pane` directly and leave `--pane-id` to the hook).
 - `flag [on|off|toggle|clear]` — flag a session for the flagged working-set view (`clear` unflags all).
 - `seen [--target] [--window W]` — clear the session's unseen-notification badge WITHOUT changing the
   selection or focus (the focus-free counterpart to `notify`, which raises the badge). Idempotent — a
@@ -296,10 +311,13 @@ omitted when expanded).
   overlay is a real terminal (pty), which is also how you **display an image inline** — via the bundled
   `scripts/show-image.sh` (see below).
 
-**window** — `new [name]` · `list` · `select <id>` · `close <id>` · `rename <id> <name>` ·
+**window** — `new [name] [--minimized]` · `list` · `select <id>` · `close <id>` · `rename <id> <name>` ·
 `delete <id>` · `resize <id> --width W --height H` · `move <id> --x X --y Y [--display N]` ·
 `zoom <id>` (maximize-to-screen toggle, the double-click-header gesture; a plain green-button click does full screen) ·
-`fullscreen <id>` (toggle native macOS full screen, the green-button / ⌃⌘F action).
+`fullscreen <id>` (toggle native macOS full screen, the green-button / ⌃⌘F action) ·
+`minimize <id> [on|off|toggle]` (minimize to the Dock or restore, the ⌘M / yellow-button action; default
+`toggle`, the id may be omitted so `window minimize on` targets the active window; errors on a full-screen
+window; read back as `minimized` on `window list`).
 
 **surface** — `zoom [show|hide|toggle] [--target surface:<session-id>:left|right|scratch|overlay|quick] [--window W]`
 — zoom a terminal surface to fill the window (sidebar hidden; a slim title-bar strip with an exit
@@ -331,6 +349,14 @@ entry
 TOGGLE the frontmost window's MRU dashboard auto-sized (identical to `dashboard --mru --auto-size`); no new
 control command, the socket `dashboard` command is unchanged.
 
+**pick**: `pick [--prompt TEXT] [--allow-custom] [--follow] [--window W] [--no-block]` reads choices
+from stdin and opens the target window's native fuzzy picker. Supply nonblank lines (each line is both
+the id and label) or a JSON array of `{id,label,subtitle?}` items. The default blocks until the user
+chooses or cancels and prints the bare JSON result. `--no-block` prints the picker id instead;
+`pick result ID [--window W]` reads it later, and `pick cancel ID [--window W]` cancels it.
+Only one picker may be pending per window. It opens without raising a background target unless
+`--follow` is set. Read the live picker id from the tree's top-level `pickPending` field.
+
 **quick** — `[show|hide|toggle]` (visibility; read back from the tree's `quickVisible`) ·
 `type TEXT` (or `--stdin`) inject keystrokes into the frontmost window's quick terminal ·
 `text [--all] [--lines N]` read its screen back — the twins of `session type`/`session text`,
@@ -347,7 +373,7 @@ Visibility/mode act on the frontmost window; `expand`/`collapse` default to the 
 
 **font** — `font inc|dec|reset [--pane left|right|scratch]` — change a session pane's font size (omitted/`left` = main pane, `right` = the split pane, `scratch` = the scratch terminal). Read the resulting size back from `tree` (`fontSize`/`splitFontSize`/`scratchFontSize` per pane).
 
-**keymap** — `keymap reload` — re-read `keymap.conf` (prints the parse-diagnostic count).
+**keymap** — `keymap reload` — re-read `keymap.conf` (prints the parse-diagnostic count). `keymap list` — show the resolved keymap AND the live menu key equivalents: every built-in with its current chord, the custom commands, the parse diagnostics, and what the menu bar is actually dispatching. Use it to check a rebind took effect, to find a free chord, or to spot a chord the keymap resolved but the menu is not carrying.
 
 **config** - `config reload` - re-read the agterm-scoped `ghostty.conf` (prints the diagnostic count).
 
@@ -368,10 +394,17 @@ image there via the kitty graphics protocol, which ghostty draws natively — no
 external image tool, just `base64` + `printf`. Run it with the image path (optional size percent,
 default 60):
 
+The script sits next to this file, so resolve `scripts/show-image.sh` against the directory this
+`SKILL.md` was loaded from — not against your working directory. That one form is correct wherever
+the skill came from: a plugin install (`~/.claude/plugins/cache/…`, `~/.codex/plugins/cache/…`) or the
+app's own **Help ▸ Install Agent Skill…** copy (`~/.claude/skills/agterm/`, `~/.codex/skills/agterm/`).
+
 ```bash
-bash ~/.claude/skills/agterm/scripts/show-image.sh <image> [size-percent]   # Claude Code
-bash ~/.codex/skills/agterm/scripts/show-image.sh <image> [size-percent]    # Codex
+bash <this-skill-directory>/scripts/show-image.sh <image> [size-percent]
 ```
+
+The size percent sizes the overlay PANEL; the image itself is scaled to fit that panel and centered
+in it, so a large screenshot needs no resizing beforehand.
 
 Do NOT print graphics escapes to your own tool stdout (the agent harness escapes the control bytes)
 and do NOT run an image viewer in your tool shell (no controlling terminal). The overlay is what makes

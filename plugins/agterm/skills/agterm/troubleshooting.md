@@ -13,7 +13,14 @@ You are inside agterm (`AGTERM_ENABLED=1`). Use:
 
 - **Live state** — `agtermctl tree --json`, `agtermctl window list --json`.
 - **Keymap problems** — `agtermctl keymap reload` prints the parse-diagnostic count (`0` = clean). A
-  non-zero count means `keymap.conf` has problems; the user sees the list in Settings ▸ Key Mapping.
+  non-zero count means `keymap.conf` has problems; `agtermctl keymap list` prints each one with its line
+  and message, and the user also sees the list in Settings ▸ Key Mapping.
+- **A keybinding does not fire** — `agtermctl keymap list` shows the chord each action resolved to AND the
+  key equivalents the menu bar is actually dispatching. If the action's `chord` looks right but no `menu`
+  entry carries it (or a different item does), the keymap is fine and the menu is the problem: SwiftUI
+  rebuilds the menu only on the next app activation, so switch to another app and back, then relaunch if it
+  persists. Exception: `undo_close` (⌘Z) is delivered by a key monitor rather than a menu item, so it never
+  appears under `menu` and its absence there means nothing.
 - **Ghostty settings** - `agtermctl config reload` re-reads the ghostty config and prints the diagnostic
   count (`0` = clean). The count covers every config source, not just `ghostty.conf` (libghostty does not
   record which file a diagnostic came from), so check the Console log for the offending line. `ghostty.conf`
@@ -118,11 +125,25 @@ Confirm what is pinned from `tree --json`: the node's `restoreCommand` (main pan
 (split pane) reports the persisted value, which survives after the override fires, so a read at any point
 shows the truth.
 
+### "notify says ok but no notification appears"
+
+Check **Settings ▸ Notifications ▸ Show notification banners** first. With it off, `notify` succeeds and
+the unseen badge still rises, but nothing is handed to macOS — the command answers `ok` with
+`result.text` = `badge updated, but "Show notification banners" is off, so no banner was posted`
+(a delivered notification carries no `result.text`). macOS must also have granted permission (System
+Settings ▸ Notifications ▸ agterm), and Do Not Disturb / a Focus mode suppresses banners system-wide.
+
+To separate "never posted" from "posted but not shown": `tree --json` shows a rising `unseen` on the
+target session whenever the command reached the notification path, and the log above records both the
+posted and the suppressed case under the `NotificationManager` category.
+
 ### "The agent-status glyph does not update"
 
 Install the hooks from Help ▸ Install Agent Status Hooks…. For shell-integrated agents, start a fresh shell
 so the installer-added `source` line takes effect. For Pi, restart it or run `/reload` so it loads
 `~/.pi/agent/extensions/agterm-status.ts`; the extension installs only after Pi has created `~/.pi/agent`.
+For OpenCode, restart it so it loads `~/.config/opencode/plugins/agterm-status.js`;
+the plugin installs only after OpenCode has created `~/.config/opencode`.
 The installed wrapper resolves the bundled `agtermctl` itself; a bare development build instead needs
 `agtermctl` on `PATH`.
 

@@ -20,6 +20,7 @@ public enum Command: String, Codable, Sendable {
     case sessionMove = "session.move"
     case workspaceMove = "workspace.move"
     case workspaceFocus = "workspace.focus"
+    case workspaceFilter = "workspace.filter"
     case workspaceCollapse = "workspace.collapse"
     case workspaceExpand = "workspace.expand"
     case sessionType = "session.type"
@@ -64,10 +65,15 @@ public enum Command: String, Codable, Sendable {
     case windowMove = "window.move"
     case windowZoom = "window.zoom"
     case windowFullscreen = "window.fullscreen"
+    case windowMinimize = "window.minimize"
     case keymapReload = "keymap.reload"
+    case keymapList = "keymap.list"
     case configReload = "config.reload"
     case themeSet = "theme.set"
     case themeList = "theme.list"
+    case pickOpen = "pick.open"
+    case pickResult = "pick.result"
+    case pickCancel = "pick.cancel"
     case restoreClear = "restore.clear"
     /// UI-TEST-ONLY: force the app-level appearance (`light`|`dark` via `args.name`) so an XCUITest can
     /// simulate a macOS light/dark flip; with NO name it READS the side the last config feed applied,
@@ -104,6 +110,12 @@ public struct ControlArgs: Codable, Sendable, Equatable {
     /// `session.new --no-select` without it opening. Omitted/`false` = expanded. The read-back is the
     /// `tree` workspace node's `collapsed` field.
     public var collapsed: Bool?
+    /// For `window.new`: create the window already MINIMIZED to the Dock (the CLI's `--minimized`) instead
+    /// of presenting it, so a script can build a set of project windows without each one flashing on screen
+    /// and stealing focus. Omitted/`false` presents it as usual. The read-back is the `window.list` node's
+    /// `minimized` field; the new window also hands frontmost back to a still-visible window, so untargeted
+    /// commands do not route into the Dock.
+    public var minimized: Bool?
     /// For `session.new`: create the session in the background without selecting or focusing it, leaving
     /// the current selection untouched (the CLI's `--no-select`). Omitted/`false` keeps the default
     /// select-and-focus behavior. The read-back is the existing `tree` `active` flag — the new node is not
@@ -116,7 +128,9 @@ public struct ControlArgs: Codable, Sendable, Equatable {
     /// Mode for `session.split` / `quick` / `surface.zoom` (`on|off|toggle`,
     /// `show|hide|toggle` for quick/surface zoom),
     /// `session.flag` (`on|off|toggle|clear`), `sidebar.mode` (`tree|flagged|toggle`),
-    /// `workspace.focus` (`on|off|toggle`), `session.background` (`image|text|color|clear`), and
+    /// `workspace.focus` (`on|off|toggle|add`), `workspace.filter` (`on|off|toggle`),
+    /// `window.minimize` (`on|off|toggle`),
+    /// `session.background` (`image|text|color|clear`), and
     /// `session.restore` (`set|none|clear` — pin `command`, pin nothing, or drop the pin).
     public var mode: String?
     /// The image file path for `session.background` mode `image` (PNG or JPEG).
@@ -129,6 +143,11 @@ public struct ControlArgs: Codable, Sendable, Equatable {
     /// override for `session.status` (rides the ephemeral indicator, so it lasts only until the next
     /// `session.status` without a color); nil = the Settings-configured status color.
     public var color: String?
+    /// The per-call glyph-SILHOUETTE override for `session.status` (a `StatusShape` raw value —
+    /// `circle|square|triangle|diamond|capsule|star`, parsed and validated in the dispatcher). Rides the
+    /// ephemeral indicator like `color`, so it lasts only until the next `session.status` without a shape;
+    /// nil = the Settings-configured shape for that status, else the default plain circle.
+    public var shape: String?
     /// The `background-image-opacity` for `session.background` (image + text), 0...1; nil = ghostty's 1.0.
     public var opacity: Double?
     /// The `background-image-fit` for `session.background` (`contain|cover|stretch|none`); nil = `contain`.
@@ -203,6 +222,12 @@ public struct ControlArgs: Codable, Sendable, Equatable {
     /// opens in the background without changing the active session (the default for both full and
     /// floating overlays).
     public var follow: Bool?
+    /// The finished caller-provided choices for `pick.open`.
+    public var items: [ControlPickItem]?
+    /// Optional placeholder text for `pick.open`'s query field.
+    public var prompt: String?
+    /// Whether `pick.open` accepts the current query as a custom result.
+    public var allowCustom: Bool?
     /// Target window for session/workspace/tree/font commands: id / prefix / `active` (=frontmost).
     /// Selects the window whose tree the command operates on.
     public var window: String?
@@ -249,10 +274,12 @@ public struct ControlArgs: Codable, Sendable, Equatable {
 
     public init(name: String? = nil, cwd: String? = nil, targets: [String]? = nil,
                 workspace: String? = nil, workspaceName: String? = nil,
-                createWorkspace: Bool? = nil, collapsed: Bool? = nil, noSelect: Bool? = nil,
+                createWorkspace: Bool? = nil, collapsed: Bool? = nil, minimized: Bool? = nil,
+                noSelect: Bool? = nil,
                 text: String? = nil, select: Bool? = nil, mode: String? = nil,
                 command: String? = nil, wait: Bool? = nil, sizePercent: Int? = nil, full: Bool? = nil,
-                follow: Bool? = nil, window: String? = nil,
+                follow: Bool? = nil, items: [ControlPickItem]? = nil, prompt: String? = nil,
+                allowCustom: Bool? = nil, window: String? = nil,
                 pane: String? = nil, paneID: String? = nil, to: String? = nil,
                 after: String? = nil, before: String? = nil, run: String? = nil,
                 kinds: [String]? = nil, limit: Int? = nil,
@@ -260,7 +287,8 @@ public struct ControlArgs: Codable, Sendable, Equatable {
                 width: Int? = nil, height: Int? = nil, x: Int? = nil, y: Int? = nil, display: Int? = nil,
                 status: String? = nil, blink: Bool? = nil, autoReset: Bool? = nil, sound: String? = nil,
                 ratio: Double? = nil, ratioDelta: Double? = nil,
-                path: String? = nil, color: String? = nil, opacity: Double? = nil, fit: String? = nil,
+                path: String? = nil, color: String? = nil, shape: String? = nil,
+                opacity: Double? = nil, fit: String? = nil,
                 position: String? = nil, repeats: Bool? = nil, all: Bool? = nil, lines: Int? = nil,
                 light: String? = nil, dark: String? = nil,
                 close: Bool? = nil, fontSize: Double? = nil, autoSize: Bool? = nil, mru: Bool? = nil) {
@@ -271,6 +299,7 @@ public struct ControlArgs: Codable, Sendable, Equatable {
         self.workspaceName = workspaceName
         self.createWorkspace = createWorkspace
         self.collapsed = collapsed
+        self.minimized = minimized
         self.noSelect = noSelect
         self.text = text
         self.select = select
@@ -280,6 +309,9 @@ public struct ControlArgs: Codable, Sendable, Equatable {
         self.sizePercent = sizePercent
         self.full = full
         self.follow = follow
+        self.items = items
+        self.prompt = prompt
+        self.allowCustom = allowCustom
         self.window = window
         self.pane = pane
         self.paneID = paneID
@@ -304,6 +336,7 @@ public struct ControlArgs: Codable, Sendable, Equatable {
         self.ratioDelta = ratioDelta
         self.path = path
         self.color = color
+        self.shape = shape
         self.opacity = opacity
         self.fit = fit
         self.position = position
@@ -415,6 +448,11 @@ public struct ControlSessionNode: Codable, Sendable, Equatable {
     /// The per-call `#rrggbb` glyph-tint override for the session's agent status, or nil when idle or using
     /// the Settings-configured status color (omitted from the JSON). The read side of `session.status --color`.
     public let statusColor: String?
+    /// The per-call glyph-silhouette override for the session's agent status (a `StatusShape` raw value),
+    /// or nil when idle or using the Settings-configured shape / the default plain circle (omitted from
+    /// the JSON). The read side of `session.status --shape` — the PER-CALL override only, exactly like
+    /// `statusColor`, so record-then-restore treats both alike.
+    public let statusShape: String?
     /// The session's background watermark spec, or nil when none is set (omitted from the JSON). The read
     /// side of `session.background` — set/clear/query symmetry, so a script can inspect the current watermark.
     public let background: BackgroundWatermark?
@@ -447,6 +485,7 @@ public struct ControlSessionNode: Codable, Sendable, Equatable {
                 foreground: [String]? = nil, splitForeground: [String]? = nil,
                 restoreCommand: String? = nil, splitRestoreCommand: String? = nil, status: String? = nil,
                 statusPane: String? = nil, statusBlink: Bool? = nil, statusColor: String? = nil,
+                statusShape: String? = nil,
                 background: BackgroundWatermark? = nil, unseen: Int? = nil,
                 fontSize: Double? = nil, splitFontSize: Double? = nil, scratchFontSize: Double? = nil,
                 surfaces: [ControlSurfaceNode]? = nil) {
@@ -471,6 +510,7 @@ public struct ControlSessionNode: Codable, Sendable, Equatable {
         self.statusPane = statusPane
         self.statusBlink = statusBlink
         self.statusColor = statusColor
+        self.statusShape = statusShape
         self.background = background
         self.unseen = unseen
         self.fontSize = fontSize
@@ -485,10 +525,24 @@ public struct ControlWorkspaceNode: Codable, Sendable, Equatable {
     public let id: String
     public let name: String
     public let active: Bool
-    /// Whether this workspace is the one the sidebar tree is FOCUSED (collapsed) to, or nil when it is not
-    /// the focused one / no workspace is focused (omitted from the JSON). Distinct from `active` (the
-    /// SELECTED workspace): focus collapses the sidebar to a single workspace. The read side of the
-    /// write-only `workspace.focus` — so a script can record which workspace is focused and restore it.
+    /// Whether this workspace is a MEMBER of the sidebar's focus set, or nil when it is not (omitted from
+    /// the JSON). Membership is reported INDEPENDENTLY of whether the filter is currently applied, so a
+    /// script can read a marked-but-not-filtering set back; the flag itself is the tree top-level
+    /// `workspaceFilter`. Distinct from `active` (the SELECTED workspace). The read side of the write-only
+    /// `workspace.focus`/`workspace.filter` — so a script can record the working set and restore it.
+    ///
+    /// A workspace ROW is VISIBLE in the sidebar iff
+    /// `tree.sidebarVisible && tree.sidebarMode == "tree" && (!tree.workspaceFilter || focused)` — every
+    /// term is on the same `tree` response, so a script evaluates it without a second call. The states,
+    /// enumerated: `sidebarVisible == false` renders no sidebar at all; `sidebarMode == "flagged"` renders
+    /// a FLAT flagged-session list with NO workspace rows, whatever the filter and the membership say;
+    /// `"tree"` with the filter OFF renders EVERY workspace regardless of membership; `"tree"` with the
+    /// filter ON renders only the members. Neither shorter form works: `focused && workspaceFilter`
+    /// reports nothing visible whenever the filter is off, and `!workspaceFilter || focused` alone reports
+    /// rows in flagged mode and behind a hidden sidebar, where no workspace row renders at all. The
+    /// filter-ON term is exact rather than approximate, because `workspaceFilter == true` with an empty
+    /// member set is unrepresentable (enabling an empty set is refused, and restore prunes stale ids then
+    /// disables when the set comes back empty), so an applied filter always has at least one visible member.
     public let focused: Bool?
     /// Whether this workspace is COLLAPSED in the sidebar tree (`true`), or nil when expanded — the
     /// default — so an all-expanded tree omits the field (matching the persisted `WorkspaceSnapshot.collapsed`).
@@ -534,6 +588,17 @@ public struct ControlTree: Codable, Sendable, Equatable {
     /// mode and restore it. `tree`-only (not on `window.list`), since a GUI-only flagged-view toggle would
     /// leave a cached copy stale — read the live tree copy instead.
     public let sidebarMode: String?
+    /// Whether the projected window's workspace focus FILTER is currently applied — the flag half of the
+    /// focus set, whose member half is each workspace node's `focused`. It is one term of the row-visibility
+    /// predicate, not the whole of it: a workspace row renders iff
+    /// `sidebarVisible && sidebarMode == "tree" && (!workspaceFilter || focused)` — see `focused` for the
+    /// enumerated states, including `flagged` mode, where no workspace row renders whatever this says.
+    /// LIVE and `tree`-only (not on `window.list`), like `sidebarMode`:
+    /// the bottom-bar toggle and the row menu flip it without going through the command path, so a cached
+    /// copy would go stale — read the live tree copy instead. The read side of the write-only
+    /// `workspace.filter` command, so a script can record the filter state and restore it, or make the
+    /// toggle idempotent. nil in a host-produced tree that does not project a window.
+    public let workspaceFilter: Bool?
     /// Whether the projected window's quick terminal is currently visible. LIVE — resolved app-side per
     /// request from the window's `QuickTerminalController` — so a script can make the `quick` toggle
     /// idempotent (show only when hidden). The read side of the write-only `quick` command. `tree`-only
@@ -569,23 +634,28 @@ public struct ControlTree: Codable, Sendable, Equatable {
     /// nil/omitted when no dashboard is open. LIVE — resolved app-side per request from the window's
     /// `DashboardController` — the read side of the font flags. `tree`-only, like `dashboardMembers`.
     public let dashboardFontMode: String?
+    /// The id of the picker currently awaiting a choice, or nil when no picker is open.
+    public let pickPending: String?
 
     public init(workspaces: [ControlWorkspaceNode], idleMs: Int? = nil, autoFollowMs: Int? = nil,
-                sidebarVisible: Bool? = nil, sidebarMode: String? = nil, quickVisible: Bool? = nil,
+                sidebarVisible: Bool? = nil, sidebarMode: String? = nil, workspaceFilter: Bool? = nil,
+                quickVisible: Bool? = nil,
                 zoomedSurface: String? = nil, dashboardMembers: [String]? = nil,
                 dashboardHighlighted: String? = nil, dashboardFontSize: Double? = nil,
-                dashboardFontMode: String? = nil) {
+                dashboardFontMode: String? = nil, pickPending: String? = nil) {
         self.workspaces = workspaces
         self.idleMs = idleMs
         self.autoFollowMs = autoFollowMs
         self.sidebarVisible = sidebarVisible
         self.sidebarMode = sidebarMode
+        self.workspaceFilter = workspaceFilter
         self.quickVisible = quickVisible
         self.zoomedSurface = zoomedSurface
         self.dashboardMembers = dashboardMembers
         self.dashboardHighlighted = dashboardHighlighted
         self.dashboardFontSize = dashboardFontSize
         self.dashboardFontMode = dashboardFontMode
+        self.pickPending = pickPending
     }
 }
 
@@ -638,10 +708,16 @@ public struct ControlWindowNode: Codable, Sendable, Equatable {
     /// Whether the window is zoomed (maximized-to-screen, NOT full screen), or nil for a CLOSED window
     /// (omitted from the JSON). The read side of the write-only `window.zoom` toggle. Read live app-side.
     public let zoomed: Bool?
+    /// Whether the window is minimized to the Dock, or nil for a CLOSED window (omitted from the JSON).
+    /// The read side of `window.minimize`, so a script can skip a redundant minimize or restore the set
+    /// of windows it put away. Read live app-side; like `geometry` it rides the cache, refreshed on the
+    /// NSWindow miniaturize/deminiaturize notifications so ⌘M or a Dock click is reflected too. A
+    /// minimized window still reports its `geometry` (the frame it will come back to).
+    public let minimized: Bool?
 
     public init(id: String, name: String, open: Bool, active: Bool, autoFollowMs: Int? = nil,
                 sidebarVisible: Bool? = nil, geometry: ControlWindowFrame? = nil,
-                fullscreen: Bool? = nil, zoomed: Bool? = nil) {
+                fullscreen: Bool? = nil, zoomed: Bool? = nil, minimized: Bool? = nil) {
         self.id = id
         self.name = name
         self.open = open
@@ -651,6 +727,7 @@ public struct ControlWindowNode: Codable, Sendable, Equatable {
         self.geometry = geometry
         self.fullscreen = fullscreen
         self.zoomed = zoomed
+        self.minimized = minimized
     }
 }
 
@@ -689,13 +766,18 @@ public struct ControlResult: Codable, Sendable, Equatable {
     public var dark: String?
     /// A page from the app-run event ring, present for `events.read` success and cursor errors.
     public var events: ControlEventBatch?
+    /// The resolved keymap plus the live menu key equivalents, for `keymap.list`.
+    public var keymap: ControlKeymap?
+    /// The current or terminal picker outcome for `pick.result`.
+    public var pick: ControlPickResult?
 
     public init(id: String? = nil, tree: ControlTree? = nil, text: String? = nil,
                 windows: [ControlWindowNode]? = nil, exitCode: Int? = nil, count: Int? = nil,
                 affected: Int? = nil,
                 theme: String? = nil, themes: [String]? = nil, ratio: Double? = nil,
                 sync: Bool? = nil, light: String? = nil, dark: String? = nil,
-                events: ControlEventBatch? = nil) {
+                events: ControlEventBatch? = nil, keymap: ControlKeymap? = nil,
+                pick: ControlPickResult? = nil) {
         self.id = id
         self.tree = tree
         self.text = text
@@ -710,6 +792,8 @@ public struct ControlResult: Codable, Sendable, Equatable {
         self.light = light
         self.dark = dark
         self.events = events
+        self.keymap = keymap
+        self.pick = pick
     }
 }
 
@@ -718,6 +802,14 @@ public struct ControlResult: Codable, Sendable, Equatable {
 public enum OverlayResultError {
     public static let stillRunning = "overlay still running"
     public static let noResult = "no overlay result"
+}
+
+/// Advisory text `notify` returns in `result.text` when the banner toggle is off. The command still
+/// succeeds — the unseen badge tracks either way — but nothing is handed to macOS, so a bare `ok`
+/// would look identical to a broken notification path (issue #286). Shared so the server's wording and
+/// any caller matching on it cannot drift.
+public enum ControlNotify {
+    public static let bannersOffNote = "badge updated, but \"Show notification banners\" is off, so no banner was posted"
 }
 
 /// The single response written back per connection. `ok` gates `result` (on success) vs `error`.

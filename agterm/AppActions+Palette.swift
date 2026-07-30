@@ -11,11 +11,10 @@ extension AppActions {
     /// The macOS glyph string for a rebindable built-in's CURRENT shortcut (`⌘N`, `⌃⌘S`) — tracking
     /// rebinds, reading like the menu equivalent — or `nil` when the action has no shortcut. The SINGLE
     /// resolver behind both the action-palette hints and the toolbar/sidebar tooltips, so the two
-    /// surfaces can't drift. `glyphHint` resolves the live keymap (override else shipped default, with
-    /// the arrow-bound actions falling back to their hardcoded arrow glyph since arrows can't round-trip
-    /// through `parseKeybind`); before `settingsModel` is wired, fall back to the arrow glyph alone.
+    /// surfaces can't drift. `glyphHint` resolves the live keymap (override else shipped default);
+    /// before `settingsModel` is wired, the shipped default alone.
     func shortcutGlyph(for action: BuiltinAction) -> String? {
-        guard let keymap = settingsModel?.keymap else { return action.arrowGlyphFallback }
+        guard let keymap = settingsModel?.keymap else { return action.defaultChord?.glyphString }
         return keymap.glyphHint(for: action)
     }
 
@@ -27,7 +26,8 @@ extension AppActions {
             sidebarShowsWorkspaceTree: activeStore?.sidebarMode == .tree,
             sidebarShowsFlaggedOnly: activeStore?.sidebarMode == .flagged,
             activeSessionFlagged: activeStore?.activeSession?.flagged == true,
-            hasFocusedWorkspace: activeStore?.focusedWorkspaceID != nil,
+            hasMarkedWorkspaces: activeStore?.focusedWorkspaceIDs.isEmpty == false,
+            activeWorkspaceMarked: activeStore?.isCurrentWorkspaceFocusMember == true,
             activeSessionHasSplit: activeStore?.activeSession?.hasSplit == true,
             hasPendingClose: activeStore?.pendingCloseSummary != nil,
             hasRecentClosed: !library.recentClosedItems.isEmpty
@@ -83,6 +83,8 @@ extension AppActions {
         case .toggleFlaggedView: toggleFlaggedView()
         case .clearFlagged: clearFlags()
         case .clearFocus: clearFocus()
+        case .addWorkspaceToFocus: addActiveWorkspaceToFocus()
+        case .toggleWorkspaceFilter: toggleFocusFilter()
         case .expandWorkspaces: expandAllWorkspaces()
         case .collapseWorkspaces: collapseOtherWorkspaces()
         case .focusLeftPane: focusPane(.main)
@@ -146,8 +148,8 @@ extension AppActions {
     }
 
     /// The VISIBLE/FILTERED sessions as palette items (the ⌃P switcher); choosing one selects it. Scoped
-    /// to `navigableSessions` — the focused workspace's sessions when a workspace is focused, the flagged
-    /// set in flagged mode, else all — so the ⌃P list matches the sidebar (and the Ctrl-Tab MRU switcher
+    /// to `navigableSessions` — the MARKED workspaces' sessions while the focus filter is applied, the
+    /// flagged set in flagged mode, else all — so the ⌃P list matches the sidebar (and the Ctrl-Tab MRU switcher
     /// and `session.go` nav, which already filter the same way). The subtitle leads with the owning
     /// workspace (so you can tell sessions of the same name apart, and search by workspace) followed by
     /// `subtitleDetail` (the focused pane's terminal title for a remote session, else its cwd).
@@ -163,28 +165,30 @@ extension AppActions {
     func paletteAttention() -> [PaletteItem] {
         guard let store else { return [] }
         return store.attentionSessions.map {
-            paletteItem(for: $0, in: store, status: $0.agentIndicator.status, statusColor: $0.agentIndicator.color)
+            paletteItem(for: $0, in: store, status: $0.agentIndicator.status,
+                        statusColor: $0.agentIndicator.color, statusShape: $0.agentIndicator.shape)
         }
     }
 
     /// Maps one session to a palette row — title=`displayName`, subtitle="`workspace` · `subtitleDetail`",
     /// `run` selects it. Shared by `paletteSessions()` (status nil) and `paletteAttention()` (status set so
-    /// `CommandPalette.row` renders the leading `StatusGlyph`, tinted by the session's per-call `statusColor`).
-    private func paletteItem(for session: Session, in store: AppStore,
-                             status: AgentStatus? = nil, statusColor: String? = nil) -> PaletteItem {
+    /// `CommandPalette.row` renders the leading `StatusGlyph`, tinted by the session's per-call `statusColor`
+    /// and shaped by its per-call `statusShape`).
+    private func paletteItem(for session: Session, in store: AppStore, status: AgentStatus? = nil,
+                             statusColor: String? = nil, statusShape: StatusShape? = nil) -> PaletteItem {
         let id = session.id
         let workspaceName = store.workspace(forSession: id)?.name ?? ""
         let subtitle = "\(workspaceName) · \(session.subtitleDetail)"
         return PaletteItem(id: id.uuidString, title: session.displayName, subtitle: subtitle,
-                           status: status, statusColor: statusColor) { [weak self] in
+                           status: status, statusColor: statusColor, statusShape: statusShape) { [weak self] in
             guard self?.uiActionsEnabled == true else { return }
             // picking a session from the ⌃P / attention palette is a user-initiated selection: note activity
             // so it buys the full idle grace before auto-follow can pull the selection back.
             store.noteUserActivity()
-            store.selectSession(id)
+            let indicator = store.selectSession(id)
             // reveal the picked session's blocked pane (a no-op unless it carries a pane-tagged block),
             // async so it runs AFTER the palette closes and its focus-restore, winning the focus race.
-            DispatchQueue.main.async { self?.revealActiveBlockedPane() }
+            DispatchQueue.main.async { self?.revealActiveBlockedPane(captured: indicator) }
         }
     }
 
@@ -193,24 +197,24 @@ extension AppActions {
     /// icon — none of these route through the action palette's `runItem`, so a synchronous toggle is
     /// correct. The ⌃⇧P launcher uses `openAttentionPalette()` instead (it must reopen async).
     func toggleAttentionPalette() {
-        guard !terminalZoomActive else { return }
+        guard !terminalZoomActive, !pickActive(for: library.activeWindowID) else { return }
         palette?.toggle(.attention)
     }
 
     /// Menu/keymap palette launchers route through actions, not direct `palette.toggle`, so terminal zoom's
     /// modal UI guard is applied consistently to the keyboard shortcut and menu paths.
     func toggleSessionPalette() {
-        guard !terminalZoomActive else { return }
+        guard !terminalZoomActive, !pickActive(for: library.activeWindowID) else { return }
         palette?.toggle(.sessions)
     }
 
     func toggleActionPalette() {
-        guard !terminalZoomActive else { return }
+        guard !terminalZoomActive, !pickActive(for: library.activeWindowID) else { return }
         palette?.toggle(.actions)
     }
 
     func toggleCustomCommandPalette() {
-        guard !terminalZoomActive else { return }
+        guard !terminalZoomActive, !pickActive(for: library.activeWindowID) else { return }
         palette?.toggle(.customCommands)
     }
 
@@ -220,9 +224,10 @@ extension AppActions {
     /// `toggle` would be undone by that close. The async `open` lets `.attention` reopen a tick later as a
     /// fresh view that survives the close.
     func openAttentionPalette() {
-        guard !terminalZoomActive else { return }
+        guard !terminalZoomActive, !pickActive(for: library.activeWindowID) else { return }
         DispatchQueue.main.async { [weak self] in
-            guard let self, !self.terminalZoomActive else { return }
+            guard let self, !self.terminalZoomActive,
+                  !self.pickActive(for: self.library.activeWindowID) else { return }
             self.palette?.open(.attention)
         }
     }
@@ -235,9 +240,10 @@ extension AppActions {
     /// this returns, so reopening async lets `.themes` survive the close (the rename actions reopen the
     /// same way).
     func openThemePalette() {
-        guard !terminalZoomActive else { return }
+        guard !terminalZoomActive, !pickActive(for: library.activeWindowID) else { return }
         DispatchQueue.main.async { [weak self] in
-            guard let self, !self.terminalZoomActive else { return }
+            guard let self, !self.terminalZoomActive,
+                  !self.pickActive(for: self.library.activeWindowID) else { return }
             self.palette?.open(.themes)
         }
     }

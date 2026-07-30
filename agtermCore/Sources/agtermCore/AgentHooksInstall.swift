@@ -25,6 +25,17 @@ public enum AgentHooksInstall {
     /// same-named extension, preserving a user-authored integration.
     public static let piExtensionMarker = "// agterm-pi-status-extension"
 
+    /// The bundled OpenCode plugin's path relative to the agent-status package.
+    public static let opencodePluginRelativePath = "opencode/agterm-status.js"
+
+    /// The OpenCode plugin's destination filename under `~/.config/opencode/plugins/`.
+    public static let opencodePluginName = "agterm-status.js"
+
+    /// Ownership sentinel in the bundled OpenCode plugin. A reinstall refuses to overwrite an unmarked
+    /// same-named plugin, preserving a user-authored integration. Named `*Plugin*` (not `*Extension*`)
+    /// because OpenCode's host term is plugin — intentional divergence from Pi's `piExtension*`.
+    public static let opencodePluginMarker = "// agterm-opencode-status-plugin"
+
     /// The shell integration script sourced from the user's rc files, relative to the script directory.
     public static let integrationRelativePath = "shell/integration.sh"
 
@@ -78,6 +89,24 @@ public enum AgentHooksInstall {
         guard fileExists else { return true }
         guard let existingContents else { return false }
         return existingContents.contains(piExtensionMarker)
+    }
+
+    /// The destination directory for OpenCode's auto-discovered global plugins.
+    public static func opencodePluginDirectory(home: String) -> String {
+        home + "/.config/opencode/plugins"
+    }
+
+    /// The destination path for agterm's OpenCode status plugin.
+    public static func opencodePluginPath(home: String) -> String {
+        opencodePluginDirectory(home: home) + "/" + opencodePluginName
+    }
+
+    /// Whether the OpenCode plugin destination is safe to replace. Same ownership policy as Pi:
+    /// absent is safe; an existing file must carry the agterm marker; unreadable counts as user-owned.
+    public static func mayOverwriteOpenCodePlugin(fileExists: Bool, existingContents: String?) -> Bool {
+        guard fileExists else { return true }
+        guard let existingContents else { return false }
+        return existingContents.contains(opencodePluginMarker)
     }
 
     /// Thrown by `mergeClaudeSettings` when the existing `settings.json` is non-empty but not a valid

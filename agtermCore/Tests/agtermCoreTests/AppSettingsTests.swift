@@ -145,6 +145,64 @@ struct AppSettingsTests {
         #expect(decoded.ghosttyConfigLines() == ["mouse-scroll-multiplier = 3", "right-click-action = paste"])
     }
 
+    @Test func statusShapeFieldsRoundTripAndAreNotGhosttyKeys() throws {
+        let original = AppSettings(activeStatusShape: "square", blockedStatusShape: "triangle",
+                                   completedStatusShape: "star")
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(original))
+        #expect(decoded == original)
+        #expect(decoded.effectiveStatusShape(for: .active) == .square)
+        #expect(decoded.effectiveStatusShape(for: .blocked) == .triangle)
+        #expect(decoded.effectiveStatusShape(for: .completed) == .star)
+        // the glyph shapes are applied at the AppKit level, never as ghostty config keys — so the only
+        // lines are the always-on defaults (scroll + right-click).
+        #expect(decoded.ghosttyConfigLines() == ["mouse-scroll-multiplier = 3", "right-click-action = paste"])
+    }
+
+    @Test func everyStatusShapeRoundTripsThroughTheRawStorage() throws {
+        for shape in StatusShape.allCases {
+            let stored = AppSettings(blockedStatusShape: shape.rawValue)
+            let decoded = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(stored))
+            #expect(decoded.blockedStatusShape == shape.rawValue)
+            #expect(decoded.effectiveStatusShape(for: .blocked) == shape)
+        }
+    }
+
+    @Test func statusShapesDefaultNilAndOmitFromJSON() throws {
+        // unset means the default plain circle, and nothing serializes, keeping settings.json minimal.
+        let settings = AppSettings()
+        #expect(settings.activeStatusShape == nil)
+        #expect(settings.effectiveStatusShape(for: .active) == nil)
+        #expect(settings.effectiveStatusShape(for: .blocked) == nil)
+        #expect(settings.effectiveStatusShape(for: .completed) == nil)
+        let json = String(decoding: try JSONEncoder().encode(settings), as: UTF8.self)
+        #expect(!json.contains("StatusShape"))
+        // a settings.json written before the fields existed decodes them to nil.
+        let legacy = try JSONDecoder().decode(AppSettings.self, from: Data(#"{ "fontSize": 16 }"#.utf8))
+        #expect(legacy.activeStatusShape == nil)
+        #expect(legacy.blockedStatusShape == nil)
+        #expect(legacy.completedStatusShape == nil)
+        #expect(legacy.effectiveStatusShape(for: .blocked) == nil)
+    }
+
+    @Test func unknownStatusShapeResolvesToNilAndPreservesOtherSettings() throws {
+        // a future-written or hand-edited shape must decode tolerantly (the forward-compat rule): the raw
+        // string is kept, resolves to nil (the built-in glyph), and the rest of the file survives.
+        let decoded = try JSONDecoder().decode(
+            AppSettings.self, from: Data(#"{ "blockedStatusShape": "trapezoid", "fontSize": 16 }"#.utf8))
+        #expect(decoded.fontSize == 16)
+        #expect(decoded.blockedStatusShape == "trapezoid")
+        #expect(decoded.effectiveStatusShape(for: .blocked) == nil)
+        // an empty string is likewise unknown, not a shape.
+        #expect(AppSettings(activeStatusShape: "").effectiveStatusShape(for: .active) == nil)
+    }
+
+    @Test func effectiveStatusShapeIsNilForIdle() {
+        // idle renders no glyph, so it resolves to no shape even with every field set.
+        let settings = AppSettings(activeStatusShape: "circle", blockedStatusShape: "square",
+                                   completedStatusShape: "star")
+        #expect(settings.effectiveStatusShape(for: .idle) == nil)
+    }
+
     @Test func notificationsEnabledRoundTripsAndIsNotAConfigLine() throws {
         let decoded = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(AppSettings(notificationsEnabled: false)))
         #expect(decoded.notificationsEnabled == false)
@@ -160,6 +218,19 @@ struct AppSettingsTests {
         #expect(legacy.restoreRunningCommand == nil)
         // an app-level behavior flag, never a ghostty config key — only the always-on defaults (scroll + right-click) are emitted.
         #expect(AppSettings(restoreRunningCommand: true).ghosttyConfigLines() == ["mouse-scroll-multiplier = 3", "right-click-action = paste"])
+    }
+
+    @Test func autoHideSidebarInactiveWindowsRoundTripsAndIsNotAConfigLine() throws {
+        #expect(AppSettings().autoHideSidebarInactiveWindows == nil)
+        let decoded = try JSONDecoder().decode(
+            AppSettings.self, from: JSONEncoder().encode(AppSettings(autoHideSidebarInactiveWindows: true)))
+        #expect(decoded.autoHideSidebarInactiveWindows == true)
+        // absent in a legacy file decodes to nil (off).
+        let legacy = try JSONDecoder().decode(AppSettings.self, from: Data(#"{"theme":"Nord"}"#.utf8))
+        #expect(legacy.autoHideSidebarInactiveWindows == nil)
+        // a behavior flag, never a ghostty config key — only the always-on defaults (scroll + right-click) are emitted.
+        #expect(AppSettings(autoHideSidebarInactiveWindows: true).ghosttyConfigLines()
+            == ["mouse-scroll-multiplier = 3", "right-click-action = paste"])
     }
 
     @Test func confirmCloseSessionRoundTripsAndIsNotAConfigLine() throws {
@@ -545,6 +616,16 @@ struct AppSettingsTests {
         #expect(!hidden.isInterfaceElementHidden(.newSession)) // hiding one does not hide the other
     }
 
+    @Test func focusFilterIsASidebarInterfaceElement() {
+        // the bottom-bar workspace-filter toggle is its own sidebar-section element, hidden independently
+        // of the flagged-view toggle beside it.
+        #expect(InterfaceElement.focusFilter.section == .sidebar)
+        #expect(InterfaceElement.focusFilter.displayName == "Workspace filter")
+        let hidden = AppSettings(hiddenInterfaceElements: ["focusFilter"])
+        #expect(hidden.isInterfaceElementHidden(.focusFilter))
+        #expect(!hidden.isInterfaceElementHidden(.flaggedView)) // hiding one does not hide the other
+    }
+
     @Test func unknownInterfaceElementDecodesTolerantly() throws {
         // a future-written element name must decode tolerantly (the forward-compat rule): the unknown name
         // is dropped from the resolved set, and it must NOT fail the whole decode and discard other fields.
@@ -562,7 +643,7 @@ struct AppSettingsTests {
         let titleBar = InterfaceElement.allCases.filter { $0.section == .titleBar }
         let sidebar = InterfaceElement.allCases.filter { $0.section == .sidebar }
         #expect(titleBar.count + sidebar.count == InterfaceElement.allCases.count)
-        #expect(sidebar == [.newWorkspace, .newSession, .flaggedView, .workspaceAddSession])
+        #expect(sidebar == [.newWorkspace, .newSession, .flaggedView, .focusFilter, .workspaceAddSession])
         #expect(!titleBar.isEmpty)
     }
 

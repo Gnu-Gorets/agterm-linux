@@ -17,6 +17,12 @@ extension AppActions {
         DashboardControllerRegistry.shared.controller(for: library.activeWindowID)?.isOpen == true
     }
 
+    /// Whether the specified window has a native control picker pending. Kept as one window-scoped
+    /// predicate so both frontmost and session-addressed focus paths use the same modal invariant.
+    func pickActive(for windowID: WindowInfo.ID?) -> Bool {
+        PickRegistry.shared.controller(for: windowID)?.pending != nil
+    }
+
     /// Whether terminal zoom is active in the window OWNING this session. The right gate for the
     /// session-addressed focus paths: control commands resolve sessions across ALL windows, so gating
     /// them on the FRONTMOST window's zoom would silently drop the focus step for an un-zoomed
@@ -38,15 +44,28 @@ extension AppActions {
         return DashboardControllerRegistry.shared.controller(for: windowID)?.isOpen == true
     }
 
+    /// Whether the quick terminal is showing in the window OWNING this session — the session-scoped twin of
+    /// `frontmostQuickTerminal`, completing the set with `terminalZoomActive(for:)`/`dashboardActive(for:)`.
+    /// Each window owns its own quick-terminal controller, so the FRONTMOST one is the wrong question for
+    /// `focusSplitPane`: a cover up in the frontmost window would silently drop the focus step for a
+    /// `session.focus --pane` aimed at a BACKGROUND window (leaving that window's `splitFocused` and its
+    /// real first responder disagreeing), while a cover actually showing in that background window — the
+    /// one that does own its focus — would be missed.
+    private func quickTerminalActive(for session: Session) -> Bool {
+        guard let windowID = library.windowID(forSession: session.id) else { return false }
+        return QuickTerminalRegistry.shared.controller(for: windowID)?.isVisible == true
+    }
+
     // MARK: - Reveal & focus
 
     /// Reveal and focus the active session's blocked pane, reading its agent-status pane tag so navigation
     /// lands on the pane actually waiting for input rather than the session's plain focused pane. Called on
     /// every user-initiated selection — the auto-follow jump, attention navigation (⌃⌥↑/↓), plain session
-    /// nav (⌥⌘↑/↓/first/last), the ⌃P / attention command palette, and a sidebar row click — so however you
+    /// nav (⌥⌘↑/↓/first/last), the ⌃P / attention command palette, a sidebar row click, a title-bar bell
+    /// popover row, and a Dock-menu session row — so however you
     /// reach a blocked session you land on its waiting pane; it is a no-op (plain `focusActiveSession`) for an
-    /// IDLE session (no status set), so ordinary selections are unaffected. `.right` — only WHEN the
-    /// split surface exists
+    /// idle or active session, so ordinary selections and a working agent's informational pane tag do not
+    /// change the user's pane selection. `.right` — only WHEN the split surface exists
     /// (`splitSurface != nil`) — flips `splitFocused` then focuses the split surface via
     /// `focusSplitPane(wantSplit: true)` — a FIXED target, NOT the `splitFocused`-following
     /// `focusActiveSession`: a SHOWN (side-by-side) split's deck re-render churns first responder onto the
@@ -54,13 +73,13 @@ extension AppActions {
     /// then chases the wrong pane; re-asserting the split surface directly wins the race (its `onFocusChange`
     /// re-sets `splitFocused = true`). The gate is `splitSurface != nil` (NOT `hasSplit`), so a promoted
     /// split survivor (which `closePrimaryPane` moves into `surface` with `splitSurface == nil`, re-tagging a
-    /// `.right` block to `.left`) falls through to `focusActiveSession` as the session's sole main pane, and
-    /// a STALE `right` tag on a genuinely single-pane session (a manual `session.status --pane right`, or
-    /// after the split collapsed) does the same, instead of setting `splitFocused = true` with no split
-    /// surface (the `splitFocused` invariant is "true only while the split pane exists"). `.scratch` shows the
+    /// `.right` block to `.left`) explicitly targets the session's sole main pane, and a STALE `right` tag on
+    /// a genuinely single-pane session (a manual `session.status --pane right`, or after the split collapsed)
+    /// does the same, instead of setting `splitFocused = true` with no split surface (the `splitFocused`
+    /// invariant is "true only while the split pane exists"). `.scratch` shows the
     /// scratch only when hidden (a show-if-hidden guard, never a bare toggle that could HIDE a shown one) so
-    /// `topmostSurface` resolves to the scratch; `.left`/nil focus the session's current active surface via
-    /// `focusActiveSession` (the main pane unless a split is focused — no forced flip). The retry loops
+    /// `topmostSurface` resolves to the scratch; `.left`/nil explicitly clear `splitFocused` and target the
+    /// primary surface, even when the right pane held focus before the session was selected. The retry loops
     /// cover a split/scratch surface that materializes a beat after the reveal.
     /// The INVERSE of the `.scratch` show-if-hidden guard: for a NON-scratch target (`left`/`right`/nil)
     /// with the scratch currently SHOWN, hide the covering scratch (keep-alive `toggleScratch`) FIRST so the
@@ -68,14 +87,18 @@ extension AppActions {
     /// both resolve to the covering scratch (`topmostSurface`) and nav never reaches the blocked pane. Only
     /// the scratch cover is dismissed; an active overlay is left alone (closing a running overlay would kill
     /// its program).
-    func revealActiveBlockedPane() {
+    /// Selection callers pass the indicator returned by `AppStore.selectSession` / `navigateSession`,
+    /// captured before either clears an `autoReset` status. This keeps pane routing identical across the
+    /// Dock, navigation, palettes, sidebar/popover clicks, and auto-follow.
+    func revealActiveBlockedPane(captured indicator: AgentIndicator?) {
+        guard let indicator else { focusActiveSession(); return }
         guard let session = store?.activeSession else { focusActiveSession(); return }
-        // reveal is a no-op for an IDLE session: with no status there is nothing to reveal, and the
-        // scratch-hide / split-focus side effects below must never fire on plain navigation to a session
-        // that merely has its (keep-alive) scratch shown. a non-idle block with no `--pane` tag is treated
-        // as `left` and still reveals the main pane (hiding a covering scratch).
-        guard session.agentIndicator.status != .idle else { focusActiveSession(); return }
-        let pane = session.agentIndicator.statusPane
+        // reveal is a no-op unless the status needs attention: scratch-hide / split-focus side effects
+        // must never fire on plain navigation to a session that merely has its (keep-alive) scratch shown
+        // or whose agent is still active. a status needing attention with no `--pane` tag is treated as
+        // `left` and still reveals the main pane.
+        guard indicator.status.needsAttention else { focusActiveSession(); return }
+        let pane = indicator.statusPane
         // a shown scratch covers the panes and masks a non-scratch block; hide it first so the requested
         // pane is revealed. overlays are deliberately not touched — closing a running overlay is destructive.
         if pane != .scratch, session.scratchActive { store?.toggleScratch(session.id) }
@@ -87,7 +110,8 @@ extension AppActions {
             if !session.scratchActive { store?.toggleScratch(session.id) }
             focusActiveSession()
         case .left, .right, .none:
-            focusActiveSession()
+            session.splitFocused = false
+            focusSplitPane(session, wantSplit: false)
         }
     }
 
@@ -106,6 +130,7 @@ extension AppActions {
         // Theme…" launcher (which closes the action palette, then opens the .themes picker a tick later)
         // can't have its field focus stolen back by the close-restore's retry.
         if palette?.mode != nil { return }
+        if pickActive(for: library.activeWindowID) { return }
         if frontmostQuickTerminal?.isVisible == true { return }
         if let view = store?.activeSession?.topmostSurface as? GhosttySurfaceView, let window = view.window {
             window.makeFirstResponder(view)
@@ -148,10 +173,33 @@ extension AppActions {
         // reason: while it's up its key-catcher owns first responder, and a NON-member deck surface behind it
         // is not view-only, so grabbing first responder here would leak keystrokes into a hidden terminal.
         if dashboardActive(for: session) { return }
+        if pickActive(for: library.windowID(forSession: session.id)) { return }
+        // the inline rename field and an open palette own the keyboard, exactly as in `focusActiveSession`,
+        // which re-checks both on every one of its retries. this loop needs them for the same reason: the
+        // `.left`/nil reveal routes here (a plain `session status blocked` with no `--pane` lands in that
+        // branch), so a sidebar row click followed within the ~360ms retry window by ⌘R or a palette open
+        // would otherwise pull first responder off the field and type the name into the terminal.
+        // SCOPED to the session's own window like the two gates above, and for the same cross-window reason:
+        // both flags are app-GLOBAL (one `renamePending`, one `PaletteController` shared by every window),
+        // so unscoped they would let a palette open in the frontmost window silently skip the responder move
+        // for a `session.focus` aimed at a background one — leaving that window's `splitFocused` and its real
+        // first responder disagreeing, with the control command still reporting ok. Scoping costs the
+        // protection nothing because only the KEY window receives keystrokes, so the race actually guarded
+        // here — a retry stealing the field the user is typing into — is frontmost-only by construction.
+        // (A BACKGROUND window can still hold an inline editor, since the rename notifications fan out to
+        // every window's sidebar coordinator; nobody is typing into that one, and the fan-out itself is a
+        // separate, older defect.)
+        if library.windowID(forSession: session.id) == library.activeWindowID {
+            if renamePending { return }
+            if palette?.mode != nil { return }
+        }
         // the quick terminal is a window-level cover above the session; while it's up it owns focus, so
         // don't move first responder to a pane behind it (its own hide restores the session). The caller
         // has already set `splitFocused`, so the right pane shows once the quick terminal is dismissed.
-        if frontmostQuickTerminal?.isVisible == true { return }
+        // Gated on the SESSION's window like the zoom/dashboard pair above, not the frontmost one — each
+        // window owns its own quick terminal, so this is the only one of the four gates whose per-window
+        // answer was already available and simply wasn't being asked.
+        if quickTerminalActive(for: session) { return }
         let target: (any TerminalSurface)? = (session.overlayActive || session.scratchActive)
             ? session.topmostSurface
             : (wantSplit ? session.splitSurface : session.surface)
@@ -199,13 +247,18 @@ extension AppActions {
     /// Selects a session in its owning store and focuses the firing pane.
     private func revealSession(_ sessionID: UUID, pane: PaneRole, in store: AppStore) {
         guard let session = store.session(withID: sessionID) else { return }
+        let windowID = library.windowID(forSession: session.id)
         // a banner click is an explicit "take me there": if the owning window is zoomed, exit zoom
         // first so the reveal is visible — otherwise the selection change happens behind the opaque
         // zoom layer and the click looks dead (every other UI entry point is gated or exits zoom).
-        if let windowID = library.windowID(forSession: session.id),
-           let zoom = TerminalZoomRegistry.shared.controller(for: windowID), zoom.target != nil {
+        if let windowID, let zoom = TerminalZoomRegistry.shared.controller(for: windowID), zoom.target != nil {
             zoom.clear()
         }
+        // and raise the owning window, which `makeFirstResponder` alone does not do. `NSApp.activate` in
+        // the notification handler brings the APP forward, not a window minimized to the Dock or sitting
+        // behind another one — so without this the selection would change invisibly. The closed-window
+        // branch already raises via `openWindow`; this makes the open-window branch symmetric.
+        if let windowID { WindowRegistry.shared.raise(windowID) }
         // clicking a notification banner is a user-initiated selection: note activity on the SAME (owning)
         // store it selects into — reveal can cross windows — so it buys the full idle grace before
         // auto-follow can pull the selection away.

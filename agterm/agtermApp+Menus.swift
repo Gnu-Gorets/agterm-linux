@@ -4,35 +4,19 @@ import SwiftUI
 
 extension agtermApp {
     /// The active SwiftUI shortcut for a built-in action, driven by the keymap: the user override when
-    /// one is `map`ped, else the action's shipped default. `nil` when neither exists (a keyless action,
-    /// or one of the four arrow-bound actions whose default can't round-trip through the keymap grammar)
-    /// — the menu drops the shortcut for those (the arrow actions supply their own hardcoded fallback).
-    /// Because `keymap` is `@Observable`, reading it here re-renders the menu shortcut on a reload.
+    /// one is `map`ped, else the action's shipped default. `nil` only for a keyless action, which stays
+    /// keyless until the user maps a chord.
+    /// `keymap` is `@Observable`, but SwiftUI does not rebuild the menu when it changes — it defers to the
+    /// next app activation, so a reload leaves the live key equivalents stale until then.
+    /// ⌘W is asserted from AppKit instead, by `AppDelegate.applyCloseSessionChord`.
     private func shortcut(for action: BuiltinAction) -> KeyboardShortcut? {
         settingsModel.keymap.equivalent(for: action).map(Self.toShortcut)
     }
 
-    /// The shortcut for one of the six arrow-bound actions: the user override when `map`ped, else the
-    /// hardcoded arrow default. Those defaults can't round-trip through the keymap grammar (`parseKeybind`
-    /// has no arrow keys), so `defaultChord` is nil and the fallback lives here in one place — keyed by
-    /// action so every arrow call site reads uniformly and the fallback set has a single home.
-    private func arrowShortcut(for action: BuiltinAction) -> KeyboardShortcut {
-        if let override = shortcut(for: action) { return override }
-        switch action {
-        case .focusLeftPane: return KeyboardShortcut(.leftArrow, modifiers: [.command, .option])
-        case .focusRightPane: return KeyboardShortcut(.rightArrow, modifiers: [.command, .option])
-        case .previousSession: return KeyboardShortcut(.upArrow, modifiers: [.command, .option])
-        case .nextSession: return KeyboardShortcut(.downArrow, modifiers: [.command, .option])
-        case .previousAttentionSession: return KeyboardShortcut(.upArrow, modifiers: [.control, .option])
-        case .nextAttentionSession: return KeyboardShortcut(.downArrow, modifiers: [.control, .option])
-        default: return KeyboardShortcut(.upArrow, modifiers: [.command, .option])
-        }
-    }
-
     /// Map a host-free `Chord` to a SwiftUI `KeyboardShortcut`. The base key is a single printable
     /// character (`Character`) or one of the named keys the grammar allows (`tab`/`space`/`return`/
-    /// `delete`); the modifiers map one-for-one. This is the menu-side mirror of the runner's
-    /// `NSEvent`→`Chord` mapping.
+    /// `delete` and the four arrows); the modifiers map one-for-one. This is the menu-side mirror of the
+    /// runner's `NSEvent`→`Chord` mapping.
     private static func toShortcut(_ chord: Chord) -> KeyboardShortcut {
         let key: KeyEquivalent
         switch chord.key {
@@ -40,6 +24,10 @@ extension agtermApp {
         case "space": key = .space
         case "return": key = .return
         case "delete": key = .delete
+        case "left": key = .leftArrow
+        case "right": key = .rightArrow
+        case "up": key = .upArrow
+        case "down": key = .downArrow
         default: key = KeyEquivalent(Character(chord.key))
         }
         var modifiers: EventModifiers = []
@@ -75,14 +63,12 @@ extension agtermApp {
             // grouped by entity into three sections — Window, then Workspace, then Session. The
             // system Close / Close All commands stay below in their own group.
             CommandGroup(replacing: .newItem) {
-                // While terminal zoom OR the dashboard grid is up the UI is modal (the AppActions gate already
-                // no-ops these); the .disabled mirrors that gate so the items read as unavailable instead of
-                // dead. modalActive folds the dashboard into the same gate so its menu key-equivalents
-                // (which route through performKeyEquivalent, PAST the grid's keyDown-only key-catcher) can't
-                // mutate the deck behind the grid — the Dashboard toggle itself stays zoomed-only so ⌘⇧D can
-                // still close the grid.
+                // While terminal zoom, the dashboard grid, OR the topmost native picker is up, the UI is modal
+                // (the AppActions gate already no-ops these). `.disabled` mirrors that gate so items read as
+                // unavailable instead of dead and key equivalents cannot mutate the covered deck.
                 let zoomed = actions.terminalZoomActive
-                let modalActive = zoomed || (actions.frontmostDashboard?.isOpen ?? false)
+                let pickActive = actions.pickActive(for: library.activeWindowID)
+                let modalActive = zoomed || (actions.frontmostDashboard?.isOpen ?? false) || pickActive
                 // Window: create/open/rename/delete the top-level window bundles. Open Window lists
                 // the library with a checkmark on already-open ones (picking a closed one opens it,
                 // an open one raises it). Delete is disabled with one window left (keep-at-least-one).
@@ -199,10 +185,10 @@ extension agtermApp {
             // "Enter Full Screen" item has an icon, so every custom item carries an SF Symbol too —
             // otherwise they render as blank, indented slots.
             CommandGroup(after: .toolbar) {
-                // same modal-while-zoomed/dashboard mirror as the File group: grey out what the action gate
-                // no-ops (modalActive = zoomed OR the frontmost dashboard grid open).
+                // Mirror the File group's modal gate: zoom, dashboard, or the topmost native picker.
                 let zoomed = actions.terminalZoomActive
-                let modalActive = zoomed || (actions.frontmostDashboard?.isOpen ?? false)
+                let pickActive = actions.pickActive(for: library.activeWindowID)
+                let modalActive = zoomed || (actions.frontmostDashboard?.isOpen ?? false) || pickActive
                 Button { actions.increaseFontSize() } label: { Label("Increase Font Size", systemImage: "textformat.size.larger") }
                     .keyboardShortcut(shortcut(for: .increaseFontSize))
                 Button { actions.decreaseFontSize() } label: { Label("Decrease Font Size", systemImage: "textformat.size.smaller") }
@@ -253,15 +239,35 @@ extension agtermApp {
                 // keyless by default (rebindable via focus_workspace). The control half is workspace.focus.
                 // the label tracks the toggle (Focus/Unfocus) like the workspace row's context-menu item.
                 let focusStore = library.activeStore
-                let currentFocused = focusStore?.focusedWorkspace?.id == focusStore?.currentWorkspaceID
                 Button { actions.focusActiveWorkspace() } label: {
-                    Label(currentFocused ? "Unfocus Workspace" : "Focus Workspace", systemImage: "scope")
+                    Label(focusStore?.isCurrentWorkspaceSoleFocus == true ? "Unfocus Workspace" : "Focus Workspace",
+                          systemImage: "scope")
                 }
                 .keyboardShortcut(shortcut(for: .focusWorkspace))
-                .disabled(library.activeStore?.currentWorkspaceID == nil || modalActive)
-                // plain (non-BuiltinAction) clear, like Clear Flagged; the bottom-bar pill ✕ is primary.
+                .disabled(focusStore?.currentWorkspaceID == nil || modalActive)
+                // the ADDITIVE sibling of Focus Workspace: mark the current workspace without dropping the
+                // other members, so a working set can be built from the menu. Plain (non-BuiltinAction)
+                // keyless item like Clear Focus below. The control half is workspace.focus add. Disabled
+                // once the current workspace is already marked — it would be a silent no-op (the row menu
+                // flips to "Remove from Focus" instead, which it can do because it has a clicked row).
+                // Membership is NOT gated on the sidebar mode here or in the palette (unlike Expand/Collapse
+                // Workspaces above), matching the focus siblings and the control modes.
+                Button { actions.addActiveWorkspaceToFocus() } label: {
+                    Label("Add Workspace to Focus", systemImage: "square.grid.2x2")
+                }
+                .disabled(focusStore?.currentWorkspaceID == nil
+                    || focusStore?.isCurrentWorkspaceFocusMember == true || modalActive)
+                // apply or suspend the filter without losing the marked set — the menu twin of the
+                // bottom-bar grid toggle, disabled in the same empty-set state (the store refuses to
+                // enable an empty set, so the item would be a no-op). The control half is workspace.filter.
+                Button { actions.toggleFocusFilter() } label: {
+                    Label("Toggle Workspace Filter", systemImage: "square.grid.2x2")
+                }
+                .keyboardShortcut(shortcut(for: .toggleWorkspaceFilter))
+                .disabled((focusStore?.focusedWorkspaceIDs.isEmpty ?? true) || modalActive)
+                // plain (non-BuiltinAction) clear, like Clear Flagged; the bottom-bar toggle is primary.
                 Button { actions.clearFocus() } label: { Label("Clear Focus", systemImage: "scope") }
-                    .disabled(library.activeStore?.focusedWorkspaceID == nil || modalActive)
+                    .disabled((focusStore?.focusedWorkspaceIDs.isEmpty ?? true) || modalActive)
                 Button { actions.toggleSplit() } label: {
                     Label(library.activeStore?.activeSession?.isSplit == true ? "Hide Split" : "Split Right", systemImage: "rectangle.split.2x1")
                 }
@@ -297,10 +303,10 @@ extension agtermApp {
             // the spatial session stepping, and the pane focus. all drive the SAME AppActions the View items
             // did; only their menu home changed (the control API / palette / keymap surfaces are untouched).
             CommandMenu("Navigate") {
-                // same modal-while-zoomed/dashboard mirror as the File/View groups (modalActive = zoomed OR
-                // the frontmost dashboard grid open); the Dashboard toggle below stays zoomed-only.
+                // Mirror the File/View modal gate: zoom, dashboard, or the topmost native picker.
                 let zoomed = actions.terminalZoomActive
-                let modalActive = zoomed || (actions.frontmostDashboard?.isOpen ?? false)
+                let pickActive = actions.pickActive(for: library.activeWindowID)
+                let modalActive = zoomed || (actions.frontmostDashboard?.isOpen ?? false) || pickActive
                 Button { actions.toggleSessionPalette() } label: { Label("Go to Session", systemImage: "rectangle.stack") }
                     .keyboardShortcut(shortcut(for: .sessionPalette))
                     .disabled(modalActive)
@@ -313,12 +319,11 @@ extension agtermApp {
                 Button { actions.toggleAttentionPalette() } label: { Label("Go to Attention…", systemImage: "bell") }
                     .keyboardShortcut(shortcut(for: .showAttention))
                     .disabled(modalActive)
-                Button { actions.toggleDashboard() } label: { Label("Dashboard", systemImage: "square.split.2x2") }
+                Button { actions.toggleDashboard() } label: { Label("Dashboard", systemImage: "rectangle.split.2x2") }
                     .keyboardShortcut(shortcut(for: .dashboard))
-                    // stays zoomed-only, NOT modalActive: ⌘⇧D must still CLOSE an open dashboard, so this
-                    // toggle is the escape hatch and is never disabled by the dashboard being open
-                    // (toggleDashboard guards on !terminalZoomActive only, so it stays callable too).
-                    .disabled(zoomed)
+                    // Do not disable merely because the dashboard itself is open: ⌘⇧D remains its close
+                    // escape hatch. Zoom and a topmost native picker still block the toggle.
+                    .disabled(zoomed || pickActive)
                 Divider()
                 // step between sessions in the sidebar's flattened order. Prev/Next ride ⌥⌘↑/↓ (NOT bare
                 // ⌘+arrows, which shadow text-field caret nav in the rename/palette/settings fields); ⌥⌘↑/↓
@@ -326,18 +331,17 @@ extension agtermApp {
                 // First/Last get no key (menu + palette + control only). Real menu items so AppKit menu
                 // dispatch swallows the shortcut before libghostty — never leaked to the shell.
                 Button { actions.selectPreviousSession() } label: { Label("Previous Session", systemImage: "chevron.up") }
-                    .keyboardShortcut(arrowShortcut(for: .previousSession))
+                    .keyboardShortcut(shortcut(for: .previousSession))
                     .disabled(library.activeStore?.activeSession == nil || modalActive)
                 Button { actions.selectNextSession() } label: { Label("Next Session", systemImage: "chevron.down") }
-                    .keyboardShortcut(arrowShortcut(for: .nextSession))
+                    .keyboardShortcut(shortcut(for: .nextSession))
                     .disabled(library.activeStore?.activeSession == nil || modalActive)
-                // step only through sessions needing attention (blocked/completed glyphs), wrapping. ⌃⌥↑/↓
-                // are arrow-bound like the session nav above, so they ride arrowShortcut's hardcoded fallback.
+                // step only through sessions needing attention (blocked/completed glyphs), wrapping.
                 Button { actions.selectPreviousAttentionSession() } label: { Label("Previous Attention Session", systemImage: "chevron.up.circle") }
-                    .keyboardShortcut(arrowShortcut(for: .previousAttentionSession))
+                    .keyboardShortcut(shortcut(for: .previousAttentionSession))
                     .disabled(library.activeStore?.activeSession == nil || modalActive)
                 Button { actions.selectNextAttentionSession() } label: { Label("Next Attention Session", systemImage: "chevron.down.circle") }
-                    .keyboardShortcut(arrowShortcut(for: .nextAttentionSession))
+                    .keyboardShortcut(shortcut(for: .nextAttentionSession))
                     .disabled(library.activeStore?.activeSession == nil || modalActive)
                 Button { actions.selectFirstSession() } label: { Label("First Session", systemImage: "arrow.up.to.line") }
                     .keyboardShortcut(shortcut(for: .firstSession))
@@ -346,19 +350,15 @@ extension agtermApp {
                     .keyboardShortcut(shortcut(for: .lastSession))
                     .disabled(library.activeStore?.activeSession == nil || modalActive)
                 Divider()
-                // arrow-bound actions: their default ⌘⌥←/→ can't round-trip through the keymap grammar
-                // (parseKeybind has no arrow keys), so defaultChord is nil and the hardcoded arrow is the
-                // FALLBACK — a user override (a parseable chord) wins. arrowShortcut(for:) owns the four
-                // fallbacks in one place.
                 Button { actions.focusPane(.main) } label: {
                     Label("Focus Left Pane", systemImage: "rectangle.lefthalf.filled")
                 }
-                .keyboardShortcut(arrowShortcut(for: .focusLeftPane))
+                .keyboardShortcut(shortcut(for: .focusLeftPane))
                 .disabled(library.activeStore?.activeSession?.hasSplit != true || modalActive)
                 Button { actions.focusPane(.split) } label: {
                     Label("Focus Right Pane", systemImage: "rectangle.righthalf.filled")
                 }
-                .keyboardShortcut(arrowShortcut(for: .focusRightPane))
+                .keyboardShortcut(shortcut(for: .focusRightPane))
                 .disabled(library.activeStore?.activeSession?.hasSplit != true || modalActive)
             }
             CommandGroup(replacing: .help) {

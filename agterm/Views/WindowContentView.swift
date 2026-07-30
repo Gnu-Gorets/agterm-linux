@@ -2,6 +2,24 @@ import agtermCore
 import AppKit
 import SwiftUI
 
+/// Window-local handoff between picker dismissal and the owning window becoming frontmost.
+/// A background window must not claim first responder, but its removed picker field cannot remain
+/// the responder when that window is activated later.
+struct PickFocusRestorationState {
+    private(set) var isDeferred = false
+
+    mutating func pickerResolved(isFrontmost: Bool) -> Bool {
+        isDeferred = !isFrontmost
+        return isFrontmost
+    }
+
+    mutating func windowBecameFrontmost(pickPending: Bool) -> Bool {
+        guard isDeferred, !pickPending else { return false }
+        isDeferred = false
+        return true
+    }
+}
+
 /// The actual per-window UI: the workspace/session sidebar + the active session's terminal, plus
 /// the quick-terminal / palette / switcher overlays. Holds the resolved non-optional `AppStore` so
 /// the binding-based wiring is unchanged from the single-window version; `ContentView` resolves the
@@ -29,6 +47,15 @@ struct WindowContentView: View {
     /// view-only grid. Registered in `DashboardControllerRegistry` on appear so the socket can drive it; the
     /// `+Dashboard` extension owns the overlay branch, deck yield, font override, and modal lifecycle.
     @State var dashboard = DashboardController()
+    /// Per-window native picker presented through the shared palette view. Registered for control-socket
+    /// lookup while this window is mounted; unlike `palette`, its pending state is window-scoped.
+    @State var pick = PickController()
+    /// Tracks this view's balanced auto-follow suppression so window teardown can release it even when
+    /// SwiftUI removes the observer before the pick controller publishes its cancellation.
+    @State private var pickSuppressesAutoFollow = false
+    /// Defers picker focus restoration when a control request resolves in a background window. The
+    /// always-mounted frontmost observer consumes it without activating or ordering that window.
+    @State private var pickFocusRestoration = PickFocusRestorationState()
     /// The terminal background color, mirrored from the (non-observable) `GhosttyApp` into view
     /// state and used as the quick terminal's opaque backing, so a settings theme change (posting
     /// `.agtermAppearanceChanged`) re-renders it live.
@@ -83,10 +110,7 @@ struct WindowContentView: View {
             // the deck stays inset below the titlebar. While zoomed, keep that eager deck mounted so
             // background sessions and control-opened overlays still realize their terminal surfaces and run;
             // the zoom layer owns the visible window.
-            splitRoot
-                .padding(.top, titlebarHeight)
-                .opacity(terminalZoom.target == nil ? 1 : 0)
-                .allowsHitTesting(terminalZoom.target == nil)
+            alwaysMountedSplitLayer
             if let zoomTarget = terminalZoom.target {
                 terminalZoomLayer(zoomTarget)
                     .zIndex(10)
@@ -113,6 +137,11 @@ struct WindowContentView: View {
                         .zIndex(2)
                 }
             }
+            // A control picker is the window's topmost modal. It must stay visible and interactive even
+            // when terminal zoom or the dashboard was already active when the request arrived.
+            pickPaletteOverlay
+                .padding(.top, titlebarHeight)
+                .zIndex(20)
         }
         // with the title bar hidden (.hiddenTitleBar), pull our header to the very top so the traffic
         // lights overlay it as one row; no system title bar is left to clip the content.
@@ -163,6 +192,24 @@ struct WindowContentView: View {
                 store.suppressAutoFollow()
             }
         }
+        // A native picker owns keyboard focus just like a built-in palette. Pair auto-follow suppression
+        // per window, then return first responder to this window's terminal after every resolution path.
+        .onChange(of: pick.pending?.id) { old, new in
+            if old == nil, new != nil, !pickSuppressesAutoFollow {
+                // A socket-driven picker may arrive while either title-bar popover is already open.
+                // Dismiss both immediately so no second interactive surface remains above the modal picker.
+                recentSessionsShown = false
+                attentionPopoverShown = false
+                store.suppressAutoFollow()
+                pickSuppressesAutoFollow = true
+            } else if old != nil, new == nil, pickSuppressesAutoFollow {
+                store.resumeAutoFollow()
+                pickSuppressesAutoFollow = false
+                if pickFocusRestoration.pickerResolved(isFrontmost: isFrontmost) {
+                    restoreFocusAfterPick()
+                }
+            }
+        }
         // a settings appearance change isn't observable through GhosttyApp, so re-render on the
         // notification to pick up the new terminal color in the quick terminal backing.
         .onReceive(NotificationCenter.default.publisher(for: .agtermAppearanceChanged)) { _ in
@@ -189,17 +236,24 @@ struct WindowContentView: View {
             // typing in the quick terminal counts as activity, so an idle auto-follow fire can't change this
             // window's selected session behind the overlay while the user types (mirrors the overlay/scratch).
             quickTerminal.onUserInput = { [store] in store.noteUserActivity() }
+            quickTerminal.focusAllowed = { [pick] in pick.pending == nil }
             QuickTerminalRegistry.shared.register(windowID, controller: quickTerminal)
             terminalZoom.targetResolver = { [store, quickTerminal] in
                 TerminalZoomController.resolveTarget(store: store, quickTerminalVisible: quickTerminal.isVisible)
             }
             TerminalZoomRegistry.shared.register(windowID, controller: terminalZoom)
             registerDashboard()
+            PickRegistry.shared.register(windowID, controller: pick)
         }
         .onDisappear {
             QuickTerminalRegistry.shared.unregister(windowID)
             TerminalZoomRegistry.shared.unregister(windowID)
             tearDownDashboard()
+            if pickSuppressesAutoFollow {
+                store.resumeAutoFollow()
+                pickSuppressesAutoFollow = false
+            }
+            PickRegistry.shared.unregister(windowID)
         }
     }
 
@@ -251,6 +305,23 @@ struct WindowContentView: View {
         // the mode switch below is safe to animate — it swaps sidebar CONTENT, not the split width, so
         // the detail column (and the deck) never resize.
         .animation(.easeInOut(duration: 0.15), value: store.sidebarMode)
+    }
+
+    /// The eager split/deck remains mounted behind every modal presentation, including terminal zoom.
+    /// Keep frontmost-driven cleanup here rather than on `windowOverlayLayer`, which is absent while
+    /// zoomed: otherwise a palette owned by the old front window can survive the handoff and remount
+    /// after the picker and zoom both close.
+    private var alwaysMountedSplitLayer: some View {
+        splitRoot
+            .padding(.top, titlebarHeight)
+            .opacity(terminalZoom.target == nil ? 1 : 0)
+            .allowsHitTesting(terminalZoom.target == nil)
+            .onChange(of: isFrontmost) { _, frontmost in
+                if frontmost, pick.pending != nil { palette.close() }
+                if frontmost, pickFocusRestoration.windowBecameFrontmost(pickPending: pick.pending != nil) {
+                    restoreFocusAfterPick()
+                }
+            }
     }
 
     private var sidebarColumn: some View {
@@ -407,7 +478,7 @@ struct WindowContentView: View {
                                              isActive: deckInteractive && isActive && !session.splitFocused && !overlaid,
                                              deckVisible: visible)
                                     .overlay { paneDim(session.splitFocused) }
-                                    .id(session.id)
+                                    .id(primarySurfaceID(session))
                             } else {
                                 Color.clear
                                     .id("\(session.id.uuidString)-primary-placeholder")
@@ -448,7 +519,7 @@ struct WindowContentView: View {
                     if deckHostsSurface(session: session, surface: .primary) {
                         TerminalView(session: session, surfaceKeyPath: \.surface, makeSurface: makeSurface,
                                      isActive: deckInteractive && isActive && !overlaid, deckVisible: visible)
-                            .id(session.id)
+                            .id(primarySurfaceID(session))
                     } else {
                         Color.clear
                             .id("\(session.id.uuidString)-primary-placeholder")
@@ -585,6 +656,14 @@ struct WindowContentView: View {
             .padding(.top, 8)
             .padding(.trailing, 8)
         }
+    }
+
+    /// Keeps a primary host stable through lazy surface creation and ordinary updates, but remounts it
+    /// when one live surface replaces another (split-survivor promotion). `TerminalView.updateNSView`
+    /// cannot replace the AppKit view that `makeNSView` returned, so session identity alone would keep
+    /// hosting the torn-down prior primary.
+    func primarySurfaceID(_ session: Session) -> String {
+        "\(session.id.uuidString)-primary-\(session.primarySurfaceHostRevision)"
     }
 
     /// Mutes the inactive split pane's TEXT so the active pane stands out, WITHOUT darkening the
@@ -726,8 +805,39 @@ struct WindowContentView: View {
     /// The command-palette overlay, mounted only while a palette is open in the frontmost window. Its
     /// content (search field + result list) is rebuilt from `palette.mode`.
     @ViewBuilder private var commandPaletteOverlay: some View {
-        if isFrontmost, palette.mode != nil {
+        if isFrontmost, pick.pending == nil, palette.mode != nil {
             CommandPalette(controller: palette, actions: actions)
+        }
+    }
+
+    /// A control picker is per-window rather than frontmost-global, so a caller may present one in a
+    /// background window without duplicating it elsewhere. Selection preserves the caller's original
+    /// item index even though fuzzy filtering reorders the visible rows. Keyed by the pending id so one
+    /// picker replacing another in the same view update gets fresh palette state rather than keeping the
+    /// previous picker's rows, whose select closures capture the previous picker's items.
+    @ViewBuilder private var pickPaletteOverlay: some View {
+        if let pending = pick.pending {
+            CommandPalette(
+                controller: palette,
+                actions: actions,
+                items: pending.items.enumerated().map { index, item in
+                    PaletteItem(id: item.id, title: item.label, subtitle: item.subtitle) {
+                        pick.resolve(ControlPickResult(
+                            result: .picked,
+                            id: item.id,
+                            label: item.label,
+                            index: index
+                        ))
+                    }
+                },
+                prompt: pending.prompt,
+                allowCustom: pending.allowCustom,
+                onCustom: { query in
+                    pick.resolve(ControlPickResult(result: .custom, query: query))
+                },
+                onDismiss: { pick.cancel() }
+            )
+            .id(pending.id)
         }
     }
 
@@ -738,8 +848,10 @@ struct WindowContentView: View {
         }
     }
 
-    /// Two distinct add controls, source-list style: add a workspace, and a menu
-    /// to add a session to the current workspace (default cwd) or a picked directory.
+    /// The sidebar footer, source-list style: two add controls on the left — add a workspace, and a menu
+    /// to add a session to the current workspace (default cwd) or a picked directory — and two view
+    /// toggles on the right, the workspace focus filter and the flagged working-set view. Each of the four
+    /// is individually hideable via Settings ▸ Interface (`shows(_:)`).
     private var bottomBar: some View {
         HStack(spacing: 2) {
             if shows(.newWorkspace) {
@@ -776,27 +888,29 @@ struct WindowContentView: View {
 
             Spacer()
 
-            // an escape hatch shown only while a workspace is focused: names the focused workspace and
-            // unfocuses on its ✕ (the primary affordance; the menu/palette "Clear Focus" mirror it).
-            if let focused = store.focusedWorkspace {
+            // apply or suspend the marked-workspace filter WITHOUT losing the set, so peeking at the whole
+            // tree costs one click each way. 2-state glyph (filled while the filter applies); it is both
+            // the indicator and the control for the filter state.
+            if shows(.focusFilter) {
                 Button {
-                    actions.clearFocus()
+                    actions.toggleFocusFilter()
                 } label: {
-                    HStack(spacing: 4) {
-                        Text(focused.name)
-                            .lineLimit(1)
-                        Image(systemName: "xmark")
-                    }
-                    .font(.caption)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(chromeText.opacity(0.15)))
-                    .contentShape(Capsule())
+                    Image(systemName: store.focusEnabled ? "square.grid.2x2.fill" : "square.grid.2x2")
+                        .frame(width: 24, height: 22)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.borderless)
-                .help("Clear focus")
-                .accessibilityLabel("Clear focus")
-                .accessibilityIdentifier("focus-pill")
+                // nothing marked means nothing to filter to, and the store refuses to enable an empty set
+                // anyway. The explicit chromeText foregroundStyle defeats SwiftUI's default disabled
+                // dimming, so mute it by hand — the flagged toggle's rule.
+                .disabled(store.focusedWorkspaceIDs.isEmpty)
+                .opacity(store.focusedWorkspaceIDs.isEmpty ? 0.35 : 1)
+                .help(helpHint(store.focusEnabled ? "Show all workspaces" : "Show only focused workspaces",
+                               .toggleWorkspaceFilter))
+                .accessibilityLabel("Toggle Workspace Filter")
+                // the only accessibility-observable read of the filter state now that the pill is gone.
+                .accessibilityValue(store.focusEnabled ? "on" : "off")
+                .accessibilityIdentifier("focus-filter-toggle")
             }
 
             // flip the sidebar between the workspace tree and the flat flagged working-set list. 2-state

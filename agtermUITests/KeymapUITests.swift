@@ -189,6 +189,21 @@ final class KeymapUITests: XCTestCase {
                       "a custom command bound to shift+/ should fire when Shift+/ (the ? key) is pressed")
     }
 
+    // a custom command bound to an ARROW chord fires. This is the path the host-free tests structurally
+    // cannot reach: the parser accepting `cmd+shift+left` means nothing unless the runner's NSEvent→Chord
+    // mapping produces key "left" for keyCode 123. Without the keyCode entry the event falls through to
+    // the character branch, which yields the private-use arrow character — a valid Chord no keymap line
+    // can spell, so the binding registers and silently never fires (the shifted-symbol failure mode).
+    func testCustomCommandArrowChordFires() throws {
+        let marker = markerDir.appendingPathComponent("arrow")
+        seedKeymap("command \"Touch Arrow\" cmd+shift+left touch '\(marker.path)'\n")
+        app.launchForUITest()
+        focusTerminal()
+
+        XCTAssertTrue(chordFiresMarker(marker) { app.typeKey(.leftArrow, modifierFlags: [.command, .shift]) },
+                      "a custom command bound to cmd+shift+left should fire when ⌘⇧← is pressed (issue #278)")
+    }
+
     // a custom command bound to a LEADER sequence fires: bind `ctrl+a>g` to `touch <file>`, focus the
     // terminal, press ctrl+a then g (two key events), assert the file appears. ctrl+a normally moves to
     // the line start in the shell, but the runner arms on it and consumes the sequence.
@@ -298,8 +313,42 @@ final class KeymapUITests: XCTestCase {
         return target
     }
 
-    /// Writes `keymap.conf` under the isolated state dir's `config` directory, before launch, so
-    /// `SettingsModel.loadKeymap` reads it at init (and `ensureStarterKeymap` leaves it untouched).
+    // issue #296: moving close_session OFF ⌘W lets SwiftUI's stock File ▸ Close claim the chord, and
+    // putting close_session BACK on ⌘W does not reclaim it — SwiftUI unbinds its own item instead, so ⌘W
+    // closed the whole window until the app was relaunched. Drive the reported sequence through RELOAD
+    // (never a relaunch): start with the override, remove it, reload, then press ⌘W and assert a session
+    // closed and the window survived. The existing keymap coverage only ever seeds the file at LAUNCH, so
+    // the reload path this regressed on had no test at all.
+    func testCloseSessionReclaimsCommandWAfterReload() throws {
+        seedKeymap("map cmd+e close_session\n")
+        app.launchForUITest()
+        XCTAssertTrue(app.staticTexts["session-row"].firstMatch.waitForExistence(timeout: 20), "seeded session should exist")
+        XCTAssertTrue(poll { self.sessionRowCount() == 1 }, "should start with the one seeded session")
+
+        // a second session, so closing one leaves the window populated (an emptied window legitimately
+        // closes on ⌘W, which would make the assertion below ambiguous).
+        app.typeKey("n", modifierFlags: .command)
+        XCTAssertTrue(poll { self.sessionRowCount() == 2 }, "⌘N should add a second session")
+
+        // remove the override so close_session falls back to its shipped ⌘W, then reload — no relaunch.
+        seedKeymap("")
+        reloadKeymapFromMenu()
+
+        app.typeKey("w", modifierFlags: .command)
+        XCTAssertTrue(poll({ self.sessionRowCount() == 1 }, timeout: 10),
+                      "⌘W should close a session once the override is gone; the stock File ▸ Close must not keep the chord")
+        // the window-close confirmation is the pre-fix symptom — it must not have appeared.
+        XCTAssertFalse(app.sheets.firstMatch.exists, "⌘W must not raise the close-window confirmation")
+        XCTAssertEqual(app.state, .runningForeground, "the window must survive")
+    }
+
+    private func reloadKeymapFromMenu() {
+        app.menuBars.menuBarItems["File"].click()
+        let item = app.menuItems["Reload Keymap"]
+        XCTAssertTrue(item.waitForExistence(timeout: 5), "File menu should offer Reload Keymap")
+        item.click()
+    }
+
     private func seedKeymap(_ contents: String) {
         let configDir = stateDir.appendingPathComponent("config", isDirectory: true)
         try? FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)

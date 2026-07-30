@@ -22,7 +22,10 @@ public protocol ControlActions {
     func moveSession(_ target: String?, window: String?, move: ControlSessionMove) -> ControlResponse
     func moveSessions(_ targets: [String], window: String?, move: ControlSessionMove) -> ControlResponse
     func moveWorkspace(_ target: String?, window: String?, direction: ReorderDirection) -> ControlResponse
-    func focusWorkspace(_ target: String?, window: String?, mode: String?) -> ControlResponse
+    func focusWorkspace(_ target: String?, window: String?, mode: ControlWorkspaceFocusMode) -> ControlResponse
+    /// Turn a window's workspace focus filter on/off WITHOUT touching the marked set. Window-scoped, so
+    /// it takes no workspace target — the host resolves the store from `window` (frontmost when nil).
+    func setWorkspaceFilter(window: String?, mode: ControlToggleMode) -> ControlResponse
     func setWorkspaceExpansion(_ target: String?, window: String?, expanded: Bool) -> ControlResponse
     func setSessionFlag(_ target: String?, window: String?, mode: String?) -> ControlResponse
     func markSessionSeen(_ target: String?, window: String?) -> ControlResponse
@@ -42,6 +45,7 @@ public protocol ControlActions {
                       fontMode: DashboardFontMode, mru: Bool) -> ControlResponse
     func font(_ target: String?, window: String?, pane: String?, action: String) -> ControlResponse
     func reloadKeymap() -> ControlResponse
+    func listKeymap() -> ControlResponse
     func reloadGhosttyConfig() -> ControlResponse
     func sendNotification(_ target: String?, window: String?, title: String?, body: String) -> ControlResponse
     func setTheme(args: ControlArgs?) -> ControlResponse
@@ -67,7 +71,7 @@ public protocol ControlActions {
     func setSessionBackground(_ target: String?, window: String?,
                               options: ControlSessionBackgroundOptions) -> ControlResponse
     func readSessionText(_ target: String?, window: String?, options: ControlSessionTextOptions) -> ControlResponse
-    func windowNew(name: String?) -> ControlResponse
+    func windowNew(name: String?, minimized: Bool) async -> ControlResponse
     func windowList() -> ControlResponse
     func windowSelect(_ target: String?) async -> ControlResponse
     func windowClose(_ target: String?) async -> ControlResponse
@@ -77,6 +81,13 @@ public protocol ControlActions {
     func windowMove(_ target: String?, x: Int, y: Int, display: Int?) -> ControlResponse
     func windowZoom(_ target: String?) -> ControlResponse
     func windowFullscreen(_ target: String?) -> ControlResponse
+    func windowMinimize(_ target: String?, mode: ControlToggleMode) async -> ControlResponse
+    /// Open a native picker. The host owns window resolution, registry lookup, and presentation.
+    func openPick(_ pick: PendingPick, window: String?, follow: Bool) -> ControlResponse
+    /// Read a native picker's current result. The host owns window resolution and registry lookup.
+    func pickResult(_ target: String, window: String?) -> ControlResponse
+    /// Cancel a native picker. The host owns window resolution, registry lookup, and dismissal.
+    func cancelPick(_ target: String, window: String?) -> ControlResponse
     func clearRestoreCommands() -> ControlResponse
 }
 
@@ -135,7 +146,7 @@ public struct ControlSessionTextOptions: Equatable, Sendable {
 /// response shape; host actions keep target resolution, AppKit state, and terminal-surface side effects.
 @MainActor
 public struct ControlDispatcher {
-    private let actions: any ControlActions
+    let actions: any ControlActions
 
     public init(actions: any ControlActions) {
         self.actions = actions
@@ -156,22 +167,24 @@ public struct ControlDispatcher {
                 .sessionText:
             return await dispatchSessionSurfaceCommand(request)
         case .workspaceNew, .workspaceSelect, .workspaceRename, .workspaceDelete,
-                .workspaceMove, .workspaceFocus, .workspaceCollapse, .workspaceExpand:
+                .workspaceMove, .workspaceFocus, .workspaceFilter, .workspaceCollapse, .workspaceExpand:
             return dispatchWorkspaceCommand(request)
-        case .quick, .fontInc, .fontDec, .fontReset, .keymapReload,
+        case .quick, .fontInc, .fontDec, .fontReset, .keymapReload, .keymapList,
                 .configReload, .notify, .themeSet, .themeList, .sidebar, .sidebarMode, .sidebarExpand,
                 .sidebarCollapse, .restoreClear:
             return dispatchAppCommand(request)
         case .quickType, .quickText:
             return await dispatchQuickCommand(request)
         case .windowNew, .windowList, .windowSelect, .windowClose, .windowRename,
-                .windowDelete, .windowResize, .windowMove, .windowZoom, .windowFullscreen:
+                .windowDelete, .windowResize, .windowMove, .windowZoom, .windowFullscreen, .windowMinimize:
             return await dispatchWindowCommand(request)
         case .dashboard:
             return dispatchDashboard(request)
         case .debugAppearance:
             // UI-test-only seam handled app-side in `ControlServer` (needs AppKit + `ContentView.isUITestLaunch`).
             return nil
+        case .pickOpen, .pickResult, .pickCancel:
+            return dispatchPickCommand(request)
         }
     }
 
@@ -324,6 +337,13 @@ public struct ControlDispatcher {
             if let color = request.args?.color, !WatermarkConfig.isValidColorHex(color) {
                 return ControlResponse(ok: false, error: "invalid color (expected #rrggbb)")
             }
+            var shape: StatusShape?
+            if let raw = request.args?.shape {
+                guard let parsed = StatusShape(rawValue: raw) else {
+                    return ControlResponse(ok: false, error: "invalid shape: \(raw) (\(StatusShape.validNamesList))")
+                }
+                shape = parsed
+            }
             let pane: StatusPane?
             switch parsePane(request.args?.pane) {
             case .pane(let parsed): pane = parsed
@@ -332,6 +352,7 @@ public struct ControlDispatcher {
             let update = ControlSessionStatusUpdate(status: status, blink: request.args?.blink,
                                                     autoReset: request.args?.autoReset,
                                                     sound: request.args?.sound, color: request.args?.color,
+                                                    shape: shape,
                                                     pane: pane, paneID: request.args?.paneID)
             return actions.setSessionStatus(request.target, window: request.args?.window, update: update)
         case .sessionRestore:
@@ -432,7 +453,22 @@ public struct ControlDispatcher {
             }
             return actions.moveWorkspace(request.target, window: request.args?.window, direction: direction)
         case .workspaceFocus:
-            return actions.focusWorkspace(request.target, window: request.args?.window, mode: request.args?.mode)
+            // parsed + rejected BEFORE the host runs, so an unknown mode can never half-apply; the
+            // accepted list is derived from `allCases`, so it cannot go stale when a mode is added.
+            let raw = request.args?.mode ?? ControlWorkspaceFocusMode.toggle.rawValue
+            guard let mode = ControlWorkspaceFocusMode(rawValue: raw) else {
+                return ControlResponse(ok: false,
+                                       error: "invalid focus mode: \(raw) (\(ControlWorkspaceFocusMode.validNamesList))")
+            }
+            return actions.focusWorkspace(request.target, window: request.args?.window, mode: mode)
+        case .workspaceFilter:
+            // window-scoped: no workspace target, only the flag. Same on/off/toggle vocabulary and shared
+            // parser as `sidebar`, defaulting to `toggle`.
+            guard let mode = ControlToggleMode.parse(request.args?.mode) else {
+                return ControlResponse(ok: false,
+                                       error: "invalid workspace filter mode: \(request.args?.mode ?? "toggle")")
+            }
+            return actions.setWorkspaceFilter(window: request.args?.window, mode: mode)
         case .workspaceCollapse:
             return actions.setWorkspaceExpansion(request.target, window: request.args?.window, expanded: false)
         case .workspaceExpand:
@@ -544,6 +580,8 @@ public struct ControlDispatcher {
             return actions.setQuickTerminal(mode: request.args?.mode)
         case .keymapReload:
             return actions.reloadKeymap()
+        case .keymapList:
+            return actions.listKeymap()
         case .configReload:
             return actions.reloadGhosttyConfig()
         case .notify:
@@ -680,7 +718,7 @@ public struct ControlDispatcher {
     private func dispatchWindowCommand(_ request: ControlRequest) async -> ControlResponse {
         switch request.cmd {
         case .windowNew:
-            return actions.windowNew(name: request.args?.name)
+            return await actions.windowNew(name: request.args?.name, minimized: request.args?.minimized ?? false)
         case .windowList:
             return actions.windowList()
         case .windowSelect:
@@ -709,6 +747,11 @@ public struct ControlDispatcher {
             return actions.windowZoom(request.target)
         case .windowFullscreen:
             return actions.windowFullscreen(request.target)
+        case .windowMinimize:
+            guard let mode = ControlToggleMode.parse(request.args?.mode) else {
+                return ControlResponse(ok: false, error: "invalid window minimize mode: \(request.args?.mode ?? "toggle")")
+            }
+            return await actions.windowMinimize(request.target, mode: mode)
         default:
             preconditionFailure("unexpected window command: \(request.cmd.rawValue)")
         }

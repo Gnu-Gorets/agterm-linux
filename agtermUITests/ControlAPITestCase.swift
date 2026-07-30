@@ -2,6 +2,23 @@ import AppKit
 import Darwin
 import XCTest
 
+@MainActor
+extension XCTestCase {
+    /// The shared waiting idiom: re-evaluate `condition` on a drained run loop until it holds or `timeout`
+    /// expires. `@autoclosure` so a caller reads as a plain expression, and a drained run loop (rather than
+    /// `usleep`) so the runner keeps servicing the AX queries and socket round-trips the condition makes.
+    /// Lives on `XCTestCase` rather than on `ControlAPITestCase` so the suites that do NOT need the control
+    /// harness (`FocusWorkspaceUITests`) share the one loop too.
+    func poll(until condition: @autoclosure () -> Bool, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return condition()
+    }
+}
+
 /// Shared XCUITest harness for the programmatic control-channel e2e suites: launches the real app
 /// with an isolated `AGTERM_STATE_DIR` (which also locates the unix socket at `<stateDir>/agterm.sock`),
 /// speaks the socket directly from the test process (one newline-delimited JSON request → one response
@@ -37,6 +54,7 @@ class ControlAPITestCase: XCTestCase {
         // (that test, testDoubleClickHeaderHonorsNoneSetting, now lives in ControlWindowUITests.)
         app.launchEnvironment["AGTERM_UITEST_DOUBLECLICK_ACTION"] =
             name.contains("testDoubleClickHeaderHonorsNoneSetting") ? "None" : "Maximize"
+        try seedSettingsIfNeeded()
         app.launchForUITest()
         // the seeded session row proves the window (and thus the control server's scene .task) is up.
         XCTAssertTrue(app.staticTexts["session-row"].waitForExistence(timeout: 30), "seeded session should exist")
@@ -47,6 +65,20 @@ class ControlAPITestCase: XCTestCase {
         if let stateDir { try? FileManager.default.removeItem(at: stateDir) }
         if let socketPath { try? FileManager.default.removeItem(atPath: socketPath) }
         if let markerDir { try? FileManager.default.removeItem(at: markerDir) }
+    }
+
+    /// Settings to write into the isolated state dir's `settings.json` before launch. Nil (the default)
+    /// launches with stock defaults. Override to start the app with a non-default setting — the control
+    /// channel has no `settings.*` command, so pre-seeding the file is the only way to exercise one
+    /// without driving the Settings window.
+    var seededSettings: [String: Any]? { nil }
+
+    /// Write `seededSettings` into the state dir before launch, so `SettingsModel.init` picks it up.
+    private func seedSettingsIfNeeded() throws {
+        guard let seededSettings else { return }
+        try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
+        let data = try JSONSerialization.data(withJSONObject: seededSettings)
+        try data.write(to: stateDir.appendingPathComponent("settings.json"))
     }
 
     /// Polls until the sidebar shows exactly `expected` `session-row` elements.
@@ -67,6 +99,57 @@ class ControlAPITestCase: XCTestCase {
         let t = try XCTUnwrap(result["tree"] as? [String: Any], "result should carry a tree")
         let ws = try XCTUnwrap((t["workspaces"] as? [[String: Any]])?.first, "should have a workspace")
         return try XCTUnwrap((ws["sessions"] as? [[String: Any]])?.first?["id"] as? String, "seeded session id")
+    }
+
+    /// One session's node from a FRESH `tree`, searched across every workspace — the read-back oracle for
+    /// the state a command just set. Re-sends `tree` on every call, so a test can poll a mutation, and
+    /// fails when the session is absent rather than returning a nil field that would read as "unset".
+    /// Use `sessionNodeIfPresent(id:)` where absence is a legitimate intermediate state.
+    func sessionNode(id: String) throws -> [String: Any] {
+        let sessions = try XCTUnwrap(sessionNodes(), "tree should carry a workspace/session list")
+        return try XCTUnwrap(sessions.first { matchesID($0, id) }, "session \(id) should be in the tree")
+    }
+
+    /// The tolerant twin of `sessionNode(id:)`: nil for an absent session AND for a response that carries
+    /// no readable tree, instead of failing. A polling loop needs this — a helper that throws on a
+    /// transient miss ends the test instead of taking the next tick.
+    func sessionNodeIfPresent(id: String) throws -> [String: Any]? {
+        try sessionNodes()?.first { matchesID($0, id) }
+    }
+
+    /// Every session node from a FRESH `tree`, flattened across all workspaces; nil when the response
+    /// carries no readable tree.
+    private func sessionNodes() throws -> [[String: Any]]? {
+        let tree = try sendCommand(#"{"cmd":"tree"}"#)
+        guard let result = tree["result"] as? [String: Any],
+              let workspaces = (result["tree"] as? [String: Any])?["workspaces"] as? [[String: Any]]
+        else { return nil }
+        return workspaces.flatMap { $0["sessions"] as? [[String: Any]] ?? [] }
+    }
+
+    /// Case-insensitive session id match — a `tree` id and a caller-supplied one can differ in case.
+    private func matchesID(_ session: [String: Any], _ id: String) -> Bool {
+        (session["id"] as? String)?.lowercased() == id.lowercased()
+    }
+
+    /// Polls the session node's `split` (isSplit) read-back until true.
+    func pollSplit(_ id: String, timeout: TimeInterval) throws -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if try sessionNodeIfPresent(id: id)?["split"] as? Bool == true { return true }
+            usleep(200_000)
+        }
+        return try sessionNodeIfPresent(id: id)?["split"] as? Bool == true
+    }
+
+    /// Polls the session node's `splitFocused` read-back until it equals `expected`.
+    func pollSplitFocused(_ id: String, expected: Bool, timeout: TimeInterval) throws -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if try sessionNodeIfPresent(id: id)?["splitFocused"] as? Bool == expected { return true }
+            usleep(200_000)
+        }
+        return try sessionNodeIfPresent(id: id)?["splitFocused"] as? Bool == expected
     }
 
     /// Terminate the running app, write `snapshot` as the (single) window's per-window snapshot file,

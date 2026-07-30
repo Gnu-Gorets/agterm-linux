@@ -36,6 +36,8 @@ struct DashboardView: View {
     /// The IDLE caption pill's TEXT — the theme's selection-foreground, readable over `pillColor`. A non-idle
     /// pill uses a luminance-contrasting black/white instead.
     let pillTextColor: Color
+    /// False while a control picker is above the dashboard, so its key catcher cannot steal focus.
+    let focusAllowed: Bool
     /// A single mouse click on a cell: the wiring flashes the active frame on it, then enters it after a brief
     /// delay, so the click is visibly acknowledged before the grid closes.
     let onClick: (DashboardMember) -> Void
@@ -84,7 +86,13 @@ struct DashboardView: View {
         .overlay(alignment: .top) { Rectangle().fill(highlightColor.opacity(0.1)).frame(height: 1) }
         // the key-catcher sits behind the cells so it never intercepts their click hit targets; it owns
         // first responder and swallows every key while open.
-        .background { DashboardKeyCatcher(onKey: handleKey) }
+        .background {
+            DashboardKeyCatcher(
+                focusRevision: controller.focusRevision,
+                focusAllowed: focusAllowed,
+                onKey: handleKey
+            )
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("dashboard")
         // no implicit animation on the grid geometry / highlight — a modal reparent overlay applies its
@@ -253,6 +261,7 @@ private struct DashboardCaptionPill: View {
     private static let washPeakOpacity: Double = 0.75
     private static let pulseDuration: Double = 0.45
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulsed = false
 
     private var isStatus: Bool { indicator.status != .idle }
@@ -271,6 +280,9 @@ private struct DashboardCaptionPill: View {
     /// so the highlighted name reads as the focused one.
     private var textOpacity: Double { isStatus || isHighlighted ? 1 : unselectedTextOpacity }
     private var shouldPulse: Bool { isStatus && indicator.blink }
+    /// Keep status color/text as the durable signal, but suppress the indefinite wash animation when
+    /// macOS Reduce Motion is enabled. SwiftUI refreshes this environment value live.
+    private var shouldAnimatePulse: Bool { shouldPulse && !reduceMotion }
 
     var body: some View {
         Text(text)
@@ -285,15 +297,20 @@ private struct DashboardCaptionPill: View {
                     .fill(fill)
                     // the blink: the opaque fill keeps covering the cell's frame ring while this wash capsule
                     // pulses its opacity on top, so nothing behind the chip ever shows through.
-                    .overlay { Capsule().fill(washColor).opacity(shouldPulse && pulsed ? Self.washPeakOpacity : 0) }
+                    .overlay {
+                        Capsule().fill(washColor)
+                            .opacity(shouldAnimatePulse && pulsed ? Self.washPeakOpacity : 0)
+                    }
             }
             // a pill-level implicit animation on `pulsed` — deeper in the tree than the grid's
             // `.transaction { animation = nil }`, so it re-enables the pulse for this pill WITHOUT re-animating
             // the grid's reparent (later-in-tree wins). Only the wash opacity keys off `pulsed`.
-            .animation(shouldPulse ? .easeInOut(duration: Self.pulseDuration).repeatForever(autoreverses: true) : nil,
+            .animation(shouldAnimatePulse
+                ? .easeInOut(duration: Self.pulseDuration).repeatForever(autoreverses: true)
+                : nil,
                        value: pulsed)
-            .onAppear { pulsed = shouldPulse }
-            .onChange(of: shouldPulse) { _, now in pulsed = now }
+            .onAppear { pulsed = shouldAnimatePulse }
+            .onChange(of: shouldAnimatePulse) { _, now in pulsed = now }
     }
 }
 
@@ -311,22 +328,28 @@ private enum DashboardKey {
 /// key-equivalents (⌘Q, ⌘W, …) still reach the menu bar — those go through `performKeyEquivalent` before
 /// keyDown, so the user is never trapped; only plain keystrokes to the terminal are blocked.
 private struct DashboardKeyCatcher: NSViewRepresentable {
+    let focusRevision: Int
+    let focusAllowed: Bool
     let onKey: (DashboardKey) -> Void
 
     func makeNSView(context _: Context) -> KeyCatcherView {
         let view = KeyCatcherView()
+        view.focusAllowed = focusAllowed
         view.onKey = onKey
         return view
     }
 
     func updateNSView(_ nsView: KeyCatcherView, context _: Context) {
+        _ = focusRevision
+        nsView.focusAllowed = focusAllowed
         nsView.onKey = onKey
         // re-assert first responder on every render so a cell click (or any focus reshuffle) can't leave the
         // overlay without the keyboard while it is open.
-        nsView.grabFocus()
+        if focusAllowed { nsView.grabFocus() }
     }
 
     final class KeyCatcherView: NSView {
+        var focusAllowed = true
         var onKey: ((DashboardKey) -> Void)?
 
         override var acceptsFirstResponder: Bool { true }
@@ -338,7 +361,7 @@ private struct DashboardKeyCatcher: NSViewRepresentable {
 
         /// Take first responder unless we already hold it (a redundant `makeFirstResponder` would churn).
         func grabFocus() {
-            guard let window, window.firstResponder !== self else { return }
+            guard focusAllowed, let window, window.firstResponder !== self else { return }
             window.makeFirstResponder(self)
         }
 

@@ -3,6 +3,8 @@
 Worked `agtermctl` examples. See `reference.md` for exact flags and return shapes. All assume
 `agtermctl` is on PATH and you are inside an agterm session (`AGTERM_ENABLED=1`).
 
+Installable, human-facing versions of these workflows: https://github.com/umputun/agterm/tree/master/cookbook
+
 ## Inspect the current state
 
 ```bash
@@ -241,9 +243,11 @@ image there via the kitty graphics protocol, which ghostty draws natively — no
 external image tool, just `base64` + `printf`. An optional second argument sets the panel size percent
 (default 60):
 
+Resolve the script against the directory this skill was loaded from — it sits beside `SKILL.md` in
+every install layout (plugin cache or the app's `~/.claude/skills/agterm/` / `~/.codex/skills/agterm/`):
+
 ```bash
-bash ~/.claude/skills/agterm/scripts/show-image.sh /abs/path/to/img.png 60   # Claude Code
-bash ~/.codex/skills/agterm/scripts/show-image.sh /abs/path/to/img.png 60    # Codex
+bash <this-skill-directory>/scripts/show-image.sh /abs/path/to/img.png 60
 ```
 
 The image shows in a floating overlay over the active session; dismiss it with Enter in the panel or
@@ -251,7 +255,12 @@ The image shows in a floating overlay over the active session; dismiss it with E
 escapes the control bytes) and do NOT run an image viewer in your tool shell (no controlling
 terminal) — the overlay's real terminal is what renders.
 
-Tiny images (a favicon) enlarge with nearest-neighbor first, so the pixels stay crisp:
+The script scales the image to the overlay and centers it, up or down, preserving aspect ratio, so
+there is no need to resize a large screenshot first. Only when the terminal does not answer the
+geometry query does it fall back to drawing at native pixel size in the top-left corner.
+
+Tiny images (a favicon) upscale smoothly, which blurs the pixels. To keep them crisp, enlarge with
+nearest-neighbor first:
 
 ```bash
 magick favicon.png -filter point -resize 256x256 /tmp/big.png
@@ -339,13 +348,54 @@ agtermctl session seen --target "$SID"                   # clear it, selection/f
 ## Focus a single workspace
 
 Collapse the sidebar tree to one workspace's sessions (hiding the others), with the full tree one
-command away. Per-window and persisted; orthogonal to `sidebar mode`. While focused, `session go`
-navigation is scoped to that workspace's sessions; unfocusing restores stepping over all sessions.
+command away. `on` replaces the marked set with this workspace and applies the filter; `off` unmarks it,
+which switches the filter off as the set empties. Per-window and persisted; orthogonal to
+`sidebar mode`. While the filter is applied, `session go` navigation is scoped to the marked workspaces'
+sessions; suspending it restores stepping over all sessions.
+
+Every mode acts on `--target`, which defaults to `active` — the workspace of the SELECTED session, not
+whatever the previous line addressed. Focusing does not move the selection, so always name the workspace
+you mean.
 
 ```bash
 agtermctl workspace focus on --target "$AGTERM_WORKSPACE_ID"  # zoom to this workspace
-agtermctl workspace focus toggle --target a1b2                # flip focus on another workspace
-agtermctl workspace focus off                                 # restore the full tree
+agtermctl workspace focus toggle --target a1b2                # replace-toggle onto another workspace
+agtermctl workspace focus off --target a1b2                   # unmark it; the tree comes back
+```
+
+## Build, read back, and restore a multi-workspace working set
+
+`workspace focus add` MARKS a workspace without switching the filter on, so a set is built member by
+member with the whole tree still on screen and applied ONCE with `workspace filter on`. `workspace
+filter off` suspends it WITHOUT losing the set, so peeking at everything and coming back costs one call
+each way. Membership reads back per workspace as `focused`, the flag as the tree-level
+`workspaceFilter`, and a workspace row renders iff
+`sidebarVisible && sidebarMode == "tree" && (!workspaceFilter || focused)` — no workspace row renders at
+all with the sidebar hidden or in `flagged` mode (that view is a flat flagged-session list); in `tree`
+mode with the filter off the whole tree is on screen regardless of membership, and only with the filter
+on does visibility narrow to the members. `filter on` with nothing marked is refused, so an applied
+filter always has a visible member and the pair can never disagree with what is on screen.
+
+```bash
+agtermctl workspace focus add --target a1b2      # mark; the tree stays fully visible
+agtermctl workspace focus add --target c3d4      # mark a second one, still nothing hidden
+agtermctl workspace filter on                    # now show only the two marked workspaces
+
+# record the working set before changing it (one tree read for both fields)
+tree=$(agtermctl tree --json)
+marked=$(printf '%s' "$tree" | jq -r '.result.tree.workspaces[] | select(.focused) | .id')
+was=$(printf '%s' "$tree" | jq -r '.result.tree.workspaceFilter')
+
+agtermctl workspace filter off                   # peek at the whole tree; the set survives
+agtermctl workspace filter on                    # back to the same two workspaces
+
+# restore an earlier set exactly: clear, re-mark, then re-apply only if it was applied
+agtermctl workspace filter off
+for ws in $(agtermctl tree --json | jq -r '.result.tree.workspaces[] | select(.focused) | .id'); do
+  agtermctl workspace focus off --target "$ws"
+done
+for ws in $marked; do agtermctl workspace focus add --target "$ws"; done
+if [ "$was" = "true" ]; then agtermctl workspace filter on; fi
 ```
 
 ## Expand or collapse the sidebar tree
@@ -504,6 +554,7 @@ agtermctl session status completed --auto-reset --target "$AGTERM_SESSION_ID"  #
 agtermctl session status blocked --sound default --target "$AGTERM_SESSION_ID" # needs input, with a beep
 agtermctl session status completed --sound Glass --target "$AGTERM_SESSION_ID" # done, with a named sound
 agtermctl session status blocked --color '#ff0000' --target "$AGTERM_SESSION_ID" # per-call red tint (reverts on next status)
+agtermctl session status blocked --shape triangle --target "$AGTERM_SESSION_ID"  # per-call silhouette (reverts on next status)
 agtermctl session status blocked --pane right --target "$AGTERM_SESSION_ID"     # a split-pane agent tags its pane (see below)
 agtermctl session status idle --target "$AGTERM_SESSION_ID"             # clear
 ```
@@ -512,9 +563,10 @@ agtermctl session status idle --target "$AGTERM_SESSION_ID"             # clear
 
 An agent running in a split or scratch pane sets `--pane` so its block survives foreground typing in
 another pane and the user's attention navigation lands on the RIGHT pane — the split, or a hidden scratch,
-not the main pane. Auto-follow and any GUI selection — the attention-nav (⌃⌥↑/⌃⌥↓), plain session nav,
-the command palettes, and a sidebar row click — reveal and focus the tagged pane; the socket
-`session go --to next-attention` only steps the selection, it does not move focus into the pane.
+not the main pane. For `blocked` or `completed`, auto-follow and GUI selection through attention-nav
+(⌃⌥↑/⌃⌥↓), plain session nav, the command palettes, a sidebar row, or a Dock-menu session row reveal and
+focus the tagged pane. An `active` tag is informational and preserves the current pane. The socket
+`session go --to next-attention` only steps the selection; it does not move focus into the pane.
 Without `--pane` the status is treated as coming from the main (`left`) pane, so a block set from the split
 can be wiped by typing in the main pane and the reveal lands on the wrong surface.
 
@@ -610,18 +662,111 @@ dashboard and terminal zoom are mutually exclusive (opening one closes the other
 and resizes their ptys to/from their cells. Linux mirrors the live panes without reparenting, so it keeps
 their existing geometry unless a fixed/automatic Dashboard font changes the terminal grid temporarily.
 
+## Ask the user to choose from a generated list
+
+Pipe nonblank labels into `pick`. The call blocks until the user chooses or cancels, then prints a bare
+JSON result:
+
+```bash
+choice=$(
+  printf '%s\n' staging production |
+    agtermctl pick --prompt "Deploy where?"
+)
+
+case $(jq -r '.result' <<<"$choice") in
+  picked) jq -r '.id' <<<"$choice" ;;
+  custom) jq -r '.query' <<<"$choice" ;;
+esac
+```
+
+Use a JSON array when ids differ from labels or rows need subtitles. `--allow-custom` adds the current
+nonmatching query as a choice:
+
+```bash
+jq -n '[
+  {id: "stg", label: "Staging", subtitle: "staging.example.com"},
+  {id: "prod", label: "Production", subtitle: "production.example.com"}
+]' | agtermctl pick --prompt "Deploy target" --allow-custom
+```
+
+Open without blocking when another process owns the lifecycle. The picker id reads back from the target
+window's tree as `pickPending`; poll the same window, or cancel by exact id:
+
+```bash
+pick_id=$(
+  printf '%s\n' alpha beta gamma |
+    agtermctl pick --no-block --window "$AGTERM_WINDOW_ID" |
+    jq -r '.id'
+)
+
+agtermctl tree --json --window "$AGTERM_WINDOW_ID" |
+  jq -r '.result.tree.pickPending // empty'
+agtermctl pick result "$pick_id" --window "$AGTERM_WINDOW_ID"
+agtermctl pick cancel "$pick_id" --window "$AGTERM_WINDOW_ID"
+```
+
+Add `--follow` to raise a background target window when the picker opens. Without it, the picker waits in
+that window without stealing focus.
+
 ## Navigate and manage windows
 
 ```bash
 agtermctl session go --to next            # step selection to the next session
 agtermctl session go --to next-attention  # jump to the next blocked/completed session
 w=$(agtermctl window new "scratch" --json | jq -r '.result.id')
+# or park one in the Dock right after creating it (it appears briefly on its way there):
+# p=$(agtermctl window new "proj-b" --minimized --json | jq -r '.result.id')
 agtermctl window resize "$w" --width 1200 --height 800
 agtermctl window move "$w" --x 100 --y 100 --display 0
 agtermctl window zoom "$w"                 # maximize-to-screen toggle (call again to restore)
 agtermctl window fullscreen "$w"           # native macOS full screen toggle (⌃⌘F / green button)
-agtermctl window select "$w"
+agtermctl window minimize "$w" on          # park it in the Dock (off restores, toggle flips)
+agtermctl window select "$w"               # raise it, un-minimizing if it was parked
 ```
+
+`window new` returns only once the window is really on screen, so the `window resize` above works on the
+first try — no polling needed between them.
+
+## Show one project at a time in a single spot
+
+One window per project, all on the SAME frame, with everything but the current one parked in the Dock.
+Switching then looks like switching a tab rather than managing five windows.
+
+```bash
+# align every window to the active one's frame, so raising one covers the others exactly
+set -- $(agtermctl window list --json | jq -r '.result.windows[] | select(.active) | .geometry
+  | "\(.x) \(.y) \(.width) \(.height) \(.display)"')
+# select(.open): a closed window has no NSWindow, so resize/move would error on it
+agtermctl window list --json | jq -r '.result.windows[] | select(.open) | .id' | while read -r id; do
+  agtermctl window resize "$id" --width "$3" --height "$4"
+  agtermctl window move "$id" --x "$1" --y "$2" --display "$5"
+done
+
+# building the set from scratch: create every project window already parked, then show one
+for p in "Project A" "Project B" "Project C"; do
+  agtermctl window new "$p" --minimized >/dev/null
+done
+
+# show exactly one project: raise it, park the rest
+# show exactly one project: raise it, park the rest. `select` opens a closed window, so it needs no
+# filter; `park` does — minimize errors on a window that has no NSWindow.
+show() {
+  agtermctl window list --json | jq -r --arg n "$1" '.result.windows[]
+    | select(.name == $n or .open)
+    | "\(if .name == $n then "select" else "park" end) \(.id)"' |
+  while read -r act id; do
+    if [ "$act" = select ]; then
+      agtermctl window select "$id"
+    else
+      agtermctl window minimize "$id" on
+    fi
+  done
+}
+```
+
+A minimized window still reports its `geometry`, and `window move`/`window resize` apply to it — a parked
+window comes back at whatever frame was written while it sat in the Dock, so re-running the align step
+covers parked windows too. The minimized state is live-only — re-run `show` after restarting agterm.
 
 ## Reload the keymap after editing it
 
@@ -665,4 +810,53 @@ agtermctl theme set --dark none              # stop tracking; the light theme st
 ```bash
 agtermctl tree --json --window work          # the "work" window's tree (prefix match)
 agtermctl session new --window work --cwd "$HOME"
+```
+
+## Checking a keybinding actually took effect
+
+`keymap.conf` says one thing; the menu bar dispatches another. After a rebind, verify both.
+
+```bash
+agtermctl keymap reload                      # apply the edited file (prints the diagnostic count)
+agtermctl keymap list                        # the resolved chords AND the live menu equivalents
+```
+
+Confirm one action's chord, then confirm the menu is really carrying it:
+
+```bash
+agtermctl keymap list --json \
+  | jq -r '.result.keymap.actions[] | select(.action == "close_session") | .chord'
+agtermctl keymap list --json \
+  | jq -r '.result.keymap.menu[] | select(.chord == "cmd+w") | "\(.menu) > \(.title)  [\(.selector)]"'
+```
+
+If those disagree, the keymap is fine and the menu is stale or the chord was taken: SwiftUI rebuilds the
+menu only on the next app activation, so switch away and back before concluding anything, and relaunch if
+it persists.
+
+A menu entry with `"enabled": false` holds the chord but is inert — AppKit consumes the key and fires
+nothing, including any same-chord sibling. Most File/View/Navigate items disable themselves while a modal
+is up, so check this before blaming the binding:
+
+```bash
+agtermctl keymap list --json \
+  | jq -r '.result.keymap.menu[] | select(.enabled == false) | "\(.chord)  \(.menu) > \(.title)"'
+```
+
+Find every chord already in use before picking one for a new binding. All THREE sources matter: a
+custom command's shortcut is delivered by the key monitor rather than a menu item, so it appears in
+`commands` and can never show up under `menu`. Miss it and a new `map` line on the same chord makes the
+next reload drop the custom binding.
+
+```bash
+agtermctl keymap list --json | jq -r '
+  [ .result.keymap.actions[].chord,
+    .result.keymap.commands[].shortcut,
+    .result.keymap.menu[].chord ] | map(select(. != null)) | unique | .[]'
+```
+
+Read the parse problems in full rather than just their count:
+
+```bash
+agtermctl keymap list --json | jq -r '.result.keymap.diagnostics[] | "line \(.line): \(.message)"'
 ```

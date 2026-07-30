@@ -19,6 +19,9 @@ settings:
     ARCHS: arm64
     ONLY_ACTIVE_ARCH: NO
     SWIFT_STRICT_CONCURRENCY: complete
+    # The agtermTests scheme intentionally builds serially so the app's deep-sign
+    # phase finishes before Xcode places its hosted test bundle inside the app.
+    DISABLE_MANUAL_TARGET_ORDER_BUILD_WARNING: YES
     DEAD_CODE_STRIPPING: YES
     ENABLE_HARDENED_RUNTIME: YES
     CODE_SIGN_STYLE: Manual
@@ -48,7 +51,6 @@ targets:
           - "Resources/ghostty"
           - "Resources/terminfo"
           - "Resources/agent-status"
-          - "Resources/agent-skill"
           # committed SOURCE for agterm's own bundled theme(s); setup.sh stages it
           # into Resources/ghostty/themes (above), so the source dir itself must not
           # be pulled into the project tree or the app bundle.
@@ -78,10 +80,12 @@ targets:
       - path: agterm/Resources/agent-status
         type: folder
         buildPhase: resources
-      # Claude Code skill package (SKILL.md + reference.md + examples.md). Folder reference so the
-      # whole dir copies verbatim to Contents/Resources/agent-skill; the installer copies it from
+      # Agent skill package (SKILL.md + reference.md + examples.md + troubleshooting.md + scripts).
+      # It lives at plugins/agterm/skills/agterm so the SAME directory is also the skill source for
+      # the Claude Code and Codex plugin manifests — one copy, three consumers. Folder reference so
+      # the whole dir copies verbatim to Contents/Resources/agterm; the installer copies it from
       # there to ~/.claude/skills/agterm.
-      - path: agterm/Resources/agent-skill
+      - path: plugins/agterm/skills/agterm
         type: folder
         buildPhase: resources
     settings:
@@ -176,6 +180,26 @@ targets:
         # a Team-ID mismatch when the runner loads the xctest bundle.
         ENABLE_HARDENED_RUNTIME: NO
 
+  agtermTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - agtermTests
+    dependencies:
+      - target: agterm
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.umputun.agtermTests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/agterm.app/Contents/MacOS/agterm"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        CODE_SIGN_IDENTITY: "-"
+        # Hosted AppKit tests call isolated app code on the main actor; strict
+        # checking adds XCTest boundary failures without improving that coverage.
+        SWIFT_STRICT_CONCURRENCY: minimal
+        # The ad-hoc-signed host must load the test bundle without Team-ID checks.
+        ENABLE_HARDENED_RUNTIME: NO
+
 schemes:
   agterm:
     build:
@@ -190,3 +214,24 @@ schemes:
         - agtermUITests
     archive:
       config: Release
+
+  agtermTests:
+    build:
+      # The app-hosted test bundle and host must be built serially; otherwise the
+      # app target's final deep-sign phase can observe a half-built xctest bundle.
+      parallelizeBuild: false
+      targets:
+        agterm: all
+        agtermTests: [test]
+    test:
+      config: Debug
+      macroExpansion: agtermTests
+      environmentVariables:
+        # Application-hosted XCTest starts `agtermApp.init()` before test `setUp`.
+        # Isolate every eager app dependency at process launch, and keep the
+        # control socket short enough for sockaddr_un without touching the live app.
+        AGTERM_STATE_DIR: "$(TARGET_TEMP_DIR)/agtermTests-state"
+        AGTERM_CONTROL_SOCKET: "/tmp/agterm-hosted-tests-$(UID).sock"
+        AGTERM_HOSTED_TESTS: "1"
+      targets:
+        - agtermTests

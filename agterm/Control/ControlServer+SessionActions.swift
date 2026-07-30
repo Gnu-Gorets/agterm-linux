@@ -99,10 +99,10 @@ extension ControlServer: ControlActions {
                 guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                     return ControlResponse(ok: false, error: "workspace name must not be blank")
                 }
-                // a --no-select create must not clear the workspace-focus filter (addWorkspace's auto-reveal),
+                // a --no-select create must not widen the workspace-focus set (addWorkspace's auto-reveal),
                 // so the background create leaves the current view untouched like the rest of --no-select.
                 let workspace = options.createWorkspace == true
-                    ? store.ensureWorkspace(named: name, clearFocus: !options.noSelect)
+                    ? store.ensureWorkspace(named: name, revealNewWorkspace: !options.noSelect)
                     : store.workspace(named: name)
                 guard let workspace else {
                     return ControlResponse(ok: false, error: "no workspace named \"\(name)\" (pass --create-workspace to add it)")
@@ -336,7 +336,8 @@ extension ControlServer: ControlActions {
     /// per-call `sound` is given and the session TRANSITIONS into `blocked`, the user's configured Settings
     /// "Blocked sound" (`blockedStatusSoundName`) plays as a best-effort default. `update.color`, when set,
     /// is a `#rrggbb` glyph-tint override (hex-validated in the dispatcher) that rides the ephemeral
-    /// indicator, so it lasts only until the next `session.status` without a color. `update.pane`
+    /// indicator, so it lasts only until the next `session.status` without a color; `update.shape` is the
+    /// matching silhouette override (parsed in the dispatcher), ephemeral the same way. `update.pane`
     /// (`StatusPane`, validated in the dispatcher) is threaded onto the indicator's `statusPane` — the pane
     /// that set the status — driving the pane-scoped keystroke-clear and the pane-aware attention reveal;
     /// nil is treated as `left`/main. The indicator is ephemeral and rendered on every non-idle session.
@@ -357,7 +358,8 @@ extension ControlServer: ControlActions {
             let resolvedPane = update.paneID.flatMap { session?.paneRole(forToken: $0) } ?? update.pane
             store.setAgentIndicator(AgentIndicator(status: update.status, blink: update.blink ?? false,
                                                    autoReset: update.autoReset ?? false,
-                                                   color: update.color, statusPane: resolvedPane), forSession: id)
+                                                   color: update.color, shape: update.shape,
+                                                   statusPane: resolvedPane), forSession: id)
             // explicit per-call sound wins on any status; the Settings default plays only when a session
             // newly enters `blocked`, not on a repeated `blocked` set.
             let blockedDefault = wasBlocked ? nil : self.settingsModel.settings.blockedStatusSoundName
@@ -593,6 +595,11 @@ extension ControlServer: ControlActions {
     /// Post a desktop notification attributed to a session (default: the active session of the
     /// frontmost window, via `resolveSession`). `title` defaults to the session name; `body` is
     /// required. Errors when no open window owns the resolved session.
+    ///
+    /// A successful post while banners are off returns `ok` with a note in `result.text` — the badge
+    /// still tracks, but no banner appears, and a bare `ok` for a call that posts nothing to the OS
+    /// is indistinguishable from a broken notification path (issue #286). Mirrors the same note
+    /// `session.restore` returns when `restoreRunningCommand` is off.
     func sendNotification(_ target: String?, window: String?, title: String?, body: String) -> ControlResponse {
         return resolver.resolveSession(target, window: window) { store, id in
             guard let session = store.session(withID: id) else {
@@ -601,7 +608,11 @@ extension ControlServer: ControlActions {
             guard NotificationManager.shared.send(toSession: session, title: title ?? "", body: body) else {
                 return ControlResponse(ok: false, error: "session's window is not open")
             }
-            return ControlResponse(ok: true, result: ControlResult(id: id.uuidString))
+            var result = ControlResult(id: id.uuidString)
+            if !NotificationManager.shared.bannersEnabled {
+                result.text = ControlNotify.bannersOffNote
+            }
+            return ControlResponse(ok: true, result: result)
         }
     }
 
@@ -619,6 +630,11 @@ extension ControlServer: ControlActions {
         case .success(let resolved):
             guard let controller = TerminalZoomRegistry.shared.controller(for: resolved.windowID) else {
                 return ControlResponse(ok: false, error: "window not open — window.select it first")
+            }
+            let want = mode.desiredValue(current: controller.target == resolved.target)
+            if want, controller.target != resolved.target,
+               PickRegistry.shared.controller(for: resolved.windowID)?.pending != nil {
+                return ControlResponse(ok: false, error: "pick pending")
             }
             // `hide` is idempotent like the active-target arm: skip the availability check for `.off` —
             // the surface may have vanished since (an overlay exited, auto-clearing the zoom) and the
@@ -641,6 +657,10 @@ extension ControlServer: ControlActions {
         case .success(let (windowID, store)):
             guard let controller = TerminalZoomRegistry.shared.controller(for: windowID) else {
                 return ControlResponse(ok: false, error: "window not open — window.select it first")
+            }
+            if controller.target == nil, mode != .off,
+               PickRegistry.shared.controller(for: windowID)?.pending != nil {
+                return ControlResponse(ok: false, error: "pick pending")
             }
             // this arm only picks the effective target — the current zoom when one is up (so
             // on/off/toggle act on it), else the resolved active surface — and shapes the response;

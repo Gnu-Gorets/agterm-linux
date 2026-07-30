@@ -292,8 +292,11 @@ struct AppStoreTests {
         let store = makeStore()
         let ws = store.addWorkspace(name: "work")
         let a = store.addSession(toWorkspace: ws.id, cwd: "/a")!
-        store.setAgentIndicator(AgentIndicator(status: .completed, autoReset: true), forSession: a.id)
-        store.selectSession(a.id) // visiting an auto-reset indicator clears it to idle for good
+        a.hasSplit = true
+        let indicator = AgentIndicator(status: .completed, autoReset: true, statusPane: .right)
+        store.setAgentIndicator(indicator, forSession: a.id)
+        let captured = store.selectSession(a.id) // visiting clears it, but returns the pre-clear routing value
+        #expect(captured == indicator)
         #expect(a.agentIndicator == AgentIndicator())
     }
 
@@ -1193,6 +1196,23 @@ struct AppStoreTests {
         #expect(store.recentSessions(limit: 9) == [a.id])
     }
 
+    @Test func navigableRecentSessionsExcludesCurrentAndUsesVisibleScope() {
+        let store = makeStore()
+        let work = store.addWorkspace(name: "work")
+        let personal = store.addWorkspace(name: "personal")
+        let a = store.addSession(toWorkspace: work.id, cwd: "/a")!
+        let b = store.addSession(toWorkspace: work.id, cwd: "/b")!
+        let c = store.addSession(toWorkspace: personal.id, cwd: "/c")!
+        store.selectSession(a.id)
+        store.selectSession(c.id)
+        store.selectSession(b.id)
+
+        #expect(store.navigableRecentSessions(limit: 2) == [c.id, a.id])
+
+        store.setFocusedWorkspace(personal.id)
+        #expect(store.navigableRecentSessions(limit: 9) == [c.id])
+    }
+
     @Test func setFontSizeRecordsValue() {
         let store = makeStore()
         let ws = store.addWorkspace(name: "work")
@@ -1432,21 +1452,6 @@ struct AppStoreTests {
         #expect(store.controlTree().sidebarVisible == true)
     }
 
-    @Test func controlTreeReportsFocusedWorkspace() {
-        let store = makeStore()
-        let ws2 = store.addWorkspace(name: "second")
-        // no focus: no workspace node reports focused.
-        #expect(store.controlTree().workspaces.allSatisfy { $0.focused == nil })
-        // focus the second workspace: ONLY its node reports focused == true (distinct from active).
-        store.setFocusedWorkspace(ws2.id)
-        let nodes = store.controlTree().workspaces
-        #expect(nodes.first { $0.id == ws2.id.uuidString }?.focused == true)
-        #expect(nodes.filter { $0.focused == true }.count == 1)
-        // clearing focus: no node reports focused again.
-        store.setFocusedWorkspace(nil)
-        #expect(store.controlTree().workspaces.allSatisfy { $0.focused == nil })
-    }
-
     @Test func controlTreeReportsCollapsedWorkspace() {
         let store = makeStore()
         let ws2 = store.addWorkspace(name: "second")
@@ -1506,6 +1511,17 @@ struct AppStoreTests {
         let id = "surface:\(UUID().uuidString):left"
         #expect(store.controlTree(zoomedSurface: { id }).zoomedSurface == id)
         #expect(store.controlTree(zoomedSurface: { "quick" }).zoomedSurface == "quick")
+    }
+
+    @Test func controlTreeReportsPickPendingFromClosure() {
+        let store = makeStore()
+        #expect(store.controlTree(pickPending: { "pick-42" }).pickPending == "pick-42")
+    }
+
+    @Test func controlTreeOmitsPickPendingWithoutClosure() {
+        let store = makeStore()
+        #expect(store.controlTree().pickPending == nil)
+        #expect(store.controlTree(pickPending: { nil }).pickPending == nil)
     }
 
     @Test func controlTreeReportsDashboardFieldsFromClosures() {
@@ -1616,6 +1632,48 @@ struct AppStoreTests {
 
         #expect(node.status == "completed")
         #expect(node.statusPane == nil)
+    }
+
+    @Test func controlTreeReportsStatusShapeOnlyForAPerCallOverride() throws {
+        let store = makeStore()
+        let ws = store.addWorkspace(name: "work")
+        let shaped = try #require(store.addSession(toWorkspace: ws.id, cwd: "/shaped"))
+        let plain = try #require(store.addSession(toWorkspace: ws.id, cwd: "/plain"))
+        store.setAgentIndicator(AgentIndicator(status: .blocked, shape: .triangle), forSession: shaped.id)
+        store.setAgentIndicator(AgentIndicator(status: .blocked), forSession: plain.id)
+
+        let sessions = store.controlTree().workspaces[0].sessions
+
+        #expect(sessions[0].statusShape == "triangle")
+        #expect(sessions[1].statusShape == nil) // no per-call shape: the Settings shape / default is not reported
+    }
+
+    @Test func controlTreeDropsStatusShapeOnTheNextSetWithoutOne() throws {
+        let store = makeStore()
+        let ws = store.addWorkspace(name: "work")
+        let session = try #require(store.addSession(toWorkspace: ws.id, cwd: "/repo"))
+        // the per-call shape is ephemeral: each session.status builds a whole new indicator, so a following
+        // set that names no shape replaces it rather than inheriting it — the discard contract itself
+        store.setAgentIndicator(AgentIndicator(status: .blocked, shape: .triangle), forSession: session.id)
+        #expect(store.controlTree().workspaces[0].sessions[0].statusShape == "triangle")
+
+        store.setAgentIndicator(AgentIndicator(status: .blocked), forSession: session.id)
+
+        #expect(store.controlTree().workspaces[0].sessions[0].statusShape == nil)
+        #expect(store.controlTree().workspaces[0].sessions[0].status == "blocked") // only the shape reverted
+    }
+
+    @Test func controlTreeNilsStatusShapeWhenIdleEvenWithShape() throws {
+        let store = makeStore()
+        let ws = store.addWorkspace(name: "work")
+        let session = try #require(store.addSession(toWorkspace: ws.id, cwd: "/repo"))
+        // idle renders no glyph, so a retained shape must not project — mirroring statusPane/statusColor
+        store.setAgentIndicator(AgentIndicator(status: .idle, shape: .star), forSession: session.id)
+
+        let node = try #require(store.controlTree().workspaces[0].sessions.first)
+
+        #expect(node.status == nil)
+        #expect(node.statusShape == nil)
     }
 
     @Test func controlTreeUsesForegroundLookups() throws {
@@ -1741,22 +1799,6 @@ extension AppStoreTests {
         store.setSidebarMode(.tree)
         #expect(store.sidebarSelectionIDs == [b.id],
                 "rows hidden by the mode switch must not re-enter the selection when visible again")
-    }
-
-    @Test func workspaceFocusPrunesRowsOutsideFocusedWorkspace() {
-        let store = makeStore()
-        let ws1 = store.addWorkspace(name: "one")
-        let ws2 = store.addWorkspace(name: "two")
-        let a = try! #require(store.addSession(toWorkspace: ws1.id, cwd: "/a"))
-        let b = try! #require(store.addSession(toWorkspace: ws2.id, cwd: "/b"))
-        store.setSidebarSelection([a.id, b.id])
-
-        store.setFocusedWorkspace(ws2.id)
-
-        #expect(store.sidebarSelectionIDs == [b.id])
-        store.setFocusedWorkspace(nil)
-        #expect(store.sidebarSelectionIDs == [b.id],
-                "rows hidden by the focus filter must not re-enter the selection when unfocused")
     }
 
     @Test func singleFlagChangePrunesRowHiddenInFlaggedMode() {

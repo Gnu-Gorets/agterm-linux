@@ -78,6 +78,11 @@ final class GhosttyApp {
     /// `SettingsModel` writes it. The re-render rides the `.agtermAppearanceChanged` notification, like
     /// `toolbarMode`. Empty by default (everything shown).
     private(set) var hiddenInterfaceElements: Set<InterfaceElement> = []
+    /// Whether only the frontmost window shows its sidebar, collapsing every other open window's
+    /// (`AppSettings.autoHideSidebarInactiveWindows`). NOT ghostty-resolved: `WindowAccessor.reportFrontmost`
+    /// reads it on every frontmost change to gate the `WindowLibrary` driver, `SettingsModel` writes it.
+    /// Off by default.
+    private(set) var autoHideSidebarInactiveWindows: Bool = false
     /// Program basenames NOT to re-run on restore — the parsed user-editable `restore-denylist.conf`
     /// (seeded with the terminal multiplexers). The surface factories read it via
     /// `CommandRestore.shouldRestore`; `SettingsModel` parses the file and writes it. Read at launch only.
@@ -109,6 +114,13 @@ final class GhosttyApp {
     private(set) var activeStatusColor: NSColor = GhosttyApp.defaultActiveStatusColor
     private(set) var blockedStatusColor: NSColor = .systemOrange
     private(set) var completedStatusColor: NSColor = .systemGreen
+    /// The agent-status glyph silhouettes (active/blocked/completed), nil meaning the built-in plain
+    /// circle. NOT ghostty-resolved: the two render sites read them through `statusSymbolName(for:override:)`,
+    /// `SettingsModel` writes them (tolerantly decoded from `AppSettings`). The sidebar re-render rides
+    /// the `.agtermAppearanceChanged` notification, like the colors above.
+    private(set) var activeStatusShape: StatusShape?
+    private(set) var blockedStatusShape: StatusShape?
+    private(set) var completedStatusShape: StatusShape?
     let callbacks = GhosttyCallbacks()
     private var resourcesDir: String?
 
@@ -195,6 +207,12 @@ final class GhosttyApp {
         hiddenInterfaceElements = elements
     }
 
+    /// Set whether only the frontmost window shows its sidebar. Called by `SettingsModel` at launch and on
+    /// every change; read by `WindowAccessor.reportFrontmost` to gate the auto-hide driver.
+    func setAutoHideSidebarInactiveWindows(_ enabled: Bool) {
+        autoHideSidebarInactiveWindows = enabled
+    }
+
     /// Set the parsed restore denylist (program basenames not to re-run). Called by `SettingsModel` at
     /// launch from `restore-denylist.conf`; read by the surface factories at restore time.
     func setRestoreDenylist(_ denylist: Set<String>) {
@@ -236,6 +254,32 @@ final class GhosttyApp {
         activeStatusColor = NSColor(agtermHex: activeHex) ?? GhosttyApp.defaultActiveStatusColor
         blockedStatusColor = NSColor(agtermHex: blockedHex) ?? .systemOrange
         completedStatusColor = NSColor(agtermHex: completedHex) ?? .systemGreen
+    }
+
+    /// Set the agent-status glyph silhouettes from the user's Settings (nil keeps that status on the
+    /// default plain circle). Called by `SettingsModel` at launch and on every change; the sidebar
+    /// re-renders the glyphs on the `.agtermAppearanceChanged` notification.
+    func setAgentStatusShapes(active: StatusShape?, blocked: StatusShape?, completed: StatusShape?) {
+        activeStatusShape = active
+        blockedStatusShape = blocked
+        completedStatusShape = completed
+    }
+
+    /// The SF Symbol for a status glyph, honoring an optional per-call shape OVERRIDE from
+    /// `session.status --shape` (set on the ephemeral `AgentIndicator`). The override wins, else this
+    /// status's Settings shape, else the default plain circle — the precedence itself is the host-free
+    /// `AgentStatus.symbolName(override:configured:)`, so this only supplies the mirrored Settings value.
+    /// The single resolver the AppKit sidebar `StatusIconView` and the SwiftUI `StatusGlyph` share, so
+    /// the two can't drift.
+    func statusSymbolName(for status: AgentStatus, override shape: StatusShape?) -> String {
+        let configured: StatusShape?
+        switch status {
+        case .active: configured = activeStatusShape
+        case .blocked: configured = blockedStatusShape
+        case .completed: configured = completedStatusShape
+        case .idle: configured = nil
+        }
+        return status.symbolName(override: shape, configured: configured)
     }
 
     /// The configured tint for a status glyph, shared by the AppKit sidebar `StatusIconView` and the
@@ -643,10 +687,24 @@ extension Notification.Name {
     /// system→settings direction.
     static let agtermSystemAppearanceChanged = Notification.Name("agterm.systemAppearanceChanged")
 
+    /// Posted by `SystemAccessibilityObserver` when a macOS accessibility display option changes.
+    /// AppKit consumers then re-read Reduce Transparency / Reduce Motion directly from `NSWorkspace`;
+    /// SwiftUI views use their native accessibility environment values.
+    static let agtermAccessibilityDisplayOptionsChanged =
+        Notification.Name("agterm.accessibilityDisplayOptionsChanged")
+
     /// Posted when a window becomes frontmost (the active-window change is async, via the window's
     /// didBecomeKey), so the control server can refresh its cached `window.list` — whose `active` flag
     /// would otherwise stay stale until the next dispatched command.
     static let agtermWindowFrontmostChanged = Notification.Name("agterm.windowFrontmostChanged")
+
+    /// Posted by `WindowRegistry` when a window's NSWindow attaches or detaches, so the control server can
+    /// refresh its cached `window.list`. A window is "open" (its store loaded) well before its NSWindow
+    /// exists, so `window.new` builds its cached node with no `geometry`/`fullscreen`/`zoomed`/`minimized`;
+    /// nothing else refreshes it afterwards on that path — `newWindow()` pre-sets `frontmostWindowID`, so
+    /// the first `didBecomeKey` is a no-change and skips `.agtermWindowFrontmostChanged`, and a brand-new
+    /// window has no saved frame to restore, so no `didMove`/`didResize` fires either.
+    static let agtermWindowAttachmentChanged = Notification.Name("agterm.windowAttachmentChanged")
 
     /// Posted after `keymap.conf` is (re)loaded and reparsed, so the custom-command runner rebuilds its
     /// matcher and the action palette re-reads the custom commands. The data-driven menu shortcuts

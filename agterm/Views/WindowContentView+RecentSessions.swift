@@ -14,9 +14,7 @@ extension WindowContentView {
     /// `navigableSessions`); `sessionRecency` itself is `@ObservationIgnored`, read for its value, not for
     /// observation, so it registers none on its own.
     private var recentSessions: [UUID] {
-        var valid = Set(store.navigableSessions.map(\.id))
-        if let activeID = store.activeSession?.id { valid.remove(activeID) }
-        return store.sessionRecency.top(SessionSwitcher.maxCandidates, in: valid)
+        store.navigableRecentSessions(limit: SessionSwitcher.maxCandidates)
     }
 
     /// Title-bar button that opens the recent-sessions popover — the mouse equivalent of the Ctrl-Tab
@@ -24,8 +22,9 @@ extension WindowContentView {
     /// to switch to (only the current session). Opening a popover is interactive-only, so it's control-API
     /// keep-in-sync exempt (like the bell opening the attention palette).
     var recentSessionsButton: some View {
-        let enabled = !recentSessions.isEmpty
+        let enabled = !recentSessions.isEmpty && pick.pending == nil
         return Button {
+            guard pick.pending == nil else { return }
             recentSessionsShown.toggle()
         } label: {
             Label("Recent sessions", systemImage: "clock.arrow.circlepath")
@@ -82,6 +81,7 @@ extension WindowContentView {
                 subtitle: "\(store.workspace(forSession: id)?.name ?? "") · \(session.subtitleDetail)",
                 status: nil,
                 statusColorHex: nil,
+                statusShape: nil,
                 foreground: chromeText,
                 hoverColor: recentSelectionColor,
                 accessibilityID: "recent-session-row"
@@ -101,6 +101,7 @@ extension WindowContentView {
     /// Commit a popover row click: note activity (so auto-follow can't pull the selection back), select the
     /// session, focus it, and close the popover — the mouse twin of the Ctrl-Tab release commit.
     private func selectRecent(_ id: UUID) {
+        guard pick.pending == nil else { return }
         store.noteUserActivity()
         store.selectSession(id)
         actions.focusActiveSession()
@@ -119,14 +120,16 @@ extension WindowContentView {
         let sessions = store.attentionSessions
         let blocked = sessions.contains { $0.agentIndicator.status == .blocked }
         let empty = sessions.isEmpty
+        let enabled = !empty && pick.pending == nil
         return Button {
+            guard pick.pending == nil else { return }
             attentionPopoverShown.toggle()
         } label: {
             Label("Attention", systemImage: blocked ? "bell.fill" : "bell")
         }
         .foregroundStyle(blocked ? Color(nsColor: GhosttyApp.shared.blockedStatusColor) : chromeText)
-        .opacity(empty ? 0.35 : 1)
-        .disabled(empty)
+        .opacity(enabled ? 1 : 0.35)
+        .disabled(!enabled)
         .help(helpHint(empty ? "No sessions need attention" : "Show sessions that need attention", .showAttention))
         .accessibilityIdentifier("attention-button")
         .accessibilityValue(empty ? "none" : (blocked ? "blocked" : "attention"))
@@ -157,6 +160,7 @@ extension WindowContentView {
                     subtitle: "\(store.workspace(forSession: session.id)?.name ?? "") · \(session.subtitleDetail)",
                     status: session.agentIndicator.status,
                     statusColorHex: session.agentIndicator.color,
+                    statusShape: session.agentIndicator.shape,
                     foreground: chromeText,
                     hoverColor: recentSelectionColor,
                     accessibilityID: "attention-session-row"
@@ -172,16 +176,18 @@ extension WindowContentView {
     /// Commit an attention popover row click: select the session and reveal its blocked pane (the pane that
     /// set the status), then close the popover — the mouse twin of the ⌃⇧I palette's select-and-reveal.
     private func selectAttention(_ id: UUID) {
+        guard pick.pending == nil else { return }
         store.noteUserActivity()
-        store.selectSession(id)
-        actions.revealActiveBlockedPane()
+        let indicator = store.selectSession(id)
+        actions.revealActiveBlockedPane(captured: indicator)
         attentionPopoverShown = false
     }
 }
 
 /// One clickable session row for the title-bar popovers (recent-sessions and attention) — the shared two-line
 /// `SessionSwitcherRow` tinted with the terminal theme (`foreground`), with an optional leading status glyph
-/// (`status`, set only by the attention popover), a pointer-hover highlight (`hoverColor`) and a full-row hit
+/// (`status` plus its per-call `statusColorHex`/`statusShape` overrides, set only by the attention popover so
+/// the row matches the sidebar glyph), a pointer-hover highlight (`hoverColor`) and a full-row hit
 /// area (`.contentShape`), so the WHOLE row selects on click, not just the text (the command-palette-row
 /// feel). Kept a `Button` so it reads as an actionable control to VoiceOver; `accessibilityID` distinguishes
 /// the two popovers' rows for the tests.
@@ -190,6 +196,7 @@ private struct SessionPopoverRow: View {
     let subtitle: String
     let status: AgentStatus?
     let statusColorHex: String?
+    let statusShape: StatusShape?
     let foreground: Color
     let hoverColor: Color
     let accessibilityID: String
@@ -199,7 +206,7 @@ private struct SessionPopoverRow: View {
     var body: some View {
         Button(action: onSelect) {
             SessionSwitcherRow(title: title, subtitle: subtitle, foreground: foreground,
-                               status: status, statusColorHex: statusColorHex)
+                               status: status, statusColorHex: statusColorHex, statusShape: statusShape)
                 .background(hovering ? hoverColor : Color.clear)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
                 .contentShape(Rectangle())

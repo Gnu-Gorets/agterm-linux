@@ -27,6 +27,23 @@ paths:
   `send(toSession:title:body:)` is the control channel's entry point (the `notify` command / `agtermctl notify`):
   same badge + banner + reveal-identity machinery, but NO focus-suppression (the caller asked for it)
   and attributed to the `.main` pane.
+- **Every silent drop is LOGGED, and a banners-off `notify` says so in its response (#286).**
+  Both gates used to return without a trace: the OSC path's focus suppression and, in BOTH paths, the
+  `bannersEnabled` guard.
+  A user reading the documented `log show --predicate 'subsystem == "com.umputun.agterm"'` recipe therefore
+  got a COMPLETELY EMPTY log from a perfectly healthy notify — the success path logged nothing either —
+  and reasonably concluded notifications were broken (reproduced: banners-on delivery and banners-off
+  suppression produced byte-identical empty logs).
+  So `notify`/`send` now `logger.notice` on posting AND on each suppression, naming the setting.
+  Keep it at `.notice`, not `.debug`/`.info`: a notification is a rare user-driven event, and only the
+  default level is PERSISTED, so a `log show --last 30m` after the fact still finds it.
+  The control arm additionally returns the shared `ControlNotify.bannersOffNote` in `result.text` when
+  banners are off — `ok` alone is indistinguishable from a broken path, since the OS is never touched.
+  This is the `session.restore`-with-`restoreRunningCommand`-off note precedent (see [[control-api]]);
+  the CLI prints `result.text` in place of `ok` with no CLI change.
+  The e2e is `NotifyBannersUITests` (both polarities); it seeds `notificationsEnabled` into the isolated
+  state dir before launch via `ControlAPITestCase.seededSettings`, since there is no `settings.*` control
+  command to flip it at runtime.
 - **Suppression**
   is the pure, agtermCore-tested `TerminalNotification.shouldDeliver(firingIsFocused:appActive:)`:
   drop entirely only when the firing surface is the key window's first responder AND `NSApp.isActive`
@@ -40,6 +57,14 @@ paths:
   `didReceive` parses it, `NSApp.activate`s, and calls `AppActions.reveal(sessionID:pane:)`:
   `selectSession` (which clears the badge + derives the workspace) then `focusSplitPane` for the pane,
   stale-safe (unknown session → just activate; a `.split` no longer split → primary).
+  `revealSession` ALSO raises the owning window (`WindowRegistry.raise`, which deminiaturizes first).
+  `NSApp.activate` brings the APP forward, and `makeFirstResponder` moves focus WITHIN a window, but
+  neither orders a window front — so without the raise a banner for a session in a MINIMIZED or merely
+  backgrounded window changed the selection invisibly and the click looked dead.
+  The closed-window branch already raised via `openWindow`; the open-window branch now matches.
+  This path has no automated coverage — its only caller is the `UNUserNotificationCenter` delegate, which
+  XCUITest cannot drive — so verify it by hand; the raise MECHANISM is pinned by
+  `testWindowMinimizeAndRestore`, which asserts `window.select` un-minimizes.
   `reveal` is internal click-routing (not on toolbar/menu/palette) composing the already-controllable
   `session.select`, so it has NO control command (keep-in-sync exempt, by user decision).
 - **Badge.**
@@ -140,17 +165,49 @@ paths:
 - **Agent-status glyph.**
   Mirrors the `notify-badge` cell pattern (see the Control API `session.status`).
   `StatusIconView` (an `NSImageView` sibling of `BadgeView` in `WorkspaceSidebar`) draws the row's tinted
-  SF Symbol just LEFT of the count badge — `active`=`ellipsis.circle.fill`,
-  `blocked`=`exclamationmark.circle.fill`, `completed`=`checkmark.circle.fill`,
-  `.idle`=hidden, each tinted via the shared `GhosttyApp.statusColor(for:override:)`: the ephemeral
+  SF Symbol just LEFT of the count badge — a PLAIN filled silhouette carrying no interior mark,
+  `.idle`=hidden.
+  The three states share the built-in default `circle.fill` and are separated by TINT until a shape is
+  picked; the old marked circles (`ellipsis`/`exclamationmark`/`checkmark` knocked out of a circle) are
+  GONE, because a mark inside a 13pt symbol is legible only in the popup, which is exactly the complaint
+  the shapes answer (discussion #277).
+  The silhouette resolves through the shared host-free `AgentStatus.symbolName(override:configured:)`
+  (via `GhosttyApp.statusSymbolName(for:override:)`, the tint helper's twin): the ephemeral
+  `AgentIndicator.shape` per-call OVERRIDE (`session.status --shape`) wins, else the Settings shape for
+  that status (`GhosttyApp.{active,blocked,completed}StatusShape`, mirrored from
+  `AppSettings.effectiveStatusShape(for:)`), else `StatusShape.circle`.
+  Neither `symbolName` parameter is defaulted on purpose: a render site that forgot to pass the Settings
+  shape would silently draw the wrong glyph, so the omission has to be a compile error.
+  `StatusShape` is a fixed set of six — `circle`, `square`, `triangle`, `diamond`, `capsule`, `star` —
+  whose raw value IS the SF Symbol base name (`symbolName` = `"<raw>.fill"`); the set is capped there
+  because at the sidebar's 13pt render size in a 16pt slot `hexagon`/`octagon`/`pentagon`/`seal` are
+  indistinguishable from `circle`, `app` duplicates `square` and `rhombus` duplicates `diamond`, so a
+  wider picker would only let a user believe they had distinguished a status when they had not.
+  Adding a case is still not a one-line change: the `ControlArgs.shape` doc, the website command
+  reference and the agent skill each enumerate the set by hand (the dispatcher's rejection message and
+  the CLI's `--shape` help/rejection derive theirs from `StatusShape.validNamesList`/`validNamesPhrase`,
+  the `WatermarkConfig.validFits` precedent, so those three can't go stale).
+  `StatusShape.displayName` (the capitalized raw value) is the host-free picker label the Settings
+  options and the picker's accessibility value read, so the six names have ONE definition.
+  Each glyph is tinted via the shared `GhosttyApp.statusColor(for:override:)`: the ephemeral
   `AgentIndicator.color` per-call OVERRIDE (`session.status --color`, a valid `#rrggbb` wins) else its
   configurable Settings color (`GhosttyApp.{active,blocked,completed}StatusColor`,
   default `#DBD9E6` muted lavender-grey / system amber / system green; see the Settings + Control API sections)
-  — the SwiftUI attention-list `StatusGlyph` resolves through the SAME override helper so the two can't drift —
+  — the SwiftUI attention-list `StatusGlyph` resolves through the SAME two override helpers, tint and
+  silhouette alike, so the two render sites can't drift —
   with accessibility role `.staticText`, id `agent-status`, value = the state name (so XCUITest matches `app.staticTexts["agent-status"]`;
-  the glyph TINT, per-call or not, is NOT accessibility-observable),
+  neither the glyph TINT nor its SHAPE, per-call or not, is accessibility-observable, which is why the
+  e2e asserts the command path and the `tree` read-back rather than the drawn pixels),
   and a `CABasicAnimation` `opacity` pulse added only while visible AND `blink` (the install's `UserPromptSubmit→active --blink`
-  hook pulses the in-progress glyph).
+  hook pulses the in-progress glyph). `StatusIconView.apply` also requires
+  `!NSWorkspace.shared.accessibilityDisplayShouldReduceMotion`, so Reduce Motion keeps the glyph/color
+  visible but suppresses the indefinite pulse. `SystemAccessibilityObserver.start()` observes
+  `NSWorkspace.accessibilityDisplayOptionsDidChangeNotification` on `NSWorkspace.notificationCenter`
+  and posts app-local `.agtermAccessibilityDisplayOptionsChanged`; the sidebar Coordinator observes that
+  on `NotificationCenter.default` and calls `reapplyStatusGlyphs()` so every visible row updates live.
+  The dashboard's `DashboardCaptionPill` uses SwiftUI's `accessibilityReduceMotion` environment value to
+  gate its matching `repeatForever` wash, preserving the filled status pill without animation. Because
+  the model's `blink` request is retained, both pulses resume if Reduce Motion is disabled.
   The glyph shows on EVERY non-idle session, the selected one INCLUDED — there is NO visibility gate.
   (An earlier `isFrontmostWindow`-driven hide-on-the-selected-session gate was removed:
   blanking the status on the row you're viewing read as confusing, since every other row carried a state;
@@ -216,19 +273,16 @@ paths:
   cmux owns the permission decision UI (a blocking hook round-trip captures accept/deny),
   herdr scrapes the PTY (the prompt chrome leaving the screen clears it).
 - **Pane-aware selection reveal.**
-  The same `AgentIndicator.statusPane` tag (set via `session.status --pane`, see the Control API rule) also
-  decides WHERE a GUI selection lands: EVERY user-initiated selection — attention-nav (⌃⌥↑/⌃⌥↓),
-  plain session nav (⌥⌘↑/↓/first/last), the ⌃P/attention command palette, a sidebar row click,
-  and idle auto-follow — reveals and focuses the pane that set the block — flipping `splitFocused` to the
-  split, or showing a hidden scratch via `AppStore.toggleScratch` — instead of always the main pane (the
-  shared `AppActions.revealActiveBlockedPane`, a no-op for an IDLE session (no status set);
-  see the Menu/actions rule).
+  The same `AgentIndicator.statusPane` tag set via `session.status --pane` decides WHERE a GUI selection lands when the status NEEDS ATTENTION.
+  Attention-nav, plain session nav, the command palettes, a sidebar row click, a Dock-menu session row, and idle auto-follow reveal and focus the pane that set the block.
+  The shared `AppActions.revealActiveBlockedPane(captured:)` flips to a tagged split, shows a hidden tagged scratch, or explicitly targets the primary pane for left/nil.
+  IDLE and ACTIVE selections use ordinary focus and preserve the existing pane choice.
   The `session.go next-attention|prev-attention` control arm only steps the selection (`navigateSession`),
   it does NOT itself run the reveal — the pane focus is a GUI/auto-follow concern.
   So a `right`- or `scratch`-tagged block both survives foreground typing in another pane AND pulls you to
   the waiting pane, not just the session.
 - **Titlebar attention bell (opt-in, window-wide aggregate of the glyph).**
-  When `attentionButtonEnabled` is on (Settings ▸ General, default OFF — see the Settings section),
+  When `attentionButtonEnabled` is on (Settings ▸ Notifications, default OFF — see the Settings section),
   `customTitlebar` (`ContentView`) shows a bell icon in the trailing action cluster (after the
   recent-sessions clock, before the divider and the scratch/split/quick-terminal buttons) that recovers
   the per-session attention signal when the sidebar is hidden.
@@ -254,4 +308,3 @@ paths:
   refreshed on `.agtermAppearanceChanged`), NOT from `model.settings`.
   The bell is pure visual chrome (it opens the attention popover, a mouse form of the already-controllable
   attention list / `session.select`) — keep-in-sync EXEMPT, like the other titlebar buttons.
-

@@ -122,6 +122,7 @@ extension WindowContentView {
                 captionBackground: terminalColor,
                 pillColor: dashboardPillColor,
                 pillTextColor: dashboardPillTextColor,
+                focusAllowed: pick.pending == nil,
                 onClick: { clickDashboardMember($0) },
                 onSelect: { selectDashboardMember($0) },
                 onClose: { closeDashboardFromKeyboard() }
@@ -139,7 +140,7 @@ extension WindowContentView {
         Button {
             actions.toggleDashboard()
         } label: {
-            Label("Dashboard", systemImage: "square.split.2x2")
+            Label("Dashboard", systemImage: "rectangle.split.2x2")
         }
         .help(helpHint("Dashboard", .dashboard))
         .disabled(store.activeSession == nil)

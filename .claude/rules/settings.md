@@ -18,6 +18,7 @@ paths:
   Fields: `fontFamily`/`fontSize`/`theme`/`darkTheme`/`followSystemAppearance` + `backgroundOpacity` (0...1) / `backgroundBlur` (CGS radius)
   + `notificationsEnabled` / `toolbarMode` / `notificationBadgeEnabled` / `attentionButtonEnabled` / `dockBounce` / `notificationSoundName`
   + the agent-status glyph colors `activeStatusColorHex`/`blockedStatusColorHex`/`completedStatusColorHex`
+  + the agent-status glyph shapes `activeStatusShape`/`blockedStatusShape`/`completedStatusShape`
   (nil defaults: `notificationsEnabled`/`notificationBadgeEnabled` = on,
   `toolbarMode` = the three-state titlebar chrome `ToolbarMode { normal, compact, hidden }`,
   stored raw as `String?` (like `newSessionDirectory`/`autoFollowAttention`) for tolerant forward-compat
@@ -46,7 +47,9 @@ paths:
   [nil/false = off] the "don't leave a running session" opt-in; NOT ghostty keys, save-only + fanned out into
   every open window's `AppStore` via `SettingsModel.applyAutoFollow` → `AppStore.setAutoFollow`)
   + `hiddenInterfaceElements` (raw names of title-bar / sidebar-footer chrome elements the user hid,
-  nil/empty = all shown; the `InterfaceElement` set; NOT a ghostty key — see its own bullet).
+  nil/empty = all shown; the `InterfaceElement` set; NOT a ghostty key — see its own bullet)
+  + `autoHideSidebarInactiveWindows` (only the frontmost window shows its sidebar, every other collapses;
+  nil = off; NOT a ghostty key — see its own bullet).
   `theme`/`darkTheme`/`followSystemAppearance` are the macOS light/dark appearance-sync state: `theme` is the single/light-slot theme, `darkTheme` the dark slot, `followSystemAppearance` (nil = off) the toggle; when following, `ghosttyConfigLines()` emits ghostty's raw dual `theme = light:NAME,dark:NAME` conditional and libghostty resolves the side at runtime — `ghosttyConfigLines()` takes NO `isDark` arg (see the Theme picker rule; `ThemeResolution` is gone, the dual value is reduced to the active side for the sidebar selection colors by `ThemeName.resolved(from:isDark:)`).
   The three `*StatusColorHex` (`#RRGGBB`, nil = active `#DBD9E6` muted lavender-grey + system amber/green)
   color the sidebar agent-status glyph: `SettingsModel` passes the hex to `GhosttyApp.setAgentStatusColors`
@@ -54,9 +57,22 @@ paths:
   `StatusIconView` reads it when drawing, and a change rides `.agtermAppearanceChanged` → the Coordinator's
   `reapplyStatusGlyphs()` sweep (the colors are global, not per-row, so `reconcile`'s diff can't see
   them).
-  Settings → Agent Status drives them with a Reset-to-defaults button (clears all three
-  to nil), plus a **Blocked sound** picker bound to `AppSettings.blockedStatusSoundName` (nil/"None"
-  = no sound, the default; else a system sound name).
+  The three `*StatusShape` are the same idea for the glyph's SILHOUETTE, stored as `StatusShape` RAW
+  STRINGS (not the enum) so a hand-edited or future value decodes tolerantly: the single read point is
+  `AppSettings.effectiveStatusShape(for:)`, which does `raw.flatMap(StatusShape.init(rawValue:))` and
+  returns nil for `.idle` — the `effectiveDockBounce` precedent, so callers never touch the raw fields.
+  nil = the built-in default plain `circle`, so nil and an explicit `circle` render identically.
+  The mirror path matches the colors exactly:
+  `SettingsModel.setActiveStatusShape`/`setBlockedStatusShape`/`setCompletedStatusShape` persist and
+  apply, `applyAgentStatusShapes()` (called from the same two sites as `applyAgentStatusColors()`)
+  pushes them into `GhosttyApp.setAgentStatusShapes`, and a change rides the SAME `.agtermAppearanceChanged`
+  → `reapplyStatusGlyphs()` sweep, so no new notification was needed.
+  Both render sites resolve through the one host-free `AgentStatus.symbolName(override:configured:)`
+  (see the Notifications rule), with the per-call `session.status --shape` override winning over the
+  Settings shape.
+  Settings → Agent Status drives them with a Reset-to-defaults button (clears all three colors and all
+  three shapes to nil), plus a **Blocked sound** picker bound to `AppSettings.blockedStatusSoundName`
+  (nil/"None" = no sound, the default; else a system sound name).
   `SettingsModel.setBlockedStatusSoundName` only SAVES (not a ghostty key,
   nothing renders it continuously); `ControlServer.setSessionStatus` reads `settingsModel.settings.blockedStatusSoundName`
   on demand and plays it via `StatusSoundPlayer.shared` ONLY when a session TRANSITIONS into `blocked`
@@ -66,8 +82,9 @@ paths:
   wins; an empty per-call value counts as unset; the default is blocked-only and the transition gate
   lives in the server).
   The picker previews the sound on selection (plays it via `StatusSoundPlayer.shared`).
-  GUI-only and keep-in-sync EXEMPT, same as the status colors (only `theme.set`/`config.reload` touch
-  settings over the socket); the per-status sound already has full control coverage via `session.status --sound`.
+  GUI-only and keep-in-sync EXEMPT, same as the status colors and shapes (only `theme.set`/`config.reload`
+  touch settings over the socket); the per-status sound already has full control coverage via
+  `session.status --sound`, and the per-status shape via `session.status --shape`.
   `notificationBadgeEnabled` (nil = on) gates the sidebar's red unseen-count pill (session rows + workspace
   roll-up), render-only — `unseenCount` keeps tracking so re-enabling instantly shows current counts;
   distinct from `notificationsEnabled` (which gates the OS banner) and does NOT gate the always-on agent-status
@@ -118,7 +135,9 @@ paths:
   when `backgroundOpacity < 1`, `ghosttyConfigLines()` pins `background-opacity = 0` + `background-blur = 0`
   so ghostty draws fully transparent and the window's tinted background is the single translucent layer
   (no double-tint); at full opacity those lines are omitted and the renderer paints its own background
-  as before.
+  as before. macOS Reduce Transparency is an effective presentation override only: it temporarily makes
+  the window and floating material panels opaque and unblurred while the saved opacity/blur and generated
+  renderer config stay unchanged, so disabling the system setting restores the requested presentation.
 - The app target's `SettingsModel` (`@Observable`) loads `AppSettings`, and on every change:
   saves (the opacity/blur sliders are the exception — see the end of this bullet),
   writes `ghostty-settings.conf` (loaded LAST in `GhosttyApp.loadConfig`,
@@ -165,17 +184,60 @@ paths:
   **Interface** (per-element chrome visibility, grouped into a **Title Bar** section and a **Sidebar**
   section — one default-on Toggle per `InterfaceElement`, laid out TWO per row (`twoColumnSection`) so the
   tab keeps fitting 540×590 without scrolling as the element set grows; see the `hiddenInterfaceElements`
-  bullet).
+  bullet — plus a **Multiple Windows** section with the single `autoHideSidebarInactiveWindows` toggle,
+  which is a plain default-OFF behavior Toggle, NOT an `InterfaceElement`).
   **Notifications** (a **Notifications** section with the banner / badge / attention-indicator toggles plus the Dock-bounce mode and notification-sound pickers).
-  **Agent Status** (a **Colors** section with the three glyph color pickers, a **Sound** section with
+  **Agent Status** (a **Colors and Shapes** section holding ONE ROW PER STATUS — a `LabeledContent`
+  labelled Active / Blocked / Completed whose trailing side carries that glyph's `ColorPicker`
+  (`settings-status-active`/`-blocked`/`-completed`) and its silhouette `Picker`
+  (`settings-status-shape-active`/`-blocked`/`-completed`) side by side, both `.labelsHidden()`;
+  the shape picker takes a fixed-width column (`shapePickerWidth` 80) with `alignment: .trailing`,
+  which is what makes the row FLUSH RIGHT — the reserved column keeps the three color wells in one
+  column (a menu button sizes to the glyph it currently shows, so the six silhouettes span 64.5–68pt
+  and an unreserved column would jog the wells between rows), while the trailing alignment pins the
+  button to that column's right edge so the row ends where every sibling section's control ends.
+  The column's default CENTER alignment is what left the cluster floating ~38pt inboard of the Sound
+  and Auto-follow pickers (a ragged right edge), so keep any width change paired with the trailing
+  alignment, and keep the column wider than the widest silhouette's button or the wells start jogging.
+  `SettingsUITests.testAgentStatusShapePickerRowLayoutAndOptions` asserts exactly that — every shape
+  picker's `maxX` equals the Sound picker's and the wells share a leading edge, measured twice (the
+  default shapes and the Blocked row switched to the widest silhouette).
+  The shape picker offers exactly `StatusShape.allCases`
+  — no "Default" entry, because nil and `circle` render the SAME plain circle, so `circle` maps back to
+  nil (the sound/toolbar-mode nil-mapping convention) and `settings.json` stays minimal.
+  Each option is the SYMBOL ALONE, drawn at the sidebar glyph's own `StatusIconView.glyphPointSize` (a
+  shared constant, so a preview looks like the glyph it installs) as a NON-template `NSImage` tinted
+  with that row's CURRENT color
+  (`NSImage.SymbolConfiguration(paletteColors:)` + `isTemplate = false`, read from the row's color
+  binding so a new color redraws the options): a menu recolors a template symbol to its own text color,
+  and SwiftUI's `.foregroundStyle` on an `Image(systemName:)` does NOT survive into the popup — verified,
+  it rendered grey.
+  The option images are built fresh on every redraw and deliberately NOT cached.
+  A color-well drag fires `setActiveStatusColorHex` → `persistAndApply` on every system colour-panel
+  tick, so a (shape, tint)-keyed cache would mint six `NSImage`s per tick for a tint the user is already
+  dragging past and retain them for the life of the process — unbounded growth buying eighteen small
+  SF Symbol lookups on a path that already writes `settings.json` and diffs the ghostty config per tick.
+  Both the color and the shape binding are DERIVED from the row's `AgentStatus` argument inside
+  `glyphRow(_:)` (a `switch` per getter/setter) rather than passed in positionally, so a row can never
+  label one status while driving another's setting.
+  The option's shape name (`Triangle`, the host-free `StatusShape.displayName`) survives only as its
+  `.accessibilityLabel`, which is ALSO what gives the `NSMenuItem` its AX title,
+  so `app.menuItems["Triangle"]` still finds it; the `Picker` carries
+  a matching `.accessibilityValue`, and the collapsed, text-free button reads back as the shape name
+  (`value: Circle`), which is what the e2e's post-relaunch assertion reads.
+  There is deliberately no separate Shapes section — color and shape belong to the same glyph, so they
+  share a row.
+  Then a **Sound** section with
   the blocked-sound picker, an **Auto-follow** section with the idle-timeout Picker
   (Disabled/5s/10s/30s/60s/5m) + the "Don't auto-follow away from a running session" Toggle, and a trailing
-  **Reset** that clears the colors and sound back to defaults — not the auto-follow settings).
+  **Reset** that clears the colors, shapes and sound back to defaults — not the auto-follow settings).
   **Key Mapping** (the config directory holding `keymap.conf` + a read-only diagnostics list + a Reload
   button — see the Keymap section).
   Captions under controls are dropped for self-explanatory controls, which is nearly all of them.
-  A caption is kept ONLY when it carries information the label can't — currently just two:
-  `Blur needs opacity below 100%` (a functional dependency) and the Ghostty-config edit-path hint.
+  A caption is kept ONLY when it carries information the label can't — currently just two positions:
+  the blur hint (`Blur needs opacity below 100%`, replaced while Reduce Transparency is on by
+  `Reduce Transparency is on; saved opacity and blur apply when it is off.`) and the Ghostty-config
+  edit-path hint.
   This keeps the busiest tab short enough that the 540×590 window fits every tab without scrolling.
   The notification toggle (`AppSettings.notificationsEnabled`, nil = on) is mirrored to `NotificationManager.bannersEnabled`
   by `SettingsModel`; it gates only the OS banner, never the badge, and is NOT a ghostty config key (no
@@ -191,7 +253,10 @@ paths:
   (the single tinted layer), applies the blur via the private `CGSSetWindowBackgroundBlurRadius` SPI
   (`dlsym`-resolved once, no-op if absent — adapted from macterm, its `fatalError` softened to a graceful
   return), and hides `NSTitlebarBackgroundView` so the tint runs continuously under the titlebar;
-  at full opacity it restores the original opaque/solid path and clears the blur.
+  at full opacity it restores the original opaque/solid path and clears the blur. The same opaque branch
+  wins whenever `NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency` is true, without
+  mutating `WindowAppearance.Chrome` or `AppSettings`, so the saved opacity/blur return when the system
+  setting is disabled.
   The macOS-26 `NavigationSplitView` sidebar is a Liquid Glass container (`NSContainerConcentricGlassEffectView : NSGlassEffectView`)
   that WRAPS the sidebar content (an ancestor, so it can't be hidden), and is NOT flattenable to the
   window tint; `sidebarGlass(in:)` finds it by walking up from the tagged `agterm-sidebar-scroll` view,
@@ -199,7 +264,14 @@ paths:
   so the sidebar reads as the same translucent surface (its blur stays Liquid Glass,
   not the window CGS blur — close, not pixel-identical).
   All of this re-applies on every `sync`, which `TitleProbeView` already drives on window key/main/fullscreen
-  transitions + `.agtermAppearanceChanged`.
+  transitions + `.agtermAppearanceChanged`. For live system-setting changes,
+  `SystemAccessibilityObserver.start()` observes
+  `NSWorkspace.accessibilityDisplayOptionsDidChangeNotification` on `NSWorkspace.notificationCenter`
+  and posts app-local `.agtermAccessibilityDisplayOptionsChanged`; each `WindowAccessor.Coordinator`
+  observes that on `NotificationCenter.default` and re-runs `applyTitlebarBlend`. SwiftUI's
+  `accessibilityReduceTransparency` environment value independently swaps the command palette and
+  Ctrl-Tab session switcher from `.regularMaterial` to opaque `.windowBackgroundColor`, and drives the
+  conditional Settings hint. All open windows and panels therefore update without a relaunch.
 - **`configDirectory` + the keymap (see the Keymap section).**
   `AppSettings.configDirectory: String?` (nil = the default) holds the directory that contains `keymap.conf`.
   `SettingsModel` resolves it through the host-free `ConfigPaths.configDirectory(setting:stateDir:home:)`
@@ -422,13 +494,14 @@ paths:
   NOT a ghostty key (`ghosttyConfigLines()` never emits it).
   The toggleable elements are the host-free `InterfaceElement` enum (agtermCore): title bar —
   `sidebarToggle`/`sessionName`/`windowName`/`recentSessions`/`scratch`/`split`/`dashboard`/`quickTerminal`;
-  sidebar — `newWorkspace`/`newSession`/`flaggedView` (the footer add/flag controls) + `workspaceAddSession`
+  sidebar — `newWorkspace`/`newSession`/`flaggedView`/`focusFilter` (the footer add/flag/filter controls)
+  + `workspaceAddSession`
   (the hover-revealed "+" on each workspace ROW that adds a session there — a SEPARATE toggle from the
   footer `newSession` button, though both run the same new-session action).
   Each case carries its `section` (Title Bar / Sidebar) and `displayName` (the toggle label), so the
   Interface tab iterates `InterfaceElement.allCases` grouped by section.
   The attention bell is NOT in the set — it keeps its own `attentionButtonEnabled` opt-in (default OFF, not
-  ON), and the focus pill is transient, so neither is a per-element toggle.
+  ON), so it is not a per-element toggle.
   It is the non-observable chrome-mirror pattern (like `attentionButtonEnabled`/`toolbarMode`):
   `SettingsModel.setInterfaceElementVisible(_:visible:)` mutates the RAW string set (NOT
   `resolvedHiddenInterfaceElements`, whose known-only filter would erase an unknown future element name a
@@ -458,7 +531,36 @@ paths:
   round-trip/tolerant-decode tests already iterate `allCases`.
   Do this only AFTER the user agrees the element should be user-toggleable — some chrome is intentionally
   always-on — per the propose-then-ask working-norm in the root `CLAUDE.md` (never automatic).
+- **`autoHideSidebarInactiveWindows` (only the frontmost window shows its sidebar, opt-in, Interface tab).**
+  `AppSettings.autoHideSidebarInactiveWindows: Bool?` (nil = OFF, the default-off precedent like
+  `restoreRunningCommand`/`attentionButtonEnabled`) makes the frontmost open window show its sidebar and
+  every OTHER open window collapse its own.
+  NOT a ghostty key (`writeGhosttyConfig` no-ops, no surface reload).
+  It is the non-observable chrome-mirror pattern (like `attentionButtonEnabled`): `SettingsModel.setAutoHideSidebarInactiveWindows`
+  saves + `applyAutoHideSidebarInactiveWindows` pushes `settings.autoHideSidebarInactiveWindows ?? false`
+  into the `GhosttyApp.autoHideSidebarInactiveWindows` flag.
+  The DRIVER is host-free: `WindowLibrary.applyInactiveWindowSidebarHiding()` sets the active window's
+  `sidebarVisible = true` and every other open store's to `false` (`setSidebarVisible` no-ops an already-correct
+  window, so only the windows that actually change write/persist/notify).
+  `WindowAccessor.reportFrontmost` reads the mirror and invokes the driver on EVERY window activation
+  (becomeKey/becomeMain), NOT gated by the `frontmostWindowID != id` change-guard — that guard now wraps
+  only the frontmost-id persist + the frontmost-changed post.
+  Running the driver unconditionally is what makes new-window creation (`newWindow()` pre-sets
+  `frontmostWindowID` before the window keys) and launch reconcile; it still fires only on
+  becomeKey/becomeMain and NEVER on a resign, so switching to another app leaves every sidebar untouched.
+  `setAutoHideSidebarInactiveWindows` also invokes the driver ONCE when the toggle flips ON, so it takes
+  effect immediately instead of waiting for the next window switch.
+  ABSOLUTE rule, no per-window intent memory: sidebar visibility is entirely focus-driven while on, so a
+  manual ⌃⌘S hide on the frontmost window is transient — it re-shows on the next refocus (the user-chosen
+  semantics; turning the feature OFF leaves background windows collapsed until manually reopened).
+  Because the driver writes the persisted per-window `sidebarVisible`, a GUI-only auto-hide is exactly the
+  `.agtermSidebarVisibilityChanged` case `ControlServer` already observes to refresh the `window.list` cache.
+  GUI-only and keep-in-sync EXEMPT (only `theme.set`/`config.reload` touch settings over the socket; the
+  sidebar capability itself already has full control coverage via the `sidebar` command + the `sidebarVisible`
+  read-back on `tree`/`window.list`).
+  Default-off + round-trip covered host-free in `AppSettingsTests`; the driver in `WindowLibraryTests`
+  (`applyInactiveWindowSidebarHiding*`); the mirror wiring is app-target (build/manually verified, no app
+  unit-test host).
 - **A Settings toggle's DESCRIPTION stays single-line short-form** — a terse hint, not a manual.
   No detailed multi-line explanation of what the toggle does and no cross-refs to other toggles;
   keep the minimal style (see also the flag-description convention).
-

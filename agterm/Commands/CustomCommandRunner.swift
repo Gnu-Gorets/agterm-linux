@@ -78,7 +78,7 @@ final class CustomCommandRunner {
     }
 
     /// The Esc virtual keycode the matcher treats specially (the leader abort); Return is a bindable
-    /// base key handled via `namedKeys`, not here.
+    /// base key handled via `namedKey(forKeyCode:)`, not here.
     private static let escapeKeyCode: UInt16 = 53
 
     /// Feed one key event to the matcher. Returns whether the event was consumed (so the caller drops
@@ -151,8 +151,9 @@ final class CustomCommandRunner {
     }
 
     /// Map an `NSEvent` key-down to an agtermCore `Chord`, or nil when it carries no usable base key.
-    /// Modifiers map to the agtermCore `Modifier` set; the base key is the named special key (for the
-    /// keys the parser names) else the unmodified character lowercased, matching `parseKeybind`.
+    /// Modifiers map to the agtermCore `Modifier` set; the base key is the named special key (for the keys
+    /// the parser names), else the key `chordKey(forKeyCode:produced:layoutIsASCIICapable:)` resolves —
+    /// the unmodified character on a layout that can type ASCII, the physical position on one that cannot.
     private func chord(from event: NSEvent) -> Chord? {
         var mods: Modifier = []
         let flags = event.modifierFlags
@@ -161,7 +162,7 @@ final class CustomCommandRunner {
         if flags.contains(.option) { mods.insert(.option) }
         if flags.contains(.shift) { mods.insert(.shift) }
 
-        if let named = Self.namedKeys[event.keyCode] {
+        if let named = namedKey(forKeyCode: event.keyCode) {
             return Chord(mods: mods, key: named)
         }
         // Derive the UNSHIFTED base key so every key normalizes the same way. `charactersIgnoringModifiers`
@@ -170,15 +171,14 @@ final class CustomCommandRunner {
         // `characters(byApplyingModifiers: [])` applies NO modifiers, giving the base char for any key
         // (shift+/ → "/", shift+5 → "5", shift+u → "u"), matching how the keymap spells chords as
         // `shift+<base>` (same call `GhosttySurfaceView` uses for unmodified key input).
-        guard let chars = event.characters(byApplyingModifiers: []) ?? event.charactersIgnoringModifiers,
-              let first = chars.first else { return nil }
-        let key = String(first).lowercased()
-        guard !key.isEmpty, key != " " else { return nil }
+        // `chordKey` then resolves the whole layout: a layout that cannot type ASCII binds by physical
+        // position, so a `cmd+o` command still fires on a Cyrillic layout (where that key types `щ`),
+        // while a Latin layout keeps binding by the character it produces.
+        let produced = event.characters(byApplyingModifiers: []) ?? event.charactersIgnoringModifiers
+        guard let key = chordKey(forKeyCode: event.keyCode, produced: produced,
+                                 layoutIsASCIICapable: KeyboardLayout.isASCIICapable) else { return nil }
         return Chord(mods: mods, key: key)
     }
-
-    /// The special keys `parseKeybind` names, by macOS virtual keycode.
-    private static let namedKeys: [UInt16: String] = [48: "tab", 49: "space", 36: "return", 51: "delete"]
 
     private func startLeaderTimer() {
         cancelLeaderTimer()

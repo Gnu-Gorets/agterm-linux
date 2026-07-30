@@ -42,12 +42,24 @@ final class AppActions {
         frontmostTerminalZoom?.target != nil
     }
 
-    /// While terminal zoom OR the dashboard grid is active, the UI is modal: keyboard/menu/palette actions
-    /// must not mutate the deck behind it. The zoom/dashboard toggles, socket commands, and macOS window
-    /// controls remain separate paths (they never gate on this), so the user is never trapped and can always
-    /// dismiss the modal. `frontmostDashboard?.isOpen` mirrors `terminalZoomActive`, resolved on the frontmost
-    /// window like the zoom target.
-    var uiActionsEnabled: Bool { !terminalZoomActive && !(frontmostDashboard?.isOpen ?? false) }
+    /// While terminal zoom, the dashboard grid, OR the topmost native picker is active, the UI is modal:
+    /// keyboard/menu/palette actions must not mutate the deck behind it. Dismissal paths remain independently
+    /// callable so the user is never trapped: the dashboard toggle stays available while its grid is the
+    /// topmost modal, while zoom/dashboard toggles are blocked behind a picker. This is the frontmost-window
+    /// shorthand below, resolved on
+    /// `library.activeWindowID` like the zoom target. With NO window open that id is nil and the gate DENIES
+    /// (the per-window check's `guard let windowID else { return false }`), so a deck action can't run against
+    /// no window while the app is tearing down.
+    var uiActionsEnabled: Bool { uiActionsEnabled(for: library.activeWindowID) }
+
+    /// The modal gate for a specific window. Session-addressed entry points use this instead of the
+    /// frontmost-only property when their target may have changed while an external menu was tracking.
+    func uiActionsEnabled(for windowID: WindowInfo.ID?) -> Bool {
+        guard let windowID else { return false }
+        return TerminalZoomRegistry.shared.controller(for: windowID)?.target == nil
+            && DashboardControllerRegistry.shared.controller(for: windowID)?.isOpen != true
+            && PickRegistry.shared.controller(for: windowID)?.pending == nil
+    }
 
     /// Set briefly while a rename is being started, so the focus-restore that runs when a palette
     /// or the quick terminal closes doesn't steal first responder from the inline rename field.
@@ -87,6 +99,12 @@ final class AppActions {
     /// so an idle auto-follow in the key window moves first responder into the newly selected session.
     private var autoFollowObserver: NSObjectProtocol?
 
+    /// Cancels every window-scoped picker when AppKit begins termination. This observer runs on the
+    /// same synchronous notification as the delegate's quit flush, but never participates in
+    /// `applicationShouldTerminate`: a caller waiting on a pick gets `cancelled` without delaying either
+    /// the quit-confirmation prompt or termination itself.
+    private var terminationObserver: NSObjectProtocol?
+
     init(library: WindowLibrary) {
         self.library = library
         // bridge the host-free `AppStore.autoFollowFire` post to the app-target focus move: agtermCore can't
@@ -95,7 +113,13 @@ final class AppActions {
             forName: .agtermAutoFollowed, object: nil, queue: .main
         ) { [weak self] note in
             let sessionID = note.userInfo?[AppStore.autoFollowSessionIDKey] as? UUID
-            MainActor.assumeIsolated { self?.autoFollowed(sessionID) }
+            let indicator = note.userInfo?[AppStore.autoFollowIndicatorKey] as? AgentIndicator
+            MainActor.assumeIsolated { self?.autoFollowed(sessionID, indicator: indicator) }
+        }
+        terminationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.cancelAllPendingPicks() }
         }
     }
 
@@ -104,6 +128,7 @@ final class AppActions {
     // unbalanced addObserver(forName:) is a latent leak either way.
     isolated deinit {
         if let autoFollowObserver { NotificationCenter.default.removeObserver(autoFollowObserver) }
+        if let terminationObserver { NotificationCenter.default.removeObserver(terminationObserver) }
     }
 
     // MARK: - Workspaces & sessions
@@ -238,6 +263,9 @@ final class AppActions {
     // dismissed, not only a full one.
     @discardableResult
     func closeActiveSession() -> Bool {
+        // A pick is an external caller waiting on an answer, so it is the first ⌘W layer even when a
+        // terminal is zoomed behind it. Resolve rather than merely hiding it so the caller can finish.
+        if cancelPendingPick(for: library.activeWindowID) { return true }
         // terminal zoom is the window-topmost cover of all: ⌘W dismisses it like the covers below
         // (stepwise — a zoomed quick terminal un-zooms first, the next ⌘W hides it) rather than
         // swallowing the keystroke, and still never mutates hidden session/window state behind it. the
@@ -255,6 +283,26 @@ final class AppActions {
         closeSessionAfterConfirmation(session.id, in: store)
         focusActiveSession()
         return true
+    }
+
+    /// Resolve the pending picker owned by `windowID` as cancelled. Used by ⌘W and app termination;
+    /// window teardown cancels through `PickRegistry.unregister` so it can retain the terminal result.
+    @discardableResult
+    func cancelPendingPick(for windowID: WindowInfo.ID?) -> Bool {
+        guard let controller = PickRegistry.shared.controller(for: windowID),
+              controller.pending != nil
+        else { return false }
+        controller.cancel()
+        return true
+    }
+
+    /// Resolve all open windows' pending pickers during the synchronous app-termination notification.
+    /// The window library deliberately retains its open ids through quit teardown, so every mounted
+    /// controller remains addressable here.
+    func cancelAllPendingPicks() {
+        for windowID in library.openIDs() {
+            cancelPendingPick(for: windowID)
+        }
     }
 
     /// Close the session with `id` in `store` from a GUI surface (the sidebar row's Close), honoring the
@@ -411,30 +459,27 @@ final class AppActions {
     /// then moves first responder into the moved-to session's focused pane. Each also notes the manual
     /// navigation as user activity so it buys the full idle grace before auto-follow can pull the
     /// selection back (the control `session.go` drives `navigateSession` directly, so it stays silent).
-    func selectNextSession() {
+    /// A step that resolves to the session ALREADY selected reveals nothing and just re-focuses: `next`/`previous`
+    /// wrap inside the filtered set, so a one-element set re-selects the current session, and `first`/`last`
+    /// do the same while you are already at that end. `selectSession` does not short-circuit a same-target
+    /// select, so it still returns an indicator there — revealing on it would clear `splitFocused` and yank
+    /// first responder onto the primary pane on a keystroke that moved nothing, off the split the user is
+    /// typing in. Attention nav deliberately DOES reveal on its no-op; see it below for why.
+    private func navigatePlain(_ direction: SessionNavigation) {
         guard uiActionsEnabled else { return }
         store?.noteUserActivity()
-        store?.navigateSession(.next)
-        revealActiveBlockedPane()
+        let before = store?.selectedSessionID
+        // no live-indicator fallback here (unlike attention nav): a plain direction returns nil only when
+        // `navigableSessions` is EMPTY, and then nothing was selected, which the moved-check below catches.
+        let indicator = store?.navigateSession(direction)
+        guard store?.selectedSessionID != before else { focusActiveSession(); return }
+        revealActiveBlockedPane(captured: indicator)
     }
-    func selectPreviousSession() {
-        guard uiActionsEnabled else { return }
-        store?.noteUserActivity()
-        store?.navigateSession(.previous)
-        revealActiveBlockedPane()
-    }
-    func selectFirstSession() {
-        guard uiActionsEnabled else { return }
-        store?.noteUserActivity()
-        store?.navigateSession(.first)
-        revealActiveBlockedPane()
-    }
-    func selectLastSession() {
-        guard uiActionsEnabled else { return }
-        store?.noteUserActivity()
-        store?.navigateSession(.last)
-        revealActiveBlockedPane()
-    }
+
+    func selectNextSession() { navigatePlain(.next) }
+    func selectPreviousSession() { navigatePlain(.previous) }
+    func selectFirstSession() { navigatePlain(.first) }
+    func selectLastSession() { navigatePlain(.last) }
 
     /// Step to the next/previous session needing attention (status `blocked` or `completed`), wrapping
     /// around and skipping idle/active sessions. Shares `navigateSession` with the GUI, palette, and the
@@ -442,25 +487,37 @@ final class AppActions {
     /// session nav (a manual step to an attention session buys the idle grace too), then reveals and focuses
     /// the moved-to session's blocked pane (`revealActiveBlockedPane`) so nav lands on the split/scratch pane
     /// that set the status, not just the session's plain focused pane.
+    /// Unlike the plain nav above, this DOES reveal on a selection no-op, and the `?? activeSession?.agentIndicator`
+    /// fallback is the only thing that makes it: `attentionTarget` EXCLUDES the current session, so when the
+    /// sole session needing attention is the one already selected it returns nil and `navigateSession` selects
+    /// nothing. Without the fallback the reveal degrades to plain `focusActiveSession` and ⌃⌥↑/↓ stops taking
+    /// you to that session's tagged split/scratch pane — the case an agent hits constantly, since a pane-scoped
+    /// block is not cleared by typing in the OTHER pane. Do not drop it as redundant.
     func selectNextAttentionSession() {
         guard uiActionsEnabled else { return }
         store?.noteUserActivity()
-        store?.navigateSession(.nextAttention)
-        revealActiveBlockedPane()
+        let indicator = store?.navigateSession(.nextAttention) ?? store?.activeSession?.agentIndicator
+        revealActiveBlockedPane(captured: indicator)
     }
     func selectPreviousAttentionSession() {
         guard uiActionsEnabled else { return }
         store?.noteUserActivity()
-        store?.navigateSession(.previousAttention)
-        revealActiveBlockedPane()
+        let indicator = store?.navigateSession(.previousAttention) ?? store?.activeSession?.agentIndicator
+        revealActiveBlockedPane(captured: indicator)
     }
 
-    /// Delete a workspace and all of its sessions. Confirms first when the workspace still has
-    /// sessions (the delete ends their shells); an empty workspace deletes without a prompt.
-    /// No-ops when only one workspace remains — one is always kept.
-    func deleteWorkspace(_ workspaceID: UUID) {
-        guard uiActionsEnabled else { return }
-        guard let store, store.canRemoveWorkspace,
+    /// Delete a workspace from `store`'s window and all of its sessions. Confirms first when the workspace
+    /// still has sessions (the delete ends their shells); an empty workspace deletes without a prompt.
+    /// No-ops when only one workspace remains — one is always kept. Driven by the sidebar workspace row's
+    /// "Delete Workspace" context-menu item, which passes its OWN window-local store (like
+    /// Close/Flag/Duplicate/Focus) so a background window's row deletes the workspace it was opened over —
+    /// the item's enabled state was read from that same store, and routing through the frontmost one would
+    /// find no such id and silently do nothing. Ungated like the other store-scoped sidebar actions: a
+    /// window renders no sidebar while its terminal zoom or dashboard is up, so the row menu is unreachable
+    /// in exactly the state the gate covers, and the frontmost window's modal must not block a background
+    /// window's row.
+    func deleteWorkspace(_ workspaceID: UUID, in store: AppStore) {
+        guard store.canRemoveWorkspace,
               let workspace = store.workspaces.first(where: { $0.id == workspaceID }) else { return }
         if !workspace.sessions.isEmpty, !confirmDeleteWorkspace(workspace) { return }
         if closeGraceUndoEnabled {
@@ -473,10 +530,10 @@ final class AppActions {
     }
 
     /// Delete the current workspace (the one new sessions land in) — used by the menu bar and the
-    /// action palette, which have no clicked row.
+    /// action palette, which have no clicked row and so act on the frontmost window by definition.
     func deleteActiveWorkspace() {
-        guard let store, let id = store.currentWorkspaceID else { return }
-        deleteWorkspace(id)
+        guard uiActionsEnabled, let store, let id = store.currentWorkspaceID else { return }
+        deleteWorkspace(id, in: store)
     }
 
     private func confirmDeleteWorkspace(_ workspace: Workspace) -> Bool {
@@ -505,31 +562,6 @@ final class AppActions {
     func moveSession(_ sessionID: UUID, toWorkspace workspaceID: UUID) {
         guard uiActionsEnabled else { return }
         store?.moveSession(sessionID, toWorkspace: workspaceID)
-    }
-
-    /// Focus (or unfocus) a workspace — collapses the sidebar tree to that workspace's subtree, or clears
-    /// focus when it is already the focused one. Driven by the sidebar workspace row's "Focus"/"Unfocus"
-    /// context-menu item. Clean no-op on an unknown id.
-    func focusWorkspace(_ id: UUID) {
-        guard uiActionsEnabled else { return }
-        guard let store, store.workspaces.contains(where: { $0.id == id }) else { return }
-        store.setFocusedWorkspace(store.focusedWorkspaceID == id ? nil : id)
-    }
-
-    /// Focus (or unfocus) the current workspace (the one new sessions land in) — the entry point for the
-    /// `focus_workspace` keybind, the View menu, and the action palette, which have no clicked row.
-    /// No-op when there is no current workspace.
-    func focusActiveWorkspace() {
-        guard let id = store?.currentWorkspaceID else { return }
-        focusWorkspace(id)
-    }
-
-    /// Clear any workspace focus, restoring the full tree. A plain menu/palette "Clear Focus" item (the
-    /// bottom-bar pill's ✕ is the primary affordance); no-op when nothing is focused.
-    func clearFocus() {
-        guard uiActionsEnabled else { return }
-        guard let store, store.focusedWorkspaceID != nil else { return }
-        store.setFocusedWorkspace(nil)
     }
 
     // MARK: - Sidebar tree expansion
@@ -643,10 +675,20 @@ final class AppActions {
     /// Create a fresh window (one default workspace + session) and open its on-screen window via the
     /// scene's window opener (the same seam the control channel uses). No-op if the opener isn't wired
     /// yet (before the scene `.task` runs there's no window to open into).
-    func newWindow() {
-        guard uiActionsEnabled else { return }
+    ///
+    /// `ignoringModals` skips the frontmost-window modal gate. Creating a window is app-level — it
+    /// touches no existing window's state — so the Dock item passes true: a dashboard or terminal zoom
+    /// in whatever window happened to be last active must not make it inert, which is the whole point
+    /// of driving agterm from the Dock. The menu bar and palette keep the gate, and File ▸ New Window
+    /// mirrors it with `.disabled(modalActive)`.
+    func newWindow(ignoringModals: Bool = false) {
+        guard ignoringModals || uiActionsEnabled else { return }
+        // create only when there is somewhere to open into: `library.newWindow()` persists an entry
+        // marked open, so creating without an opener would leave a window the app counts as open with
+        // no NSWindow behind it.
+        guard let openWindow else { return }
         let info = library.newWindow()
-        openWindow?(info.id)
+        openWindow(info.id)
     }
 
     /// Surface a window: raise it if already open, else open it (the opener claims its id + spawns a
@@ -696,20 +738,27 @@ final class AppActions {
     /// Start an inline rename of the active session. The sidebar owns the edit field, so this posts
     /// a notification it observes; `renamePending` keeps the palette-close focus restore off the
     /// field while the edit starts.
+    /// The post carries the frontmost STORE as its object, and `WorkspaceSidebar.Coordinator` registers
+    /// with `object: store`, so only that window's sidebar starts an edit — the same per-window scoping
+    /// `expandAllWorkspaces(in:)` uses. Posting with a nil object instead reached EVERY open window's
+    /// coordinator, and their `selectedSessionID` guard does not scope anything (every window has a
+    /// selection), so each one opened an editor nobody was typing into and each leaked one unbalanced
+    /// `suppressAutoFollow`.
     func renameActiveSession() {
         guard uiActionsEnabled else { return }
-        guard store?.activeSession != nil else { return }
+        guard let store, store.activeSession != nil else { return }
         renamePending = true
-        NotificationCenter.default.post(name: .agtermBeginRenameSession, object: nil)
+        NotificationCenter.default.post(name: .agtermBeginRenameSession, object: store)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.renamePending = false }
     }
 
     /// Start an inline rename of the active session's workspace (the same one new sessions land in).
+    /// Store-scoped like `renameActiveSession` above, for the same reason.
     func renameActiveWorkspace() {
         guard uiActionsEnabled else { return }
-        guard store?.currentWorkspaceID != nil else { return }
+        guard let store, store.currentWorkspaceID != nil else { return }
         renamePending = true
-        NotificationCenter.default.post(name: .agtermBeginRenameWorkspace, object: nil)
+        NotificationCenter.default.post(name: .agtermBeginRenameWorkspace, object: store)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.renamePending = false }
     }
 
@@ -769,23 +818,32 @@ final class AppActions {
 
     // MARK: - Quick terminal (frontmost window)
 
-    /// Toggle the frontmost window's quick terminal (each window owns its own controller).
+    /// Toggle the frontmost window's quick terminal (each window owns its own controller). Gated on the full
+    /// `uiActionsEnabled` (zoom, dashboard, AND native picker), not zoom alone — defence in depth rather
+    /// than a gap being closed, since all three callers already gate: the View ▸ Quick Terminal item's
+    /// `.disabled(modalActive)` (which covers a `keymap.conf` rebind too, because that rebind is the item's
+    /// own key equivalent), the palette's `runPaletteCommand` check, and the Dock item's invocation-time
+    /// `uiActionsEnabled(for:)`.
     func toggleQuickTerminal() {
-        guard !terminalZoomActive else { return }
+        guard uiActionsEnabled else { return }
         frontmostQuickTerminal?.toggle()
     }
 
     /// Toggle the frontmost window's full-window terminal zoom. Core resolves which surface is active
     /// (quick, overlay, scratch, split, or primary); the owning window renders it above all chrome.
-    func toggleTerminalZoom() { frontmostTerminalZoom?.toggle() }
+    func toggleTerminalZoom() {
+        guard !pickActive(for: library.activeWindowID) else { return }
+        frontmostTerminalZoom?.toggle()
+    }
 
     /// Toggle the frontmost window's dashboard — the keyboard/menu/palette opener for the MRU dashboard grid
     /// (the ⌘⇧D / Navigate ▸ Dashboard equivalent of `agtermctl dashboard --mru --auto-size`). Inert while
-    /// terminal zoom is active (mirrors the GUI siblings + the `.disabled(zoomed)` menu item; the control
-    /// path keeps its own zoom-clear). Open → close it and refocus the active session; closed → open it over
-    /// the window's most-recently-used sessions, auto-sized. A no-op when the window has no recent sessions.
+    /// terminal zoom or the topmost native picker is active (mirrors the GUI siblings and menu disablement).
+    /// Dashboard state alone does not block the toggle, so an open grid remains its own close escape hatch.
+    /// Open → close it and refocus the active session; closed → open it over the window's most-recently-used
+    /// sessions, auto-sized. A no-op when the window has no recent sessions.
     func toggleDashboard() {
-        guard !terminalZoomActive else { return }
+        guard !terminalZoomActive, !pickActive(for: library.activeWindowID) else { return }
         guard let dashboard = frontmostDashboard else { return }
         if dashboard.isOpen {
             dashboard.close()
@@ -861,6 +919,7 @@ final class AppActions {
     /// target — `onSearchStart` opens the bar and pins the surface. Shared by the Find menu item, the
     /// palette, and ⌘F.
     func toggleSearch() {
+        guard !pickActive(for: library.activeWindowID) else { return }
         if store?.activeSession?.searchActive == true {
             (store?.activeSession?.searchSurface as? GhosttySurfaceView)?.endSearch()
             return
@@ -909,14 +968,14 @@ final class AppActions {
     /// `revealActiveBlockedPane` targets the frontmost (= key) store — the firing window here since we gate
     /// on its being key — and reveals the pane that set the status (split/scratch), so the initial jump lands
     /// on the waiting pane, not just the session's plain focused pane.
-    private func autoFollowed(_ sessionID: UUID?) {
+    private func autoFollowed(_ sessionID: UUID?, indicator: AgentIndicator?) {
         guard let sessionID, let windowID = library.windowID(forSession: sessionID),
               WindowRegistry.shared.isKeyWindow(windowID) else { return }
         // never reveal behind the zoom layer: the reveal mutates scratch visibility / splitFocused,
         // exactly the hidden-state writes zoom forbids. The auto-follow SELECTION stands (the user
         // lands on the blocked session when they exit zoom); only the pane reveal is skipped.
         guard TerminalZoomRegistry.shared.controller(for: windowID)?.target == nil else { return }
-        revealActiveBlockedPane()
+        revealActiveBlockedPane(captured: indicator)
     }
 
     /// Per-window generation counters (keyed by the owning window id; bumped in AppActions+Focus). A fresh

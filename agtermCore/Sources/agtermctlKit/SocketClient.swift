@@ -3,6 +3,7 @@ import Darwin
 #elseif canImport(Glibc)
 import Glibc
 #endif
+import ArgumentParser
 import Foundation
 import agtermCore
 
@@ -121,6 +122,32 @@ struct SocketClient {
         print(formatResponse(response, json: json, echoID: echoID))
     }
 
+    /// Render the immediate `pick.open` response as the documented `{"id":"…"}` JSON object.
+    static func formatPickID(_ id: String) throws -> String {
+        String(decoding: try JSONEncoder().encode(ControlResult(id: id)), as: UTF8.self)
+    }
+
+    /// Render the nested `pick.result` payload itself, rather than the enclosing control response.
+    static func formatPickResult(_ result: ControlPickResult) throws -> String {
+        String(decoding: try JSONEncoder().encode(result), as: UTF8.self)
+    }
+
+    /// Map every picker state to a process status. `pending` is non-terminal in the blocking loop; if
+    /// observed by the one-shot `pick result` verb it uses the generic failure status.
+    static func pickExitCode(for outcome: ControlPickOutcome) -> ExitCode {
+        switch outcome {
+        case .picked, .custom: .success
+        case .pending: .failure
+        case .cancelled: ExitCode(rawValue: 2)
+        }
+    }
+
+    /// Human choices may take minutes, so poll quickly only for the first second (ten 100 ms waits),
+    /// then back off to 500 ms rather than hammering the server's serial accept loop indefinitely.
+    static func pickPollDelay(afterPendingPoll poll: Int) -> TimeInterval {
+        poll <= 10 ? 0.1 : 0.5
+    }
+
     /// Render a response to a single string (no trailing newline): the raw JSON line with `json: true`,
     /// otherwise a human-readable summary — an `error:` line, the tree listing, the selected text, the
     /// affected id (only when `echoID`, i.e. for the create commands), or a bare `ok`. Pure so it can be
@@ -144,6 +171,9 @@ struct SocketClient {
         if let themes = response.result?.themes {
             return formatThemes(themes, current: response.result?.theme, sync: response.result?.sync ?? false,
                                 light: response.result?.light, dark: response.result?.dark)
+        }
+        if let keymap = response.result?.keymap {
+            return formatKeymap(keymap)
         }
         if let text = response.result?.text {
             return text
@@ -180,6 +210,45 @@ struct SocketClient {
         guard sync else { return body }
         let header = "syncing with macOS appearance — light: \(light ?? "default ghostty"), dark: \(dark ?? "default ghostty")"
         return header + "\n" + body
+    }
+
+    /// Render the `keymap.list` payload as sections: the resolved built-ins, then custom commands, parse
+    /// diagnostics, and the live menu key equivalents (no trailing newline). An overridden built-in is
+    /// marked `*`, and a keyless one prints `-` rather than being dropped, so the listing is the full
+    /// action set.
+    ///
+    /// The menu section is the point of the command: comparing it against the actions above is what shows
+    /// a chord the keymap resolved but the menu is not carrying. Menu items are printed in menu-bar order.
+    static func formatKeymap(_ keymap: ControlKeymap) -> String {
+        var lines = ["keymap: \(keymap.path)", "", "actions:"]
+        let width = keymap.actions.map(\.action.count).max() ?? 0
+        for action in keymap.actions {
+            let mark = action.overridden == true ? "*" : " "
+            let name = action.action.padding(toLength: max(width, action.action.count), withPad: " ", startingAt: 0)
+            lines.append("  \(mark) \(name)  \(action.chord ?? "-")")
+        }
+        if !keymap.commands.isEmpty {
+            lines.append(contentsOf: ["", "commands:"])
+            lines.append(contentsOf: keymap.commands.map { "    \($0.name)  \($0.shortcut ?? "(palette only)")" })
+        }
+        if !keymap.diagnostics.isEmpty {
+            lines.append(contentsOf: ["", "diagnostics:"])
+            // line 0 is the whole-file / cross-section sentinel, not a real line — drop the number
+            // rather than sending the reader looking for it, matching SettingsView.diagnosticLine.
+            lines.append(contentsOf: keymap.diagnostics.map {
+                $0.line > 0 ? "    line \($0.line): \($0.message)" : "    \($0.message)"
+            })
+        }
+        if let menu = keymap.menu {
+            lines.append(contentsOf: ["", "menu:"])
+            // mark a disabled item: its chord is inert (AppKit consumes the key and fires nothing, not
+            // even a same-chord sibling), and the default non-JSON output is the documented human
+            // workflow — an unmarked row reads as a live binding.
+            lines.append(contentsOf: menu.map {
+                "    \($0.chord)  \($0.menu) ▸ \($0.title)" + ($0.enabled == false ? "  (disabled)" : "")
+            })
+        }
+        return lines.joined(separator: "\n")
     }
 
     /// Render the `window.list` payload as one `id  name  [open]  [active]` line per window (no trailing
