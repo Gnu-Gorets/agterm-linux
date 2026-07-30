@@ -40,7 +40,13 @@ export AGTERM_STATE_DIR="$RUN_ROOT/state"
 export AGTERM_CONTROL_SOCKET="$RUN_ROOT/state/agterm.sock"
 export AGTERM_TEST_BIN="$BIN"
 export AGTERM_TEST_CTL="$CTL"
-export AGTERM_RESOURCE_ROOT="${AGTERM_RESOURCE_ROOT:-$ROOT/agterm/Resources}"
+if [[ -z "${AGTERM_RESOURCE_ROOT:-}" ]]; then
+  resource_root="$RUN_ROOT/resources"
+  mkdir -p "$resource_root"
+  ln -s "$ROOT/agterm/Resources/agent-status" "$resource_root/agent-status"
+  ln -s "$ROOT/plugins/agterm/skills/agterm" "$resource_root/agent-skill"
+  export AGTERM_RESOURCE_ROOT="$resource_root"
+fi
 export GDK_BACKEND=x11
 export GTK_A11Y=atspi
 export NO_AT_BRIDGE=0
