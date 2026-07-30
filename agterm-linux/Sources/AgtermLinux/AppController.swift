@@ -54,8 +54,8 @@ final class AppController {
     // Command palette (Ctrl+Shift+P)
     var paletteWindow: OpaquePointer?
     var paletteList: OpaquePointer?
-    var paletteAll: [(String, () -> Void)] = []
-    var paletteItems: [(String, () -> Void)] = []
+    var paletteAll = LinuxPaletteList()
+    var paletteItems: [LinuxPaletteItem] = []
 
     // In-terminal search bar (Ctrl+Shift+F)
     var searchBar: OpaquePointer?
@@ -293,7 +293,7 @@ final class AppController {
         applyAutoFollowSettings()
         gtk_window_present(WIN(window))
         applySidebarThemeColor()   // tint the sidebar to the terminal theme background
-        reloadKeymapDiagnostics()   // load keymap.conf → built-in overrides + custom-command chords for key dispatch
+        loadKeymapAtStartup()   // this window's own keymap.conf caches; NOT an app-wide reload
         reconcile()
         becameFrontmost()
     }
