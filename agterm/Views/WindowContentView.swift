@@ -59,6 +59,9 @@ struct WindowContentView: View {
     @State var toolbarMode: ToolbarMode = WindowContentView.resolvedToolbarMode()
     /// How strongly `paneDim` mutes the inactive split pane's text (0...10).
     @State private var inactivePaneMute: Int = WindowContentView.resolvedInactivePaneMute()
+    /// Live pointer/drag state for `sidebarDivider`'s grab handle, read by its deferred cursor re-assert.
+    @State private var dividerHovered = false
+    @State private var dividerDragging = false
     /// How much lighter/darker the sidebar background is than the terminal (0...10, 5 = neutral). Drives
     /// `sidebarTintWash`.
     @State var sidebarShift: Int = WindowContentView.resolvedSidebarShift()
@@ -127,6 +130,12 @@ struct WindowContentView: View {
         .onChange(of: store.sidebarVisible) { _, visible in
             if visible {
                 DispatchQueue.main.async { NotificationCenter.default.post(name: .agtermAppearanceChanged, object: nil) }
+            } else {
+                // hiding mid-drag (⌘⌃S, the palette, `sidebar hide`, inactive-window auto-hide) removes the
+                // divider and cancels its gesture without `onEnded`, so these would stay latched on this
+                // view: ↔ would survive the next hover exit and the arrow would never be restored.
+                dividerHovered = false
+                dividerDragging = false
             }
         }
         // on quick-terminal hide refocus the active session, unless this window's zoom owns focus: zoom-enter
@@ -317,20 +326,52 @@ struct WindowContentView: View {
                 Color.clear
                     .frame(width: 12)
                     .contentShape(Rectangle())
-                    .onHover { inside in
-                        if inside { NSCursor.resizeLeftRight.set() } else { NSCursor.arrow.set() }
+                    // per MOVE, not just on entry: the handle overhangs the terminal, whose surface re-asserts
+                    // its own shape on every move, and one set on entry cannot hold against it (issue #324).
+                    .onContinuousHover { phase in
+                        switch phase {
+                        case .active:
+                            dividerHovered = true
+                            setDividerCursor()
+                        case .ended:
+                            dividerHovered = false
+                            // a drag past the width clamp leaves the handle under the pointer; the drag's own
+                            // re-assert owns the cursor until release.
+                            if !dividerDragging { NSCursor.arrow.set() }
+                        }
                     }
                     .gesture(
                         // width comes from the absolute cursor X, NOT accumulated translation: the divider
                         // moves with the width, so translation feeds back on itself and the line flickers.
                         DragGesture(minimumDistance: 1, coordinateSpace: .global)
                             .onChanged { value in
+                                dividerDragging = true
                                 store.sidebarWidth = min(AppStore.sidebarWidthMax, max(AppStore.sidebarWidthMin, Double(value.location.x)))
+                                // past the clamp the divider stops following the pointer, which ends up over
+                                // live terminal with no hover event left to repaint ↔.
+                                setDividerCursor()
                             }
                             // persist the new width once, on release, not on every drag tick.
-                            .onEnded { _ in store.save() }
+                            .onEnded { _ in
+                                dividerDragging = false
+                                if !dividerHovered { NSCursor.arrow.set() }
+                                store.save()
+                            }
                     )
             }
+    }
+
+    /// Paint ↔ for the sidebar handle, then once more on the next runloop turn: a cursor replacement still
+    /// lands after this synchronous `.set()` returns — SwiftUI hosts the terminal surface and resets the
+    /// cursor as the mouse moves (see `GhosttySurfaceView.cursorUpdate`) — so a single set loses the race.
+    /// The deferred pass re-reads `dividerHovered` rather than capturing it, so a re-assert arriving after
+    /// the pointer left cannot strand ↔ over live terminal text.
+    private func setDividerCursor() {
+        NSCursor.resizeLeftRight.set()
+        DispatchQueue.main.async {
+            guard dividerHovered || dividerDragging else { return }
+            NSCursor.resizeLeftRight.set()
+        }
     }
 
     @ViewBuilder private var detailColumn: some View {
