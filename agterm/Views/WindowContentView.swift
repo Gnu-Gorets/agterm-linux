@@ -33,6 +33,8 @@ struct WindowContentView: View {
     let actions: AppActions
     let palette: PaletteController
     let sessionSwitcher: SessionSwitcher
+    /// Mirrors `WindowAppearance`'s other opaque-forcing condition; SwiftUI keeps it current by itself.
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     /// One quick terminal per window, registered in `QuickTerminalRegistry` on appear so the
     /// frontmost-window call sites reach it; its `cwdProvider` binds to this window's active session.
     @State var quickTerminal = QuickTerminalController()
@@ -57,8 +59,13 @@ struct WindowContentView: View {
     /// `normal` shows the cwd subtitle, `compact` collapses the title bar to a single line, `hidden` drops
     /// the row (and the traffic lights) for a full-bleed terminal.
     @State var toolbarMode: ToolbarMode = WindowContentView.resolvedToolbarMode()
-    /// How strongly `paneDim` mutes the inactive split pane's text (0...10).
+    /// How strongly the mute wash fades the text of a terminal that does not hold focus (0...10).
     @State private var inactivePaneMute: Int = WindowContentView.resolvedInactivePaneMute()
+    /// The window's saved background opacity, which scales the mute wash — see `muteWashOpacity`.
+    @State private var windowOpacity: Double = WindowContentView.resolvedWindowOpacity()
+    /// Whether THIS window is in native fullscreen, where AppKit renders it opaque whatever the saved
+    /// opacity says. Per-window, so it cannot ride the app-global mirrors.
+    @State private var windowFullscreen = false
     /// Live pointer/drag state for `sidebarDivider`'s grab handle, read by its deferred cursor re-assert.
     @State private var dividerHovered = false
     @State private var dividerDragging = false
@@ -199,8 +206,12 @@ struct WindowContentView: View {
             attentionButtonEnabled = WindowContentView.resolvedAttentionButtonEnabled()
             hiddenInterfaceElements = WindowContentView.resolvedHiddenInterfaceElements()
             inactivePaneMute = WindowContentView.resolvedInactivePaneMute()
+            windowOpacity = WindowContentView.resolvedWindowOpacity()
             sidebarShift = WindowContentView.resolvedSidebarShift()
         }
+        .modifier(FullscreenEdgeObserver { note in
+            if let state = fullscreenState(from: note) { windowFullscreen = state }
+        })
         // blend the title bar with the terminal; report frontmost/close to the library; surface the window
         // un-minimized on launch. the title token re-runs the blend in updateNSView on a session switch.
         .background(WindowAccessor(titleToken: windowTitle, windowID: windowID, library: library, store: store))
@@ -450,7 +461,7 @@ struct WindowContentView: View {
                                 TerminalView(session: session, surfaceKeyPath: \.surface, makeSurface: makeSurface,
                                              isActive: focusable && !session.splitFocused && !overlaid,
                                              deckVisible: visible)
-                                    .overlay { paneDim(session.splitFocused) }
+                                    .overlay { paneDim(session.splitFocused, session: session) }
                                     .id(primarySurfaceID(session))
                             } else {
                                 Color.clear
@@ -466,7 +477,7 @@ struct WindowContentView: View {
                                 TerminalView(session: session, surfaceKeyPath: \.splitSurface, makeSurface: makeSplitSurface,
                                              isActive: focusable && session.splitFocused && !overlaid,
                                              deckVisible: visible)
-                                    .overlay { paneDim(!session.splitFocused) }
+                                    .overlay { paneDim(!session.splitFocused, session: session) }
                                     .id("\(session.id.uuidString)-split")
                             } else {
                                 Color.clear
@@ -555,8 +566,12 @@ struct WindowContentView: View {
                     let floating = session.overlaySizePercent != nil
                     let fraction = session.overlaySizePercent.map { CGFloat($0) / 100 } ?? 1
                     // absorbs clicks AROUND a floating panel so they can't reach the hit-testable panes and
-                    // steal the overlay's first responder (the full variant hides the panes anyway).
-                    Color.clear.contentShape(Rectangle())
+                    // steal the overlay's first responder (the full variant hides the panes anyway), and
+                    // carries the backdrop mute: a floating panel leaves the session live behind it, so the
+                    // same wash `paneDim` puts on an inactive split pane marks it inactive here. Full stays
+                    // clear — its panes are already hidden, and a wash would tint the window backing.
+                    (floating ? washColor(for: session).opacity(muteWashOpacity) : Color.clear)
+                        .contentShape(Rectangle())
                     TerminalView(session: session, surfaceKeyPath: \.overlaySurface,
                                  makeSurface: makeOverlaySurface, isActive: isActive, deckVisible: isActive)
                         .frame(width: geo.size.width * fraction, height: geo.size.height * fraction)
@@ -611,14 +626,59 @@ struct WindowContentView: View {
         "\(session.id.uuidString)-primary-\(session.primarySurfaceHostRevision)"
     }
 
+    /// Opacity of the mute wash, shared by the inactive split pane and the backdrop behind a floating panel
+    /// (overlay, quick terminal). 0 = the user turned muting off.
+    ///
+    /// Scaled by the opacity the window actually renders at, because the wash color is opaque while a
+    /// translucent backing is not: painting alpha `m` over backing alpha `p` leaves the body at `m + p(1-m)`
+    /// against a title bar still at `p`. Nothing removes that difference — coverage only adds — so the scale
+    /// shrinks it in step with the window's own transparency and is a no-op at full opacity.
+    private var muteWashOpacity: Double {
+        AppSettings.muteOpacity(strength: inactivePaneMute) * effectiveWindowOpacity
+    }
+
+    /// The saved opacity, except where `WindowAppearance.sync` forces the window opaque without touching
+    /// that setting. There body and title bar share one opaque backing, so the wash needs no scaling and
+    /// scaling it would under-mute — down to nothing at a saved opacity of 0.
+    private var effectiveWindowOpacity: Double {
+        windowFullscreen || reduceTransparency ? 1 : windowOpacity
+    }
+
+    /// The wash color for a session: its own solid background when it set one, else the theme background.
+    /// The wash must blend background→background to fade text alone, so a session running on a different
+    /// background needs that color or the wash tints it.
+    ///
+    /// Sampled at redraw, and neither source is observed: `backgroundWatermark` is `@ObservationIgnored`
+    /// and a live OSC 11 color lives on the surface view. Every path that PUTS a wash on screen re-reads it
+    /// (overlay, quick-terminal and split-focus state are all observed), so only a background set while a
+    /// wash is already painted holds the old color, until the next observed change.
+    private func washColor(for session: Session) -> Color {
+        guard let watermark = session.backgroundWatermark, watermark.kind == .color,
+              let nsColor = NSColor(agtermHex: watermark.colorHex) else { return terminalColor }
+        return Color(nsColor: nsColor)
+    }
+
     /// Mutes the inactive split pane's TEXT without darkening the background: a translucent wash of the
-    /// terminal background, so background pixels blend bg→bg and text pixels text→bg. Opacity comes from
-    /// `AppSettings.muteOpacity` (strength 0 renders nothing); clicks pass through, so it stays focusable.
-    @ViewBuilder private func paneDim(_ dimmed: Bool) -> some View {
-        let opacity = AppSettings.muteOpacity(strength: inactivePaneMute)
-        if dimmed, opacity > 0 {
-            terminalColor.opacity(opacity).allowsHitTesting(false)
+    /// terminal background, so background pixels blend bg→bg and text pixels text→bg. Strength 0 renders
+    /// nothing; clicks pass through, so it stays focusable. Suppressed while a floating panel washes the
+    /// whole backdrop, which already covers this pane — the two would stack to a stronger mute here than on
+    /// the pane beside it.
+    @ViewBuilder private func paneDim(_ dimmed: Bool, session: Session) -> some View {
+        if dimmed, muteWashOpacity > 0, !backdropWashActive(session: session) {
+            washColor(for: session).opacity(muteWashOpacity).allowsHitTesting(false)
         }
+    }
+
+    /// Whether a floating panel is washing the whole backdrop of this session's detail pane.
+    private func backdropWashActive(session: Session) -> Bool {
+        quickTerminal.isVisible || (session.overlayActive && session.overlaySizePercent != nil)
+    }
+
+    /// This window's live fullscreen state from a fullscreen notification, nil when another window posted it.
+    private func fullscreenState(from note: Notification) -> Bool? {
+        guard let window = note.object as? NSWindow,
+              WindowRegistry.shared.windowID(for: window) == windowID else { return nil }
+        return window.styleMask.contains(.fullScreen)
     }
 
     /// The terminal background color from the ghostty config, with a dark fallback if libghostty has none.
@@ -647,6 +707,10 @@ struct WindowContentView: View {
 
     private static func resolvedInactivePaneMute() -> Int {
         GhosttyApp.shared.inactivePaneMuteStrength
+    }
+
+    private static func resolvedWindowOpacity() -> Double {
+        GhosttyApp.shared.windowOpacity
     }
 
     private static func resolvedSidebarShift() -> Int {
@@ -682,17 +746,21 @@ struct WindowContentView: View {
     }
 
     /// The scratch terminal centered at 90% of the window, framed by a hairline border and shadow so it reads
-    /// as a distinct floating window over the (undimmed) content — libghostty renders only the terminal, so
-    /// the frame is drawn here. The margin is a transparent tap-catcher that dismisses on click; no dim,
-    /// because the overlay cannot cover the AppKit title bar and would shade the body but not the chrome.
-    /// The controller owns the surface, so hiding keeps the shell alive.
+    /// as a distinct floating window over the content — libghostty renders only the terminal, so the frame is
+    /// drawn here. The margin is a tap-catcher that dismisses on click and carries the same backdrop mute as
+    /// a floating overlay. A dark scrim was rejected here and stays rejected: this layer is inset below the
+    /// AppKit title bar, so anything painted over the body raises its opacity against unchanged chrome. The
+    /// mute wash is neutral at full window opacity and `muteWashOpacity` scales it down under translucency,
+    /// which shrinks the seam without closing it. The controller owns the surface, so hiding keeps the shell
+    /// alive.
     @ViewBuilder private var quickTerminalOverlay: some View {
         if quickTerminal.isVisible {
             GeometryReader { geo in
                 ZStack {
                     // the tap-catcher carries the `quick-terminal` accessibility id: a SwiftUI view is in
                     // the a11y tree (the Metal-backed `QuickTerminalPane` is not), so tests query this one.
-                    Color.clear
+                    // it spans the sidebar too, unlike the overlay's pane-scoped backdrop.
+                    (store.activeSession.map { washColor(for: $0) } ?? terminalColor).opacity(muteWashOpacity)
                         .contentShape(Rectangle())
                         .onTapGesture { quickTerminal.hide() }
                         .accessibilityElement()
@@ -857,4 +925,18 @@ struct WindowContentView: View {
         // so a `.bar` material here would paint a mismatched darker strip.
     }
 
+}
+
+/// Both native-fullscreen edges as ONE modifier on `WindowContentView`'s root chain: that body is at the
+/// type checker's limit and two more `onReceive`s there fail to compile in reasonable time. The handler
+/// reads the live style mask, so one closure serves both edges.
+private struct FullscreenEdgeObserver: ViewModifier {
+    let onEdge: (Notification) -> Void
+
+    func body(content: Content) -> some View {
+        let center = NotificationCenter.default
+        return content
+            .onReceive(center.publisher(for: NSWindow.didEnterFullScreenNotification), perform: onEdge)
+            .onReceive(center.publisher(for: NSWindow.didExitFullScreenNotification), perform: onEdge)
+    }
 }

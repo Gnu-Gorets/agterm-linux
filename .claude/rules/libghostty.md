@@ -86,6 +86,16 @@ paths:
 - With translucency, every surface has zero background opacity. A full overlay has no opaque SwiftUI
   backing, so hide panes and scratch beneath it and remove their drop eligibility. Floating overlay and
   quick terminal have opaque terminal-color panels.
+- Because those two leave a live terminal around the panel, their tap-catcher also paints the
+  `inactivePaneMuteStrength` wash. Fill the existing catcher; never add a sibling scrim. Suppress `paneDim`
+  while a backdrop wash is up or the covered inactive pane takes both.
+- The wash is neutral only at full window opacity. Below it the wash color is opaque while the backing is
+  not, so the body rises to `m + p(1-m)` against a title bar left at `p`; scaling by the rendered opacity
+  shrinks that gap but no fill closes it. Scale by what the window actually renders at, not the saved
+  setting: fullscreen and Reduce Transparency force it opaque, and scaling there under-mutes to nothing at
+  a saved 0. Fullscreen is per-window, so it needs its own notification pair, not an app-global mirror.
+- Take the covered session's own solid background when it set one, else the theme color. Neither that field
+  nor a live OSC 11 color is observed, so the color is whatever it was when the wash was last drawn.
 
 ## OSC 11 backgrounds
 
