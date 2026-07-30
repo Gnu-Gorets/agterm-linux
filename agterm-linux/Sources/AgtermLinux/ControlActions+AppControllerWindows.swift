@@ -12,9 +12,16 @@ import agtermCore
 // core the GTK server's synchronous socket callback can call — the `typeSessionSync` pattern.
 @MainActor
 extension AppController {
-    func windowNew(name: String?) -> ControlResponse {
+    func windowNew(name: String?, minimized: Bool) async -> ControlResponse {
+        windowNewSync(name: name, minimized: minimized)
+    }
+
+    func windowNewSync(name: String?, minimized: Bool) -> ControlResponse {
         let info = library.newWindow(name: name?.linuxTrimmedOrNil)
         openWindow(info.id)
+        if minimized, let controller = gWindows[info.id] {
+            gtk_window_minimize(WIN(controller.windowPointer))
+        }
         return ok(info.id)
     }
 
@@ -22,7 +29,8 @@ extension AppController {
         let nodes = projectingLinuxAutoFollow(library.controlWindowNodes(flags: { id in
             guard let ctl = gWindows[id] else { return nil }
             return (fullscreen: gtk_window_is_fullscreen(WIN(ctl.windowPointer)) != 0,
-                    zoomed: gtk_window_is_maximized(WIN(ctl.windowPointer)) != 0)
+                    zoomed: gtk_window_is_maximized(WIN(ctl.windowPointer)) != 0,
+                    minimized: linuxWindowIsMinimized(ctl.windowPointer))
         }))
         return ControlResponse(ok: true, result: ControlResult(windows: nodes))
     }
@@ -125,4 +133,30 @@ extension AppController {
             return ok(id)
         }
     }
+
+    func windowMinimize(_ target: String?, mode: ControlToggleMode) async -> ControlResponse {
+        windowMinimizeSync(target, mode: mode)
+    }
+
+    func windowMinimizeSync(_ target: String?, mode: ControlToggleMode) -> ControlResponse {
+        switch resolveWindowResponse(target) {
+        case .failure(let response): return response
+        case .success(let id):
+            guard let ctl = gWindows[id] else { return err("window not open — window.select it first") }
+            let want = mode.desiredValue(current: linuxWindowIsMinimized(ctl.windowPointer))
+            if want {
+                gtk_window_minimize(WIN(ctl.windowPointer))
+            } else {
+                gtk_window_unminimize(WIN(ctl.windowPointer))
+            }
+            return ok(id)
+        }
+    }
+}
+
+private func linuxWindowIsMinimized(_ window: OpaquePointer?) -> Bool {
+    guard let window,
+          let surface = gtk_native_get_surface(window) else { return false }
+    let state = gdk_toplevel_get_state(surface)
+    return state.rawValue & GDK_TOPLEVEL_STATE_MINIMIZED.rawValue != 0
 }

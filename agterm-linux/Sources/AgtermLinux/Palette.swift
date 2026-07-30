@@ -21,7 +21,8 @@ extension AppController {
                                             sidebarShowsWorkspaceTree: store.sidebarMode == .tree,
                                             sidebarShowsFlaggedOnly: store.sidebarMode == .flagged,
                                             activeSessionFlagged: activeSession?.flagged ?? false,
-                                            hasFocusedWorkspace: store.focusedWorkspaceID != nil,
+                                            hasMarkedWorkspaces: !store.focusedWorkspaceIDs.isEmpty,
+                                            activeWorkspaceMarked: store.isCurrentWorkspaceFocusMember,
                                             activeSessionHasSplit: activeSession?.hasSplit ?? false,
                                             hasPendingClose: store.pendingCloseSummary != nil,
                                             hasRecentClosed: !library.recentClosedItems.isEmpty)
@@ -68,10 +69,8 @@ extension AppController {
         for cmd in keymap.commands {
             items.append((row: LinuxPaletteRow.custom(cmd), run: { self.runCustomCommand(cmd) }))
         }
-        // Dynamic: focus a single workspace. Clearing an active focus is the shared catalog's
-        // `Clear Focus` row (visible exactly when a workspace is focused) — do NOT add a second
-        // Linux-only row for it, the way the duplicate `Open Directory…` append used to.
-        if store.focusedWorkspaceID == nil, store.workspaces.count > 1 {
+        // Dynamic direct targets complement the current-workspace catalog actions.
+        if store.soleFocusedWorkspaceID == nil, store.workspaces.count > 1 {
             for ws in store.workspaces {
                 let target = ws.id
                 items.append((row: LinuxPaletteRow(title: "Focus Workspace \(ws.name)"), run: { self.focusWorkspace(target) }))
@@ -130,6 +129,8 @@ extension AppController {
         case .reloadConfig: return { self.reloadConfig() }
         case .clearFlagged: return { self.clearFlagged() }
         case .clearFocus: return { self.focusWorkspace(nil) }
+        case .addWorkspaceToFocus: return { self.addActiveWorkspaceToFocus() }
+        case .toggleWorkspaceFilter: return { self.toggleWorkspaceFilter() }
         }
     }
 

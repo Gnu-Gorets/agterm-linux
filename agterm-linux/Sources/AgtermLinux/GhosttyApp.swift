@@ -37,6 +37,7 @@ final class GhosttyApp: @unchecked Sendable {
     /// because the embedded OpenGL renderer doesn't adopt the config's default colors from the config file.
     /// Set at launch from the persisted theme; refreshed by AppController.previewTheme on every theme change.
     var currentThemeOSC: String = ""
+    var currentThemeBackgroundHex: String?
 
     func start() {
         setGhosttyResourcesEnv()   // export GHOSTTY_RESOURCES_DIR before init + buildConfig read it
@@ -48,6 +49,9 @@ final class GhosttyApp: @unchecked Sendable {
         let lines = AppController.ghosttyLines(for: saved)
         currentThemeOSC = AppSettings.themeOSC(from: lines)
         let cfg = buildConfig(extraLines: lines)
+        if let cfg {
+            currentThemeBackgroundHex = GhosttyConfigTheme.colors(from: cfg).background
+        }
 
         var rt = ghostty_runtime_config_s()
         rt.userdata = Unmanaged.passUnretained(self).toOpaque()

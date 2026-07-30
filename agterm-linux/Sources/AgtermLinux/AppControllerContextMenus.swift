@@ -103,7 +103,8 @@ extension AppController {
     func contextFocusWorkspace() {
         guard let id = contextMenuSession, let ws = store.workspace(forSession: id) else { return }
         dismissContextMenu()
-        focusWorkspace(store.focusedWorkspaceID == ws.id ? nil : ws.id)
+        store.toggleFocusedWorkspace(ws.id)
+        rebuildSidebar()
     }
 
     func contextMoveToWorkspace(_ data: gpointer?) {
@@ -156,6 +157,12 @@ extension AppController {
         gtk_popover_set_pointing_to(POPOVER(popover), &rect)
         gtk_popover_set_position(POPOVER(popover), GTK_POS_RIGHT)
         let box = op(gtk_box_new(GTK_ORIENTATION_VERTICAL, 0))
+        addContextButton(box, store.isSoleFocus(wsID) ? "Unfocus" : "Focus",
+                         unsafeBitCast(onCtxWorkspaceFocus as @convention(c)
+                            (OpaquePointer?, gpointer?) -> Void, to: GCallback.self))
+        addContextButton(box, store.focusedWorkspaceIDs.contains(wsID) ? "Remove from Focus" : "Add to Focus",
+                         unsafeBitCast(onCtxWorkspaceFocusMembership as @convention(c)
+                            (OpaquePointer?, gpointer?) -> Void, to: GCallback.self))
         addContextButton(box, "Rename", unsafeBitCast(onCtxWorkspaceRename as @convention(c) (OpaquePointer?, gpointer?) -> Void, to: GCallback.self))
         if store.canRemoveWorkspace {
             addContextButton(box, "Delete Workspace", unsafeBitCast(onCtxWorkspaceDelete as @convention(c) (OpaquePointer?, gpointer?) -> Void, to: GCallback.self))
@@ -168,6 +175,20 @@ extension AppController {
         guard let id = contextMenuWorkspace else { return }
         dismissContextMenu()
         beginRename(id: id, isWorkspace: true)
+    }
+
+    func contextWorkspaceFocus() {
+        guard let id = contextMenuWorkspace else { return }
+        dismissContextMenu()
+        store.toggleFocusedWorkspace(id)
+        rebuildSidebar()
+    }
+
+    func contextWorkspaceFocusMembership() {
+        guard let id = contextMenuWorkspace else { return }
+        dismissContextMenu()
+        store.setFocusMembership(id, member: !store.focusedWorkspaceIDs.contains(id))
+        rebuildSidebar()
     }
 
     func contextWorkspaceDelete() {

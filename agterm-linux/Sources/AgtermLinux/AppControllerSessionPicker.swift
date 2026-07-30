@@ -61,11 +61,9 @@ extension AppController {
                 gtk_widget_set_name(W(button), $0)
             }
 
-            if attention, let iconName = Self.statusIcon(session.agentIndicator.status),
-               let icon = op(gtk_image_new_from_icon_name(iconName)) {
-                if let colorClass = Self.statusColorClass(session.agentIndicator.status) {
-                    gtk_widget_add_css_class(W(icon), colorClass)
-                }
+            if attention, let icon = Self.makeStatusGlyph(
+                session.agentIndicator, settings: linuxSettingsStore().load()
+            ) {
                 gtk_box_append(cast(row), W(icon))
             }
 

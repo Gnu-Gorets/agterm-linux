@@ -145,10 +145,11 @@ final class ControlServer: @unchecked Sendable {
         case .sessionNew:
             return routeOwningWorkspace(req.args?.workspace) ?? .controller(gController)
         case .tree, .eventsRead, .workspaceNew, .quick, .quickType, .quickText, .surfaceZoom, .dashboard,
-             .sidebar, .sidebarMode, .sidebarExpand, .sidebarCollapse,
+             .sidebar, .sidebarMode, .sidebarExpand, .sidebarCollapse, .workspaceFilter,
              .windowNew, .windowList, .windowSelect, .windowClose, .windowRename, .windowDelete,
-             .windowResize, .windowMove, .windowZoom, .windowFullscreen,
-             .keymapReload, .configReload, .themeSet, .themeList, .restoreClear, .debugAppearance:
+             .windowResize, .windowMove, .windowZoom, .windowFullscreen, .windowMinimize,
+             .keymapReload, .keymapList, .configReload, .themeSet, .themeList,
+             .pickOpen, .pickResult, .pickCancel, .restoreClear, .debugAppearance:
             return .controller(gController)
         }
     }

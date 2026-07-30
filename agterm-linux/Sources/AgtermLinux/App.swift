@@ -165,7 +165,7 @@ private let onShutdown: @MainActor @convention(c) (OpaquePointer?, gpointer?) ->
     let css = """
     .agterm-status-blocked { color: \(s.blockedStatusColorHex ?? "#e5a50a"); }
     .agterm-status-completed { color: \(s.completedStatusColorHex ?? "#2ec27e"); }
-    .agterm-status-active { color: \(s.activeStatusColorHex ?? "#3584e4"); }
+    .agterm-status-active { color: \(s.activeStatusColorHex ?? "#DBD9E6"); }
     """
     if gStatusColorProvider == nil {
         let p = OpaquePointer(gtk_css_provider_new())

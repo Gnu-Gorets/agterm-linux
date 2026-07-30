@@ -33,14 +33,16 @@ struct LinuxControlDispatcher {
         case .sessionType, .quickType, .quickText:
             return nil
         case .workspaceNew, .workspaceSelect, .workspaceRename, .workspaceDelete,
-                .workspaceMove, .workspaceFocus, .workspaceCollapse, .workspaceExpand:
+                .workspaceMove, .workspaceFocus, .workspaceFilter, .workspaceCollapse, .workspaceExpand:
             return dispatchWorkspaceCommand(request)
-        case .fontInc, .fontDec, .fontReset, .keymapReload, .configReload, .notify,
+        case .fontInc, .fontDec, .fontReset, .keymapReload, .keymapList, .configReload, .notify,
                 .themeSet, .themeList, .sidebar, .sidebarMode, .sidebarExpand,
                 .sidebarCollapse, .restoreClear:
             return dispatchAppCommand(request)
-        case .windowRename, .windowResize, .windowMove, .windowZoom, .windowFullscreen:
+        case .windowRename, .windowResize, .windowMove, .windowZoom, .windowFullscreen, .windowMinimize:
             return dispatchWindowCommand(request)
+        case .pickOpen, .pickResult, .pickCancel:
+            return dispatchPickCommand(request)
         case .dashboard:
             return dispatchDashboard(request)
         default:
@@ -83,6 +85,57 @@ struct LinuxControlDispatcher {
         }
         let kinds: Set<ControlEventKind>? = parsedKinds.isEmpty ? nil : parsedKinds
         return actions.readEvents(ControlEventReadOptions(cursor: cursor, kinds: kinds, limit: limit))
+    }
+
+    private func dispatchPickCommand(_ request: ControlRequest) -> ControlResponse {
+        switch request.cmd {
+        case .pickOpen:
+            guard let items = request.args?.items, !items.isEmpty else {
+                return ControlResponse(ok: false, error: "pick.open requires at least one item")
+            }
+            guard items.count <= ControlPickItem.maxItems else {
+                return ControlResponse(ok: false, error: "too many items (max \(ControlPickItem.maxItems))")
+            }
+            guard items.allSatisfy({ !$0.label.isEmpty }) else {
+                return ControlResponse(ok: false, error: "pick item label must not be empty")
+            }
+            var ids = Set<String>()
+            guard items.allSatisfy({ ids.insert($0.id).inserted }) else {
+                return ControlResponse(ok: false, error: "pick item ids must be unique")
+            }
+            guard items.allSatisfy({
+                !containsControlCharacters($0.label)
+                    && $0.subtitle.map { !containsControlCharacters($0) } != false
+            }) else {
+                return ControlResponse(ok: false, error: "item text must not contain control characters")
+            }
+            return actions.openPick(
+                PendingPick(
+                    id: UUID().uuidString,
+                    items: items,
+                    prompt: request.args?.prompt,
+                    allowCustom: request.args?.allowCustom == true
+                ),
+                window: request.args?.window,
+                follow: request.args?.follow == true
+            )
+        case .pickResult:
+            guard let target = request.target else {
+                return ControlResponse(ok: false, error: "pick.result requires a pick id")
+            }
+            return actions.pickResult(target, window: request.args?.window)
+        case .pickCancel:
+            guard let target = request.target else {
+                return ControlResponse(ok: false, error: "pick.cancel requires a pick id")
+            }
+            return actions.cancelPick(target, window: request.args?.window)
+        default:
+            preconditionFailure("unexpected pick command: \(request.cmd.rawValue)")
+        }
+    }
+
+    private func containsControlCharacters(_ text: String) -> Bool {
+        text.unicodeScalars.contains { $0.value < 0x20 || $0.value == 0x7f }
     }
 
     private func dispatchSessionCommand(_ request: ControlRequest) -> ControlResponse {
@@ -270,7 +323,18 @@ struct LinuxControlDispatcher {
             }
             return actions.moveWorkspace(request.target, window: request.args?.window, direction: direction)
         case .workspaceFocus:
-            return actions.focusWorkspace(request.target, window: request.args?.window, mode: request.args?.mode)
+            let rawMode = request.args?.mode ?? ControlWorkspaceFocusMode.toggle.rawValue
+            guard let mode = ControlWorkspaceFocusMode(rawValue: rawMode) else {
+                return ControlResponse(ok: false,
+                    error: "invalid workspace.focus mode: \(request.args?.mode ?? "toggle")")
+            }
+            return actions.focusWorkspace(request.target, window: request.args?.window, mode: mode)
+        case .workspaceFilter:
+            guard let mode = ControlToggleMode.parse(request.args?.mode) else {
+                return ControlResponse(ok: false,
+                    error: "invalid workspace filter mode: \(request.args?.mode ?? "toggle")")
+            }
+            return actions.setWorkspaceFilter(window: request.args?.window, mode: mode)
         case .workspaceCollapse:
             return actions.setWorkspaceExpansion(request.target, window: request.args?.window, expanded: false)
         case .workspaceExpand:
@@ -357,6 +421,8 @@ struct LinuxControlDispatcher {
                                 action: FontBindingAction.reset)
         case .keymapReload:
             return actions.reloadKeymap()
+        case .keymapList:
+            return actions.listKeymap()
         case .configReload:
             return actions.reloadGhosttyConfig()
         case .notify:
@@ -483,6 +549,12 @@ struct LinuxControlDispatcher {
             return actions.windowZoom(request.target)
         case .windowFullscreen:
             return actions.windowFullscreen(request.target)
+        case .windowMinimize:
+            guard let mode = ControlToggleMode.parse(request.args?.mode) else {
+                return ControlResponse(ok: false,
+                                       error: "invalid minimize mode: \(request.args?.mode ?? "toggle")")
+            }
+            return actions.windowMinimizeSync(request.target, mode: mode)
         default:
             preconditionFailure("unexpected window command: \(request.cmd.rawValue)")
         }

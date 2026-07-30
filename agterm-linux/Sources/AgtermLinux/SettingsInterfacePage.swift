@@ -38,7 +38,8 @@ extension AppController {
             .quickTerminal: quickToggleBtn,
             .newWorkspace: footerNewWorkspaceButton,
             .newSession: footerNewSessionButton,
-            .flaggedView: footerFlaggedButton
+            .flaggedView: footerFlaggedButton,
+            .focusFilter: footerFocusFilterButton
         ].compactMapValues { $0 }
     }
 
@@ -46,6 +47,14 @@ extension AppController {
         let page = preferencesPage("Interface", name: .interface, icon: "preferences-desktop-display-symbolic")
         addInterfaceGroup("Title Bar", section: .titleBar, settings: settings, to: page)
         addInterfaceGroup("Sidebar", section: .sidebar, settings: settings, to: page)
+        let windows = preferencesGroup("Multiple Windows")
+        adw_preferences_group_add(
+            cast(windows),
+            W(preferencesSwitch(
+                "Show sidebar only in the active window",
+                active: settings.autoHideSidebarInactiveWindows ?? false,
+                handler: unsafeBitCast(onAutoHideInactiveSidebarsChanged, to: GCallback.self))))
+        adw_preferences_page_add(cast(page), cast(windows))
         return page
     }
 
@@ -73,4 +82,12 @@ extension AppController {
 private let onInterfaceElementChanged: @MainActor @convention(c)
     (OpaquePointer?, OpaquePointer?, gpointer?) -> Void = { row, _, _ in
         MainActor.assumeIsolated { controllerForWidget(row)?.interfaceElementChanged(row) }
+    }
+
+private let onAutoHideInactiveSidebarsChanged: @MainActor @convention(c)
+    (OpaquePointer?, OpaquePointer?, gpointer?) -> Void = { row, _, _ in
+        MainActor.assumeIsolated {
+            controllerForWidget(row)?.setAutoHideInactiveSidebars(
+                adw_switch_row_get_active(row) != 0)
+        }
     }

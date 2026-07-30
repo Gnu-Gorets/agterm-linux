@@ -179,6 +179,7 @@ extension AppController {
     func reloadKeymapDiagnostics() -> Int {
         let (km, diagnostics) = loadLinuxKeymap(configDirectory: configDirectory())
         keymap = km
+        keymapDiagnostics = diagnostics
 
         // Reverse map: defaults for un-overridden actions first, then overrides (so an override REPLACES
         // its action's default chord; a genuine chord collision resolves override-wins). Reserved monitor
@@ -356,6 +357,7 @@ extension AppController {
         case .toggleFlaggedView: toggleFlaggedView()
         case .toggleFlag: toggleFlagActive()
         case .focusWorkspace: focusActiveWorkspace()   // toggle focus on the active session's workspace
+        case .toggleWorkspaceFilter: toggleWorkspaceFilter()
         case .focusLeftPane: focusPane(left: true)
         case .focusRightPane: focusPane(left: false)
         case .previousSession: navigate(.previous)

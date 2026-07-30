@@ -83,6 +83,7 @@ extension AppController {
         nameLabels.removeAll()
         workspaceDiscButtons.removeAll()
         workspaceListBoxes.removeAll()
+        updateWorkspaceFilterButton()
 
         if store.sidebarMode == .flagged {
             appendSection("Flagged", store.flaggedSessions, settings: settings)
@@ -95,19 +96,24 @@ extension AppController {
                 }
             }
         } else {
-            if let fid = store.focusedWorkspaceID, let ws = store.workspaces.first(where: { $0.id == fid }),
-               let pill = op(gtk_button_new()) {
-                "✕  \(ws.name)".withCString { gtk_button_set_label(cast(pill), $0) }
-                gtk_widget_add_css_class(W(pill), "agterm-focus-pill")
-                gtk_widget_set_margin_top(W(pill), 4)
-                gtk_widget_set_margin_start(W(pill), 8)
-                gtk_widget_set_margin_end(W(pill), 8)
-                connect(pill, "clicked", unsafeBitCast(onClearFocusPill as @convention(c) (OpaquePointer?, gpointer?) -> Void, to: GCallback.self))
-                gtk_box_append(cast(sidebarBox), W(pill))
-            }
             for ws in store.visibleWorkspaces {
                 appendSection(ws.name, ws.sessions, workspace: ws.id, settings: settings)
             }
+        }
+    }
+
+    private func updateWorkspaceFilterButton() {
+        guard let button = footerFocusFilterButton else { return }
+        let hasMembers = !store.focusedWorkspaceIDs.isEmpty
+        gtk_widget_set_sensitive(W(button), hasMembers ? 1 : 0)
+        let tooltip = store.focusEnabled
+            ? "Show All Workspaces"
+            : "Show Only Focused Workspaces"
+        tooltip.withCString { gtk_widget_set_tooltip_text(W(button), $0) }
+        if store.focusEnabled {
+            gtk_widget_add_css_class(W(button), "accent")
+        } else {
+            gtk_widget_remove_css_class(W(button), "accent")
         }
     }
 
@@ -125,7 +131,12 @@ extension AppController {
                 connect(disc, "clicked", unsafeBitCast(onWorkspaceDisclosure as @convention(c) (OpaquePointer?, gpointer?) -> Void, to: GCallback.self), RAW(disc))
                 gtk_box_append(cast(row), W(disc))
             }
-            gtk_box_append(cast(row), W(op(gtk_image_new_from_icon_name("agterm-grid-symbolic"))))
+            let workspaceIcon = op(gtk_image_new_from_icon_name("agterm-grid-symbolic"))
+            if store.focusedWorkspaceIDs.contains(wsID) {
+                gtk_widget_add_css_class(W(workspaceIcon), "accent")
+                "In workspace focus set".withCString { gtk_widget_set_tooltip_text(W(workspaceIcon), $0) }
+            }
+            gtk_box_append(cast(row), W(workspaceIcon))
             if let name = makeNameWidget(id: wsID, text: title, isWorkspace: true) {
                 gtk_widget_add_css_class(W(name), "heading")
                 gtk_box_append(cast(row), W(name))
@@ -217,9 +228,9 @@ extension AppController {
         gtk_widget_set_margin_start(W(label), 4)
         if flaggedView { gtk_label_set_xalign(label, 0) }
         gtk_box_append(cast(box), W(label))
-        if let icon = Self.statusIcon(s.agentIndicator.status), let glyph = op(gtk_image_new_from_icon_name(icon)) {
-            if let cls = Self.statusColorClass(s.agentIndicator.status) { gtk_widget_add_css_class(W(glyph), cls) }
-            if s.agentIndicator.blink { gtk_widget_add_css_class(W(glyph), "agterm-blink") }
+        if let glyph = Self.makeStatusGlyph(
+            s.agentIndicator, settings: linuxSettingsStore().load()
+        ) {
             gtk_box_append(cast(box), W(glyph))
         }
         if s.flagged, !flaggedView {
@@ -267,24 +278,6 @@ extension AppController {
         }
         update(row)
         update(gtk_list_box_row_get_child(GLBR(row)).map { OpaquePointer($0) })
-    }
-
-    static func statusIcon(_ s: AgentStatus) -> String? {
-        switch s {
-        case .idle: return nil
-        case .active: return "content-loading-symbolic"
-        case .completed: return "emblem-ok-symbolic"
-        case .blocked: return "dialog-warning-symbolic"
-        }
-    }
-
-    static func statusColorClass(_ s: AgentStatus) -> String? {
-        switch s {
-        case .idle: return nil
-        case .active: return "agterm-status-active"
-        case .completed: return "agterm-status-completed"
-        case .blocked: return "agterm-status-blocked"
-        }
     }
 
     func updateAttentionButton(settings: AppSettings? = nil) {
@@ -369,7 +362,7 @@ extension AppController {
         let rowWorkspaceID = workspaceForHeader(widget)
             ?? session(forRow: widget).flatMap { store.workspace(forSession: $0)?.id }
         let workspaceID = SidebarDrop.resolveDirectoryWorkspace(sidebarMode: store.sidebarMode,
-            rowWorkspaceID: rowWorkspaceID, focusedWorkspaceID: store.focusedWorkspaceID,
+            rowWorkspaceID: rowWorkspaceID, fallbackWorkspaceID: store.soleFocusedWorkspaceID,
             currentWorkspaceID: store.currentWorkspaceID)
         guard let workspaceID else { return false }
         let directories = paths.filter {

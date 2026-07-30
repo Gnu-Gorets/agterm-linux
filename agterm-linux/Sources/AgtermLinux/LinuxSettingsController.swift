@@ -8,6 +8,7 @@ extension AppController {
         let lines = Self.ghosttyLines(for: settings)
         guard let config = GhosttyApp.shared.buildConfig(extraLines: lines) else { return }
         let chromeColors = GhosttyConfigTheme.colors(from: config)
+        GhosttyApp.shared.currentThemeBackgroundHex = chromeColors.background
         GhosttyApp.shared.updateConfig(config)
         for controller in gWindows.values {
             for surface in controller.configurableSurfaces {
@@ -83,6 +84,17 @@ extension AppController {
         }
     }
 
+    func setAutoHideInactiveSidebars(_ enabled: Bool) {
+        persist(\.autoHideSidebarInactiveWindows, enabled ? true : nil)
+        if enabled { applyInactiveWindowSidebarHidingIfEnabled() }
+    }
+
+    func applyInactiveWindowSidebarHidingIfEnabled() {
+        guard linuxSettingsStore().load().autoHideSidebarInactiveWindows == true else { return }
+        library.applyInactiveWindowSidebarHiding()
+        for controller in gWindows.values { controller.applySidebarVisibility() }
+    }
+
     func applyInterfaceElements(settings: AppSettings? = nil) {
         let settings = settings ?? linuxSettingsStore().load()
         let hidden = settings.resolvedHiddenInterfaceElements
@@ -96,7 +108,8 @@ extension AppController {
         let dividers = InterfaceElement.titlebarGroupDividers(countA: countA, countB: countB, countC: countC)
         gtk_widget_set_visible(W(titlebarDividerAfterA), dividers.afterA ? 1 : 0)
         gtk_widget_set_visible(W(titlebarDividerAfterB), dividers.afterB ? 1 : 0)
-        let footerVisible = !hidden.isSuperset(of: [.newWorkspace, .newSession, .flaggedView])
+        let footerVisible = !hidden.isSuperset(
+            of: [.newWorkspace, .newSession, .flaggedView, .focusFilter])
         gtk_widget_set_visible(W(bottomBar), footerVisible ? 1 : 0)
         updateTitle()
     }
@@ -282,6 +295,21 @@ extension AppController {
         installStatusColorCSS()
     }
 
+    func setStatusShape(_ kind: StatusColorKind, at index: Int) {
+        let shapes = StatusShape.allCases
+        guard shapes.indices.contains(index) else { return }
+        let value = shapes[index] == .circle ? nil : shapes[index].rawValue
+        switch kind {
+        case .active: persist(\.activeStatusShape, value)
+        case .blocked: persist(\.blockedStatusShape, value)
+        case .completed: persist(\.completedStatusShape, value)
+        }
+        for controller in gWindows.values {
+            controller.rebuildSidebar()
+            controller.updateDashboardStatusIndicators()
+        }
+    }
+
     func setBlockedSoundAtIndex(_ index: Int) {
         let value: String? = index == 0 ? nil : "Desktop Bell"
         persist(\.blockedStatusSoundName, value)
@@ -352,6 +380,9 @@ extension AppController {
         settings.activeStatusColorHex = nil
         settings.blockedStatusColorHex = nil
         settings.completedStatusColorHex = nil
+        settings.activeStatusShape = nil
+        settings.blockedStatusShape = nil
+        settings.completedStatusShape = nil
         settings.blockedStatusSoundName = nil
         try? linuxSettingsStore().save(settings)
         installStatusColorCSS()

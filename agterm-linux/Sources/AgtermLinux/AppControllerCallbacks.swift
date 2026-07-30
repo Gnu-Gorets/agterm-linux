@@ -21,7 +21,10 @@ let onWindowActive: @MainActor @convention(c) (OpaquePointer?, OpaquePointer?, g
         // from gWindows before that notification, so resolve through the live registry instead of
         // dereferencing unretained signal data that may already be deallocated.
         guard let ctl = gWindows.values.first(where: { $0.windowPointer == window }) else { return }
-        if gtk_window_is_active(WIN(window)) != 0 { ctl.becameFrontmost() }
+        if gtk_window_is_active(WIN(window)) != 0 {
+            ctl.becameFrontmost()
+            ctl.applyInactiveWindowSidebarHidingIfEnabled()
+        }
     }
 }
 
@@ -127,6 +130,10 @@ let onNewWindow: @MainActor @convention(c) (OpaquePointer?, gpointer?) -> Void =
 
 let onFlaggedToggle: @MainActor @convention(c) (OpaquePointer?, gpointer?) -> Void = { button, _ in
     MainActor.assumeIsolated { controllerForWidget(button)?.toggleFlaggedView() }
+}
+
+let onWorkspaceFilterToggle: @MainActor @convention(c) (OpaquePointer?, gpointer?) -> Void = { button, _ in
+    MainActor.assumeIsolated { controllerForWidget(button)?.toggleWorkspaceFilter() }
 }
 
 let onAttentionButton: @MainActor @convention(c) (OpaquePointer?, gpointer?) -> Void = { button, _ in
@@ -283,10 +290,6 @@ let onRenameWindowResponse: @MainActor @convention(c) (OpaquePointer?, UnsafePoi
     MainActor.assumeIsolated { controllerForWidget(dialog)?.confirmWindowRename(id) }
 }
 
-let onClearFocusPill: @MainActor @convention(c) (OpaquePointer?, gpointer?) -> Void = { button, _ in
-    MainActor.assumeIsolated { controllerForWidget(button)?.focusWorkspace(nil) }
-}
-
 let onDirectoryChosen: @MainActor @convention(c) (UnsafeMutablePointer<GObject>?, OpaquePointer?, gpointer?) -> Void = { source, result, data in
     guard let data else { return }
     MainActor.assumeIsolated {
@@ -364,6 +367,14 @@ let onWorkspaceRightClick: @MainActor @convention(c) (OpaquePointer?, Int32, Dou
 
 let onCtxWorkspaceRename: @MainActor @convention(c) (OpaquePointer?, gpointer?) -> Void = { button, _ in
     MainActor.assumeIsolated { controllerForWidget(button)?.contextWorkspaceRename() }
+}
+
+let onCtxWorkspaceFocus: @MainActor @convention(c) (OpaquePointer?, gpointer?) -> Void = { button, _ in
+    MainActor.assumeIsolated { controllerForWidget(button)?.contextWorkspaceFocus() }
+}
+
+let onCtxWorkspaceFocusMembership: @MainActor @convention(c) (OpaquePointer?, gpointer?) -> Void = { button, _ in
+    MainActor.assumeIsolated { controllerForWidget(button)?.contextWorkspaceFocusMembership() }
 }
 
 let onCtxWorkspaceDelete: @MainActor @convention(c) (OpaquePointer?, gpointer?) -> Void = { button, _ in

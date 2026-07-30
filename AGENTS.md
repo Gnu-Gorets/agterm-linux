@@ -107,7 +107,7 @@ Skip control exposure only when it is genuinely meaningless, such as pure visual
 Call out that exemption explicitly.
 
 Whenever the Control API, keymap format, or window/workspace/session/pane model changes, update the bundled
-agent skill under `agterm/Resources/agent-skill/`.
+agent skill under `plugins/agterm/skills/agterm/`.
 That directory is the source of truth; never edit installed copies under user home directories.
 
 ## UI and platform work

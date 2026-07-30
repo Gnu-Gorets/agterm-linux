@@ -122,8 +122,8 @@ extension AppController: ControlActions {
         if let name = options.workspaceName {
             guard let needle = name.linuxTrimmedOrNil else { return err("workspace name must not be blank") }
             if options.createWorkspace == true {
-                workspaceID = store.ensureWorkspace(named: needle, clearFocus: !options.noSelect)?.id
-                    ?? store.addWorkspace(name: needle, clearFocus: !options.noSelect).id
+                workspaceID = store.ensureWorkspace(named: needle, revealNewWorkspace: !options.noSelect)?.id
+                    ?? store.addWorkspace(name: needle, revealNewWorkspace: !options.noSelect).id
             } else if let workspace = store.workspace(named: needle) {
                 workspaceID = workspace.id
             } else {
@@ -341,17 +341,20 @@ extension AppController: ControlActions {
         }
     }
 
-    func focusWorkspace(_ target: String?, window: String?, mode: String?) -> ControlResponse {
+    func focusWorkspace(_ target: String?, window: String?, mode: ControlWorkspaceFocusMode) -> ControlResponse {
         switch resolveWorkspaceResponse(target) {
         case .failure(let response): return response
         case .success(let id):
-            guard let parsed = ControlToggleMode.parse(mode) else {
-                return err("invalid workspace.focus mode: \(mode ?? "toggle")")
-            }
-            let want = parsed.desiredValue(current: store.focusedWorkspaceID == id)
-            focusWorkspace(want ? id : nil)
+            store.applyFocusMode(mode, to: id)
+            rebuildSidebar()
             return ok(id)
         }
+    }
+
+    func setWorkspaceFilter(window: String?, mode: ControlToggleMode) -> ControlResponse {
+        store.applyWorkspaceFilter(mode)
+        rebuildSidebar()
+        return ok()
     }
 
     func setSessionFlag(_ target: String?, window: String?, mode: String?) -> ControlResponse {
@@ -560,6 +563,12 @@ extension AppController: ControlActions {
     func reloadKeymap() -> ControlResponse {
         let diagnostics = reloadKeymapAllWindows(reportingIn: self)   // app-global: MUST fan out
         return ControlResponse(ok: true, result: ControlResult(count: diagnostics))
+    }
+
+    func listKeymap() -> ControlResponse {
+        let path = ConfigPaths.keymapPath(configDirectory: configDirectory()).path
+        let projected = ControlKeymap.project(keymap: keymap, diagnostics: keymapDiagnostics, path: path)
+        return ControlResponse(ok: true, result: ControlResult(keymap: projected))
     }
 
     func reloadGhosttyConfig() -> ControlResponse {

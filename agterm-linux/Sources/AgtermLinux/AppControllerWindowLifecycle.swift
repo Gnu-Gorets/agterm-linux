@@ -53,6 +53,7 @@ extension AppController {
         customCommandOrigin.invalidate()
         commitBackgroundOpacity()
         dismissSessionPicker()
+        dismissControlPick(retainResultThroughRegistry: true)
         // EVERY dialog this window owns is dismissed here, or it outlives the widget tree and keeps the
         // controller alive with it — a bare toplevel (the theme picker, the palette) is not destroyed with
         // its transient parent under GTK4, and a hosted AdwDialog holds the same `passRetained` on "closed".
@@ -84,6 +85,7 @@ extension AppController {
         TerminalZoomRegistry.shared.unregister(windowID)
         closeDashboard(refocus: false)
         DashboardControllerRegistry.shared.unregister(windowID)
+        PickRegistry.shared.unregister(windowID)
         autoFollowCoordinator.stop()
         let w = gtk_widget_get_width(W(window)), h = gtk_widget_get_height(W(window))
         if w > 0, h > 0 { library.setGeometry(WindowGeometry.Size(width: Double(w), height: Double(h)), forWindow: windowID) }

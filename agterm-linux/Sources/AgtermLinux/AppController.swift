@@ -44,7 +44,8 @@ final class AppController {
     var dashboardButton: OpaquePointer?   // title-bar MRU dashboard toggle
     var quickToggleBtn: OpaquePointer?; var sidebarToggleBtn: OpaquePointer?; var titleWidget: OpaquePointer?; var titlebarDividerAfterA: OpaquePointer?; var titlebarDividerAfterB: OpaquePointer?
     var interfaceWidgets: [InterfaceElement: OpaquePointer] = [:]
-    var footerNewWorkspaceButton: OpaquePointer?; var footerNewSessionButton: OpaquePointer?; var footerFlaggedButton: OpaquePointer?
+    var footerNewWorkspaceButton: OpaquePointer?; var footerNewSessionButton: OpaquePointer?
+    var footerFocusFilterButton: OpaquePointer?; var footerFlaggedButton: OpaquePointer?
     var sessionPickerPopover: OpaquePointer?; var sessionPickerContexts: [SessionPickerRowContext] = []
     var sessionPickerSuppressesAutoFollow = false
     var sessionPickerShowsAttention = false
@@ -56,6 +57,14 @@ final class AppController {
     var paletteList: OpaquePointer?
     var paletteAll = LinuxPaletteList()
     var paletteItems: [LinuxPaletteItem] = []
+
+    // Native control picker (`agtermctl pick`), one pending request per window.
+    let pickController = PickController()
+    var controlPickWindow: OpaquePointer?
+    var controlPickList: OpaquePointer?
+    var controlPickEntry: OpaquePointer?
+    var controlPickRows: [LinuxControlPickRow] = []
+    var controlPickSuppressesAutoFollow = false
 
     // In-terminal search bar (Ctrl+Shift+F)
     var searchBar: OpaquePointer?
@@ -151,6 +160,7 @@ final class AppController {
     // chord -> action map (user override else Linux default), and the custom-command leader matcher.
     // Loaded at launch + rebuilt on reload. Internal (not private) so the KeymapDispatch extension reaches them.
     var keymap = Keymap(builtinOverrides: [:], commands: [])
+    var keymapDiagnostics: [KeymapDiagnostic] = []
     var resolvedBuiltinChords: [Chord: BuiltinAction] = [:]
     var customCommandEngine = CustomCommandEngine(commands: [])   // matcher + id-lookup (shared, host-free)
     var leaderTimeout: guint = 0   // g_timeout source for the custom-command leader deadline (0 = none)
@@ -219,6 +229,9 @@ final class AppController {
         let spacer = OpaquePointer(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0))
         gtk_widget_set_hexpand(W(spacer), 1)
         gtk_box_append(cast(bottomBar), W(spacer))
+        footerFocusFilterButton = footerButton(
+            "agterm-grid-symbolic", "Show Only Focused Workspaces", onWorkspaceFilterToggle)
+        gtk_box_append(cast(bottomBar), W(footerFocusFilterButton))
         footerFlaggedButton = footerButton("agterm-flag-symbolic", "Show Flagged Only", onFlaggedToggle)
         gtk_box_append(cast(bottomBar), W(footerFlaggedButton))
         adw_toolbar_view_add_bottom_bar(sidebarToolbar, W(bottomBar))
@@ -281,6 +294,7 @@ final class AppController {
         }
         TerminalZoomRegistry.shared.register(windowID, controller: terminalZoom)
         DashboardControllerRegistry.shared.register(windowID, controller: dashboard)
+        PickRegistry.shared.register(windowID, controller: pickController)
 
         // Become frontmost on activation (routes global shortcuts + control to this window);
         // tear down + deregister when the window closes.
@@ -317,7 +331,7 @@ final class AppController {
         // selectSession clears the unseen badge + an auto-reset (e.g. `completed`) glyph on BOTH the
         // visited and the previously-selected session; rebuild the sidebar when either row changes.
         let prev = store.selectedSessionID
-        let focusedWorkspace = store.focusedWorkspaceID
+        let focusWasEnabled = store.focusEnabled
         let needsRefresh = clearedRowChanges(id) || (prev.map(clearedRowChanges) ?? false)
         if prev != id, let owner = searchSurface {
             owner.endSearch()
@@ -328,7 +342,7 @@ final class AppController {
         }
         if userInitiated { noteUserActivity() }
         store.selectSession(id)
-        let focusFilterChanged = focusedWorkspace != store.focusedWorkspaceID
+        let focusFilterChanged = focusWasEnabled != store.focusEnabled
         NotificationManager.withdraw(windowID: windowID, sessionID: id)
         showActive()
         syncSidebarSelection()
@@ -616,20 +630,6 @@ final class AppController {
         guard let id = store.selectedSessionID else { return }
         store.moveSession(id, toWorkspace: workspaceID)
         reconcile()
-    }
-
-    /// Focus the sidebar on a single workspace, or clear the focus (nil) — the GUI half of
-    /// `workspace.focus`.
-    func focusWorkspace(_ workspaceID: UUID?) {
-        store.setFocusedWorkspace(workspaceID)
-        rebuildSidebar()
-    }
-
-    /// Toggle the focus filter on the ACTIVE session's workspace (the `focus_workspace` keybind; the
-    /// palette targets a specific workspace by name). Focused → unfocus; unfocused → focus it.
-    func focusActiveWorkspace() {
-        guard let current = store.currentWorkspaceID else { return }
-        focusWorkspace(store.focusedWorkspaceID == current ? nil : current)
     }
 
     /// Rename the selected session (Ctrl+Shift+R / palette) — same inline path as a double-click.

@@ -42,6 +42,13 @@ verify_pi_extension() {
   grep -Fq 'report(["completed", "--auto-reset"])' "$extension"
 }
 
+verify_opencode_plugin() {
+  local plugin="$1"
+  test -f "$plugin"
+  grep -Fq '// agterm-opencode-status-plugin' "$plugin"
+  grep -Fq 'export const AgtermStatusPlugin' "$plugin"
+}
+
 verify_payload() {
   local payload="$1"
   test -x "$payload/bin/agterm-linux"
@@ -53,6 +60,7 @@ verify_payload() {
   test -x "$payload/share/agterm/agent-status/agterm-agent-status.sh"
   test -x "$payload/share/agterm/agent-status/agterm-codex-status.sh"
   verify_pi_extension "$payload/share/agterm/agent-status/pi/agterm-status.ts"
+  verify_opencode_plugin "$payload/share/agterm/agent-status/opencode/agterm-status.js"
   test -f "$payload/share/agterm/agent-skill/SKILL.md"
   [[ "$(<"$payload/share/agterm/VERSION")" == "$VERSION" ]]
   test -f "$payload/share/applications/io.github.melonamin.agterm.desktop"
@@ -111,6 +119,7 @@ test -x "$APPROOT/usr/bin/agtermctl.bin"
 test -x "$APPROOT/usr/share/agterm/agent-status/agterm-agent-status.sh"
 test -x "$APPROOT/usr/share/agterm/agent-status/agterm-codex-status.sh"
 verify_pi_extension "$APPROOT/usr/share/agterm/agent-status/pi/agterm-status.ts"
+verify_opencode_plugin "$APPROOT/usr/share/agterm/agent-status/opencode/agterm-status.js"
 test -f "$APPROOT/usr/share/agterm/agent-skill/SKILL.md"
 [[ "$(<"$APPROOT/usr/share/agterm/VERSION")" == "$VERSION" ]]
 find "$APPROOT/usr/lib" -name 'libgtk-4.so.1' -print -quit | grep -q .

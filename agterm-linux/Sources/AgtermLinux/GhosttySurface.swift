@@ -328,9 +328,25 @@ final class GhosttySurface: TerminalSurface {
     /// retained/re-applied per surface across config reloads.
     func applyOSCBackground(red: UInt8, green: UInt8, blue: UInt8) {
         let hex = String(format: "#%02X%02X%02X", red, green, blue)
-        guard oscBackgroundColorHex != hex else { return }
-        oscBackgroundColorHex = hex
-        reapplyBackgroundOverlay()
+        let sessionColor = controller?.store.session(withID: sessionID)?.backgroundWatermark
+            .flatMap { $0.kind == .color ? $0.colorHex : nil }
+        let baseline = OSCBackgroundPolicy.baseline(
+            oscOverlayActive: oscBackgroundColorHex != nil,
+            surfaceBackground: sessionColor,
+            themeBackground: GhosttyApp.shared.currentThemeBackgroundHex
+        )
+        switch OSCBackgroundPolicy.decide(
+            incoming: hex, themeBackground: baseline, current: oscBackgroundColorHex
+        ) {
+        case .apply(let color):
+            oscBackgroundColorHex = color
+            reapplyBackgroundOverlay()
+        case .reset:
+            oscBackgroundColorHex = nil
+            reapplyBackgroundOverlay(force: true)
+        case .ignore:
+            break
+        }
     }
 
     func startSearch() { performBindingAction("start_search") }

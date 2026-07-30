@@ -933,5 +933,9 @@ final class Fixture {
             "// agterm-pi-status-extension\nexport default () => {}\n",
             to: root.appendingPathComponent("pi/agterm-status.ts")
         )
+        try write(
+            "\(AgentHooksInstall.opencodePluginMarker)\nexport const AgtermStatusPlugin = async () => ({})\n",
+            to: root.appendingPathComponent("opencode/agterm-status.js")
+        )
     }
 }

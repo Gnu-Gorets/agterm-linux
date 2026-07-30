@@ -75,7 +75,7 @@ extension AppController {
         // cores because this dispatch is synchronous. `.windowMove` and the rest of the family never reach
         // this switch at all: `LinuxControlDispatcher` claims them.
         case .windowNew:
-            return windowNew(name: req.args?.name)
+            return windowNewSync(name: req.args?.name, minimized: req.args?.minimized ?? false)
         case .windowList:
             return windowList()
         case .windowSelect:

@@ -178,8 +178,8 @@ func ghosttyMods(_ state: UInt32) -> ghostty_input_mods_e {
 
 /// Translate a GTK key press (`keyval` + `GdkModifierType state`) into the shared, host-free
 /// `agtermCore.Chord` the keymap matcher consumes — or `nil` when the press is not a bindable base key
-/// (a bare modifier, Escape, or a function/navigation key with no unicode), so the caller can run its
-/// arrow/page fallback or pass the key through to libghostty.
+/// (a bare modifier, Escape, or an unsupported function/navigation key), so the caller can run its
+/// fixed page-key fallback or pass the key through to libghostty.
 ///
 /// Mirrors the macOS `NSEvent -> Chord` contract: the base is the unshifted layout character when the
 /// layout can type the complete ASCII alphabet, otherwise the physical ANSI-position key. The modifier
@@ -226,6 +226,10 @@ private func namedShortcutChord(fromKeyval keyval: UInt32, mods: Modifier) -> Ch
     case 0x20, 0xFF80: return Chord(mods: mods, key: "space")
     case 0xFF0D, 0xFF8D: return Chord(mods: mods, key: "return")
     case 0xFF08, 0xFFFF: return Chord(mods: mods, key: "delete")
+    case 0xFF51: return Chord(mods: mods, key: "left")
+    case 0xFF52: return Chord(mods: mods, key: "up")
+    case 0xFF53: return Chord(mods: mods, key: "right")
+    case 0xFF54: return Chord(mods: mods, key: "down")
     default: return nil
     }
 }

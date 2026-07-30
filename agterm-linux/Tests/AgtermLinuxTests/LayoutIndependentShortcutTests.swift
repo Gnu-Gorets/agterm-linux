@@ -122,6 +122,18 @@ struct LayoutIndependentShortcutTests {
         #expect(keypad == Chord(mods: [.control], key: "tab"))
     }
 
+    @Test("GTK arrow keys normalize to keymap names")
+    func gtkArrowsNormalize() throws {
+        let cases: [(UInt32, String)] = [
+            (0xFF51, "left"), (0xFF52, "up"), (0xFF53, "right"), (0xFF54, "down"),
+        ]
+        for (keyval, name) in cases {
+            let result = try #require(shortcutChord(
+                fromKeyval: keyval, keycode: 0, state: control, context: nil))
+            #expect(result == Chord(mods: [.control], key: name))
+        }
+    }
+
     @Test("fixed shortcuts require their exact modifiers")
     func fixedShortcutsUseExactModifiers() {
         #expect(linuxFixedShortcut(for: Chord(mods: [.control], key: ",")) == .preferences)
