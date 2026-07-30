@@ -329,17 +329,18 @@ paths:
   and `workspaceEntryWithALegacyFocusEnabledKeyStillDecodes` in `RecentClosedTests`.
 - **Membership is drawn on the row, and the bottom-bar toggle replaced the pill.**
   A marked workspace row draws the cached `focusedWorkspaceIcon` instead of the outline `workspaceIcon`.
-  It is the SAME `square.grid.2x2` symbol at `.heavy` weight, NOT the `.fill` variant — deliberately
+  It is the SAME `square.grid.2x2` symbol at `.black` weight, NOT the `.fill` variant — deliberately
   unlike the flagged session rows, which do use the filled-SF-Symbol idiom.
   Weight rather than fill keeps ONE identity on every workspace row (a workspace always reads as an
   outlined grid, marked or not) and keeps the two markers distinguishable: fill means a flagged SESSION,
-  heavy means a marked WORKSPACE.
+  black means a marked WORKSPACE.
   `rowIcon(_:weight:)` takes the weight, defaulting to `.regular`, so this is still a plain cached
   template image `setColors` tints.
-  The heavy variant renders 1pt larger than the regular one (16x15 vs 15x14), but the cell's icon
+  The black variant renders 1pt larger than the regular one (16x15 vs 15x14 — the same size `.heavy`
+  gave, so the weight bump is pure stroke), but the cell's icon
   `NSImageView` is pinned to a fixed 16x16 box with `scaleProportionallyUpOrDown`, so the swap moves
   nothing — layout-shift-free for the same reason the `.fill` swaps are, not because the images match.
-  The choice is on MEMBERSHIP alone, independent of `focusEnabled`, so a marked row reads heavy while the
+  The choice is on MEMBERSHIP alone, independent of `focusEnabled`, so a marked row reads black while the
   filter is off — which is what makes a set visible while it is being built.
   Membership rides `RowContent.focusMember` (Equatable, a SEPARATE field from the session-only `flagged`),
   so marking/unmarking re-renders just that row via `reloadItem`.
