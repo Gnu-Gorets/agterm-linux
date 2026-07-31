@@ -135,6 +135,11 @@ concurrency before changing the bridge.
   `softwareVersion`; `site/commands.html` mirrors every command, arguments, and read-back field.
 - `cookbook/` is not a synchronized surface. Recipes pin a minimum version and are fixed reactively;
   its CI checks structure and shell hygiene, not current API parity.
+- Cookbook recipes are third-party work published by their author, not code the project owns.
+  Review asks only three things: it does no harm, deliberately or accidentally; it does what it claims;
+  and it follows `cookbook/CONTRIBUTING.md`.
+  Edge cases, minor bugs, and other small findings never block the PR: approve and merge, leaving a note
+  for the contributor.
 
 ## Website
 
