@@ -75,6 +75,17 @@ SIGTERM use normal process behavior.
 - `--target` defaults to `active` (the selected session / current workspace). Accepts a full UUID
   (case-insensitive) or a unique prefix. Zero matches → `notFound`; ambiguous prefix → `ambiguous`
   (the error lists candidates).
+- For a WORKSPACE, `active` is where a new session lands: one created in the foreground (the GUI's New
+  Workspace, or `workspace new` without `--collapsed`) until the selection CHANGES — to a different
+  session or to none at all, as when you close the last one — or `workspace select` names another, it is
+  deleted, or the workspace filter hides it. Hiding drops it for good, so turning the filter off does not
+  restore it. Reselecting the already-selected session does not count: `session select`,
+  `overlay open --follow` and single-session `session go` leave it in place. `workspace select` on an EMPTY
+  workspace has no session to select, so it takes the target instead (and is revealed if the filter was
+  hiding it). Else the selected session's workspace, else the last one. A background create (`workspace new --collapsed`,
+  `session new --create-workspace --no-select`) never takes it. The tree workspace node's `active` flag
+  reads the SELECTED session's workspace only, so right after a foreground create it can name a
+  different workspace than `--target active` resolves to; address by id when the two must agree.
 - **For an agent, `active` is the USER's GUI-selected session, not yours.** Your shell is
   `$AGTERM_SESSION_ID`; the user is usually on a different session while you work. Pass
   `--target "$AGTERM_SESSION_ID"` on any session-scoped command (`overlay open`, `scratch`, `type`,
@@ -191,9 +202,9 @@ All twelve are read-only projections of GUI state.
 - `workspace delete [--target] [--window W]` — keep-at-least-one; deleting the last workspace errors.
 - `workspace select [--target] [--window W]`.
 - `workspace move --to up|down|top|bottom [--target] [--window W]` — reorder among siblings. Missing
-  or invalid `--to` errors. Note: `--target active` resolves to the current workspace, which with no
-  selected session falls back to the last workspace; address a specific workspace by id to step the
-  same one.
+  or invalid `--to` errors. Note: `--target active` resolves to the current workspace — a
+  foreground-created workspace that still holds the target, else the selected session's, else
+  the last one; address a specific workspace by id to step the same one.
 - `workspace focus [on|off|toggle|add] [--target] [--window W]` — mark or unmark ONE workspace in the
   sidebar's focus SET; returns the workspace id. The sidebar renders the marked workspaces when the
   filter is applied, all of them when it is not. `on` sets the marked set to just this workspace and
@@ -761,8 +772,8 @@ a graceful no-op in `flagged` mode (no workspace rows); a named-but-closed windo
 window` when none is open. The GUI half (frontmost only) is View ▸ Expand Workspaces and the ⌃⇧P palette
 "Expand Workspaces".
 
-`agtermctl sidebar collapse [--window W]` — collapse every workspace EXCEPT the active one (the
-workspace of the active session), which stays expanded and is scrolled into view. Same `--window`
+`agtermctl sidebar collapse [--window W]` — collapse every workspace EXCEPT the current one (the same
+resolution as `--target active`), which stays expanded and is scrolled into view. Same `--window`
 selector and defaults as `expand`. Idempotent; a graceful no-op in `flagged` mode; a named-but-closed
 window errors, and `no open window` when none is open. The GUI half (frontmost only) is View ▸ Collapse
 Workspaces and the ⌃⇧P palette "Collapse Workspaces".

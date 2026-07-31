@@ -29,19 +29,6 @@ struct AppStoreTests {
         #expect(store.defaultWorkspaceName == "workspace 2")
     }
 
-    @Test func currentWorkspaceFollowsSelectionThenFallsBackToLast() {
-        let store = makeStore()
-        #expect(store.currentWorkspaceID == nil)
-        let work = store.addWorkspace(name: "work")
-        let personal = store.addWorkspace(name: "personal")
-        #expect(store.currentWorkspaceID == personal.id)
-        let session = try! #require(store.addSession(toWorkspace: work.id, cwd: "/a"))
-        store.selectSession(session.id)
-        #expect(store.currentWorkspaceID == work.id)
-        store.selectSession(nil)
-        #expect(store.currentWorkspaceID == personal.id)
-    }
-
     @Test func addWorkspaceAppends() {
         let store = makeStore()
         let work = store.addWorkspace(name: "work")

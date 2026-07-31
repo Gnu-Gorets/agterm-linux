@@ -29,7 +29,17 @@ extension SessionNavigation {
 @MainActor
 public final class AppStore {
     public var workspaces: [Workspace]
-    public var selectedSessionID: UUID?
+    /// A CHANGE here drops `freshWorkspaceID`: close, workspace removal, pending-close undo and Reopen
+    /// Closed Item all reselect by assigning directly, so centralizing it is what keeps a fresh workspace
+    /// from outliving a selection made outside `selectSession`. A same-value write must not, because
+    /// reselecting the already-active session is what `navigateSession` with one visible session and
+    /// `overlay open --follow` both do, and neither moves the user. `restore(from:)` clears explicitly —
+    /// it reloads state rather than selecting.
+    public var selectedSessionID: UUID? {
+        didSet {
+            if selectedSessionID != oldValue { freshWorkspaceID = nil }
+        }
+    }
 
     /// Transient sidebar multi-selection, not persisted — `selectedSessionID` stays the durable active target.
     var sidebarSelectionRaw: [UUID] = []
@@ -155,9 +165,58 @@ public final class AppStore {
         return session(withID: selectedSessionID)
     }
 
-    /// The workspace a new session lands in: the selected session's, else the last (nil when there are none).
-    /// Drives the bottom bar's add actions and File ▸ New Session / Open Directory.
+    /// The workspace that holds the target without owning the selection: a FOREGROUND create, or a
+    /// `selectWorkspace` on an empty one, which has no session to select. Without it a new workspace is never
+    /// current (discussion #325): selection does not move on create, so Rename Workspace edited the previous
+    /// one and the next new session landed there too. Dropped by a selection CHANGE
+    /// (`selectedSessionID`'s observer, so a same-value write keeps it), by `selectWorkspace` naming a
+    /// workspace that HAS a session — which a same-value selection alone would not do — by removing the
+    /// workspace, by the focus filter hiding it, and by `restore(from:)`. A BACKGROUND create (`revealNewWorkspace: false`)
+    /// never sets it, so a script's create cannot steer the GUI's next add.
+    private var freshWorkspaceID: UUID?
+
+    /// Drops the fresh-workspace preference when that workspace is the one going away, so an Undo or Reopen
+    /// re-inserting the same id cannot revive it. Every removal path calls this; a reorder must not.
+    func forgetFreshWorkspace(_ workspaceID: UUID) {
+        if freshWorkspaceID == workspaceID { freshWorkspaceID = nil }
+    }
+
+    /// Makes `workspaceID` the current one and selects its first session when it has one. Both halves are
+    /// needed: the first session may already BE the selection, and a same-value write leaves the target
+    /// alone; an empty workspace has nothing to select at all, and reporting success while targeting
+    /// somewhere else is what made `workspace.select --target <empty>` a lie. Backs `workspace.select`.
+    @discardableResult
+    public func selectWorkspace(_ workspaceID: UUID) -> Bool {
+        guard let workspace = workspaces.first(where: { $0.id == workspaceID }) else { return false }
+        if let first = workspace.sessions.first {
+            selectSession(first.id)
+            freshWorkspaceID = nil
+            return true
+        }
+        // an empty workspace the filter hides would be a target with no row: reveal it, the same
+        // auto-reveal `addWorkspace` performs, so what is current is always on screen. the target itself
+        // is live state outside `snapshot()`, so only the widened set is worth a write.
+        let marked = focusedWorkspaceIDs
+        revealNewFocusMember(workspaceID)
+        freshWorkspaceID = workspaceID
+        if focusedWorkspaceIDs != marked { save() }
+        return true
+    }
+
+    /// Drops the target when the focus filter has hidden it, so turning the filter off later cannot make it
+    /// current again — hiding it hands targeting back for good. Called from the one focus commit point.
+    func forgetHiddenFreshWorkspace() {
+        guard let freshWorkspaceID else { return }
+        if !visibleWorkspaces.contains(where: { $0.id == freshWorkspaceID }) { self.freshWorkspaceID = nil }
+    }
+
+    /// The workspace a new session lands in: a freshly created one, else the selected session's, else the
+    /// last (nil when there are none). Drives the bottom bar's add actions, File ▸ New Session / Open
+    /// Directory / Rename Workspace, and resolves `active` for control-channel workspace targets.
     public var currentWorkspaceID: UUID? {
+        if let freshWorkspaceID, workspaces.contains(where: { $0.id == freshWorkspaceID }) {
+            return freshWorkspaceID
+        }
         if let selectedSessionID, let workspace = workspace(forSession: selectedSessionID) {
             return workspace.id
         }
@@ -246,12 +305,17 @@ public final class AppStore {
     /// `addSession`; widening rather than clearing keeps the rest filtered. `false` leaves the filter
     /// untouched: a background `session.new --no-select` create must not widen the view. `collapsed: true`
     /// (backing `workspace.new --collapsed`) starts it collapsed against the runtime default of expanded, so
-    /// it can be filled with `addSession(select: false)` unopened.
+    /// it can be filled with `addSession(select: false)` unopened. `revealNewWorkspace` also decides
+    /// targeting: true makes this workspace `currentWorkspaceID` for as long as `freshWorkspaceID` holds it,
+    /// false leaves the target where it is. `ensureWorkspace(named:revealNewWorkspace:)` forwards both.
     @discardableResult
     public func addWorkspace(name: String, collapsed: Bool = false, revealNewWorkspace: Bool = true) -> Workspace {
         let workspace = Workspace(name: name, isExpanded: !collapsed)
         workspaces.append(workspace)
-        if revealNewWorkspace { revealNewFocusMember(workspace.id) }
+        if revealNewWorkspace {
+            revealNewFocusMember(workspace.id)
+            freshWorkspaceID = workspace.id
+        }
         scheduleTreeChanged()
         save()
         return workspace
@@ -399,6 +463,7 @@ public final class AppStore {
         }
         dropFocusMember(workspaceID) // a marked root is gone; the filter goes with the last member
         workspaces.remove(at: index)
+        forgetFreshWorkspace(workspaceID)
         if removingActive {
             selectedSessionID = workspaceRemovalTarget(at: index)
             replaceSidebarSelection(with: selectedSessionID)
@@ -724,6 +789,7 @@ public final class AppStore {
     /// override for this launch. It defaults to false because reopening a closed window mid-process reloads
     /// its store through here, and that RUNTIME caller must not execute anything.
     public func restore(from snapshot: Snapshot, launchRestore: Bool = false) {
+        freshWorkspaceID = nil // live create-time state, never restored from disk
         // fold duplicate workspace ids into the first occurrence and keep only the first snapshot of a
         // repeated session id, else the rest stay unreachable past the first match and get re-saved.
         var seenSessionIDs: Set<UUID> = []
