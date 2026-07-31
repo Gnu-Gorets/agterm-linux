@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.19.1 - 2026-07-31
+
+### Improved
+
+- a floating overlay and the quick terminal now mute the session behind them, the same wash an inactive split pane already gets and at the strength already in Settings, so a panel reads as sitting over the terminal rather than as part of it. A full-size overlay and the scratch pane hide their panes outright and take no wash #327 @umputun
+- a cookbook recipe for the native picker that shipped in 0.19.0: press a chord and agterm's own fuzzy picker lists directories under your search roots, then types the pick into the session you pressed the key in, trailing slash and no Return #320 @umputun
+- a third session-resume cookbook recipe next to the Claude Code and Codex ones, so each tab reopens its own opencode conversation after a restart #328 @cherkale
+
+### Bug Fixes
+
+- creating a workspace never moved the target, so a new one was never current while any session was selected: File ▸ Rename Workspace edited the workspace you came from, ⌘N put the new session there too, and `agtermctl session new --workspace active` right after `workspace new` targeted the previous one. A new workspace now holds the target until the selection moves to a different session, and `workspace select` retargets even when the workspace it names already owns the selection #329 @umputun
+- hovering the sidebar handle or a split divider only flashed the resize cursor, which then alternated with the terminal's I-beam on every mouse move. Dragging worked, only the pointer feedback was broken; a regression from #207 #326 @umputun
+- narrowing the sidebar could leave the window drawing a session no row pointed at: focusing a workspace that does not own the active session, applying the workspace filter while its workspace is unmarked, switching to the flagged view while the session is not flagged, or unflagging it there. The selection now moves to the most recent session still visible #322 @umputun
+
 ## v0.19.0 - 2026-07-29
 
 ### New Features
