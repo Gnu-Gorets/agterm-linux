@@ -1,5 +1,3 @@
-import Foundation
-
 /// Host-facing `events.read` options after dispatcher validation and normalization.
 public struct ControlEventReadOptions: Equatable, Sendable {
     public let cursor: ControlEventCursor?

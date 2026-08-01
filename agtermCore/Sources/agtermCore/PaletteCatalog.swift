@@ -1,5 +1,3 @@
-import Foundation
-
 /// The UI facts needed to decide which static action-palette rows are relevant right now.
 public struct PaletteContext: Sendable, Equatable {
     public let canRemoveWorkspace: Bool

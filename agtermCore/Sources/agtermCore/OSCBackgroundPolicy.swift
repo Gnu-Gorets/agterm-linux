@@ -1,5 +1,3 @@
-import Foundation
-
 /// Decides what a surface does with a dynamic background color reported by libghostty
 /// (`GHOSTTY_ACTION_COLOR_CHANGE`, kind background). Host-free so the routing is unit-tested; the app
 /// target owns only the config push.

@@ -1,5 +1,3 @@
-import Foundation
-
 /// TerminalText sanitizes strings a terminal program reports over OSC sequences — the window title (OSC
 /// 0/1/2) and the working directory (OSC 7) — before agterm stores them on a `Session`. Those values are
 /// attacker-influenceable (a remote SSH host or any program's output sets them) and flow unquoted into a

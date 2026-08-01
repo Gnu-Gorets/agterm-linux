@@ -1,5 +1,3 @@
-import Foundation
-
 /// ShellEscape backslash-escapes a filesystem path (or URL) for insertion into a terminal as literal text —
 /// the drag-drop / paste case: a dropped path with spaces or parentheses lands as ONE shell argument, while
 /// a path with no shell-significant characters comes back UNCHANGED and unquoted, keeping the common case

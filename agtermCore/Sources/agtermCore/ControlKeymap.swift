@@ -1,5 +1,3 @@
-import Foundation
-
 /// One rebindable built-in and the chord the keymap currently resolves it to.
 public struct ControlKeymapAction: Codable, Sendable, Equatable {
     /// The action's `keymap.conf` name, e.g. `close_session`.

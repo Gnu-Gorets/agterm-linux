@@ -1,5 +1,3 @@
-import Foundation
-
 /// Host-free keyboard modifiers, the subset of `NSEvent.ModifierFlags` the interrupt classifier needs. The
 /// app target maps an `NSEvent`'s flags onto this so the classification stays testable without AppKit.
 public struct KeyModifiers: OptionSet, Sendable {

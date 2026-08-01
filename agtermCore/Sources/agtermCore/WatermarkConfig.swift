@@ -1,5 +1,3 @@
-import Foundation
-
 /// Host-free: formats a `BackgroundWatermark` into one surface's ghostty config-overlay text, plus the
 /// `fit`/`position` validation the CLI and control server share. No AppKit — `.text` rasterization lives in
 /// the app target, so this only emits the `background-image*` lines once a PNG path is known.

@@ -1,5 +1,3 @@
-import Foundation
-
 /// Scores how well `query` matches `target` for the command palettes — lower is better, `nil` is no match.
 /// The query splits on whitespace into terms (`"cap dev"` is two); EVERY term must match `target` and the
 /// score is their sum, so term order is irrelevant — `"cap dev"` and `"dev cap"` both match `caprica-dev`.

@@ -1,5 +1,3 @@
-import Foundation
-
 /// Pure, host-free helpers for installing the bundled `agtermctl` CLI into the user's PATH — only the
 /// testable string/path logic. The app side does the filesystem work: a symlink, with an `osascript` admin
 /// fallback when the target dir isn't user-writable.

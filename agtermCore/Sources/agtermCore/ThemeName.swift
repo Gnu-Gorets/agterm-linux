@@ -1,5 +1,3 @@
-import Foundation
-
 /// Reduces a ghostty `theme` value to the name active for the current appearance. The `light:…,dark:…`
 /// form must collapse to one name before agterm's by-hand `selection-*` lookup: the raw form matches no
 /// theme file, so the selected sidebar row falls back to an unreadable wash. Host-free, so unit-tested.
