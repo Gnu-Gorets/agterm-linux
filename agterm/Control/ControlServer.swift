@@ -404,10 +404,14 @@ final class ControlServer {
     /// command (the dispatcher validated the args and built `fontMode`, but does not cap the ids). Resolves
     /// `window ?? frontmost` to an OPEN window's store. `mru` takes up to `DashboardLayout.maxCells` of that
     /// store's most-recently-used sessions (fewer if it has fewer, nothing unresolved); otherwise each id
-    /// resolves within THAT store, deduped by resolved UUID in order, misses reported in `result.text`. Each
-    /// resolved session then EXPANDS in order into pane cells — always `.primary`, plus `.split` when it
-    /// `hasSplit` (both shells alive), so a split shows as TWO cells — and the `maxCells` (9) cap counts
-    /// PANES, applied here after expansion, its drops reported alongside `unresolved` (joined with "; ").
+    /// parses as a `DashboardTarget` and its head resolves within THAT store, misses reported in
+    /// `result.text`. A bare id EXPANDS in order into pane cells — always `.primary`, plus `.split` when it
+    /// `hasSplit` (both shells alive), so a split shows as TWO cells — while a `:left`/`:right` suffix (#331)
+    /// takes that cell alone; a `:right` naming no live pane is a miss, not an error. Cells dedup by
+    /// session+pane, NOT by session, so `A:left A:right` is two cells and `A A:left` is still two. The
+    /// `maxCells` (9) cap counts PANES, applied here after expansion, its drops reported alongside
+    /// `unresolved` (joined with "; "). Emptiness is judged on the expanded CELLS, since a resolved id can
+    /// now contribute none.
     /// Each cell reparents its OWN pane surface (`\.surface` / `\.splitSurface`) app-side in
     /// `WindowContentView`. Opening closes the window's terminal zoom (mutually exclusive); `--close` calls
     /// `close()`. The registry returns nil until `WindowContentView` registers the controller (or while the
@@ -426,31 +430,46 @@ final class ControlServer {
             if PickRegistry.shared.controller(for: windowID)?.pending != nil {
                 return ControlResponse(ok: false, error: "pick pending")
             }
-            var sessionIDs: [UUID] = []
+            var resolvedTargets: [ResolvedDashboardTarget] = []
             var unresolved: [String] = []
             if mru {
-                sessionIDs = store.recentSessions(limit: DashboardLayout.maxCells)
-                guard !sessionIDs.isEmpty else {
+                let recent = store.recentSessions(limit: DashboardLayout.maxCells)
+                guard !recent.isEmpty else {
                     return ControlResponse(ok: false, error: "no recent sessions")
                 }
+                resolvedTargets = recent.map { ResolvedDashboardTarget(session: $0, pane: nil) }
             } else {
                 let candidates = store.workspaces.flatMap { $0.sessions.map(\.id) }
-                var seen = Set<UUID>()
                 for target in targets {
-                    guard case .resolved(let id) = ControlResolve.resolve(target, candidates: candidates,
+                    guard let parsed = DashboardTarget(rawValue: target),
+                          case .resolved(let id) = ControlResolve.resolve(parsed.head, candidates: candidates,
                                                                           active: store.selectedSessionID),
-                          store.session(withID: id) != nil else {
+                          let session = store.session(withID: id) else {
                         unresolved.append(target)
                         continue
                     }
-                    if seen.insert(id).inserted { sessionIDs.append(id) }
-                }
-                guard !sessionIDs.isEmpty else {
-                    return ControlResponse(ok: false, error: "no dashboard sessions resolved")
+                    // a `:right` ref to a session with no split is a MISS, not a malformed command: the
+                    // dispatcher already passed the grammar. `hasSplit` is the same test
+                    // `dashboardValidMembers` reconciles against, so this never admits a cell reconcile
+                    // would immediately prune.
+                    guard parsed.pane != .split || session.hasSplit else {
+                        unresolved.append(target)
+                        continue
+                    }
+                    resolvedTargets.append(ResolvedDashboardTarget(session: id, pane: parsed.pane))
                 }
             }
             // the shared host-free helper: ONE expansion+cap implementation with AppActions.toggleDashboard.
-            let (members, droppedPanes) = store.dashboardMembers(for: sessionIDs, limit: DashboardLayout.maxCells)
+            // it also dedups, so a bare id beside a pane ref for the same session cannot double-host a surface.
+            let (members, droppedPanes) = store.dashboardMembers(for: resolvedTargets,
+                                                                 limit: DashboardLayout.maxCells)
+            // guard the EXPANSION, not the resolved targets: with pane refs they are no longer equivalent.
+            // `dashboard <id>:right` on a session with no split resolves the id but expands to nothing, and
+            // opening with an empty member set would clear the window's zoom and silently close a live
+            // dashboard while reporting ok (`DashboardController.isOpen` is `!members.isEmpty`).
+            guard !members.isEmpty else {
+                return ControlResponse(ok: false, error: "no dashboard sessions resolved")
+            }
             TerminalZoomRegistry.shared.controller(for: windowID)?.clear()
             controller.open(members: members, fontMode: fontMode)
             // set the applied size SYNCHRONOUSLY so the `dashboardFontSize` read-back is authoritative at
