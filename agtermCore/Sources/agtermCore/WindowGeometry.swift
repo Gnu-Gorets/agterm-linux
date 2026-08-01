@@ -1,5 +1,3 @@
-import Foundation
-
 /// Pure geometry clamps for the `window.resize`/`window.move` control commands. Host-free —
 /// `WindowRegistry` (the only place with the live `NSWindow` and its `NSScreen`) supplies the actual
 /// display bounds and window min/size, this just does the unit-testable arithmetic. The plain

@@ -1,5 +1,3 @@
-import Foundation
-
 /// AgentStatus is the per-session agent state driven over the control channel (`session.status`).
 /// `idle` means nothing is shown; the other cases each render a tinted sidebar glyph.
 public enum AgentStatus: String, Codable, Sendable, CaseIterable {

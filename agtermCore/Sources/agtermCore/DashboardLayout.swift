@@ -1,5 +1,3 @@
-import Foundation
-
 /// Pure grid geometry, keyboard navigation, and auto-size font math for the dashboard overlay. Host-free
 /// (Foundation-only, `Int`/`Double` — no CoreGraphics/AppKit) so `swift test` covers it with no app host.
 /// The dashboard shows up to `maxCells` live session surfaces in a `ceil(sqrt(n))`-wide grid; a keyboard

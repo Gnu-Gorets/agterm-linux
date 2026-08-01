@@ -1,5 +1,3 @@
-import Foundation
-
 /// A rebindable, menu-backed built-in action. Each case has a canonical kitty-style raw name (the token the
 /// user writes after `map` in `keymap.conf`) and a `defaultChord` — the shortcut the menu ships with, or
 /// `nil` for an action with no default key. The raw names mirror the menu items in `agtermApp`'s

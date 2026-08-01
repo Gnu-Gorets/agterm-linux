@@ -1,5 +1,3 @@
-import Foundation
-
 /// The app-side terminal surface (a libghostty-backed NSView) seen by the host-free model. Kept minimal so
 /// `agtermCore` stays free of GhosttyKit/AppKit; the app target's `GhosttySurfaceView` conforms to it.
 ///

@@ -1,5 +1,3 @@
-import Foundation
-
 /// A per-session background composited behind the terminal grid: a user-supplied image file (`.image`) or
 /// a string agterm rasterizes to a PNG (`.text`), both via libghostty's `background-image*` keys, or a
 /// solid `#rrggbb` background color (`.color`) via the `background` key. Stored on `Session`, persisted in

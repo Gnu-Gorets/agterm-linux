@@ -1,5 +1,3 @@
-import Foundation
-
 /// Pure builder for the quit-confirmation alert text. Host-free so the pluralization is unit-tested
 /// without an app host; the AppKit `NSAlert` lives in the app target's `AppDelegate`.
 public enum QuitPrompt {

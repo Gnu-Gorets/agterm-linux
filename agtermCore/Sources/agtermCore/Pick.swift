@@ -1,4 +1,3 @@
-import Foundation
 import Observation
 
 /// One picker request currently presented by a window.

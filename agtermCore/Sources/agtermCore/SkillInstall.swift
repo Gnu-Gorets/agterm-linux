@@ -1,5 +1,3 @@
-import Foundation
-
 /// Pure, host-free helpers for installing the bundled agent skill (`agterm`) into the skills
 /// directories of Claude Code (`~/.claude/skills`) and Codex (`~/.codex/skills`) — both use the same
 /// SKILL.md Agent-Skill format. The app side (`SkillInstaller`) does the filesystem copy and the
