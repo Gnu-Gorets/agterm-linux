@@ -36,13 +36,15 @@ extension WorkspaceSidebar.Coordinator {
         field.isEditable = false
         field.isBordered = false
         field.drawsBackground = false
-        // a recycled cell may carry the prior row's badge/status/hover state; reset before use
+        // a recycled cell may carry the prior row's badge/hover state; reset before use. NOT the status
+        // glyph: each branch assigns it in full, and an idle round-trip restarts the blink on reload.
         applyBadge(toCell: cell, count: 0)
-        cell.statusIcon.apply(AgentIndicator())
         cell.setAddButtonVisible(false)
         switch node.kind {
         case .workspace:
             let workspace = store.workspaces.first(where: { $0.id == node.id })
+            // workspaces carry no agent status; the idle apply collapses the glyph slot
+            cell.statusIcon.apply(AgentIndicator())
             field.stringValue = workspace?.name ?? ""
             field.font = .systemFont(ofSize: GhosttyApp.shared.sidebarFontSize, weight: .medium)
             field.setAccessibilityIdentifier("workspace-row")
@@ -63,7 +65,6 @@ extension WorkspaceSidebar.Coordinator {
             field.setAccessibilityLabel(nil)
             let session = store.session(withID: node.id)
             applyBadge(toCell: cell, count: effectiveUnseen(session?.unseenCount ?? 0))
-            // gate the agent-status glyph: hidden for the frontmost window's selected session.
             cell.statusIcon.apply(effectiveIndicator(forSession: node.id))
             // the split-rectangle icon (matching the toolbar split button) shows in BOTH modes so a split
             // stays distinguishable at a glance, and `hasSplit` keeps it while merely hidden. Only the
