@@ -257,10 +257,10 @@ class ControlAPITestCase: XCTestCase {
         return nil
     }
 
-    /// Inject `command` (which redirects to `file`) and wait for the shell to write it back, retrying the
-    /// inject if the marker hasn't appeared yet. A freshly-realized surface's shell/pty may not be ready to
-    /// read when the first keystrokes land (especially under full-suite CPU load), so a single injection can
-    /// be dropped — re-injecting once the shell has had time to spawn is the deterministic readiness wait.
+    /// Inject `command` (which redirects to `file`) and wait for the shell to write it back, re-injecting
+    /// while the marker is missing. The keystrokes are not dropped — they queue to the pty and the kernel
+    /// buffers them — but a freshly-realized surface's shell can take longer than one attempt's poll to spawn
+    /// and run them under full-suite CPU load, so the retries buy time rather than re-deliver lost text.
     /// The marker file is the readiness signal: when it's non-empty the command actually ran. Returns the
     /// marker contents, or nil if it never appeared across all attempts. Asserts each type request returns ok.
     func typeUntilMarker(_ command: String, target: String, file: URL, select: Bool, pane: String? = nil,

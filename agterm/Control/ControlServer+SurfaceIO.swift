@@ -296,6 +296,11 @@ extension ControlServer {
     /// session created moments ago is briefly unrealized whether or not it is selected. `inject(text:)` sends
     /// the text as `ghostty_surface_key` keystrokes (NOT `ghostty_surface_text` — see its doc for why), which
     /// write to the child pty; the kernel buffers the pty, so text is never lost even before the first prompt.
+    /// `ok` therefore means the keystrokes were queued to the pty, NOT that the shell read or ran them (#350):
+    /// libghostty's write mailbox blocks rather than drops, messages queued before the io thread starts are
+    /// drained once the subprocess is up, and nothing flushes pending tty input. A caller that needs execution
+    /// polls `session.text` for its effect; `ghostty_surface_key`'s bool reports consumption, not delivery, so
+    /// it is no readiness signal either.
     /// `pane` follows `session.text` (`left`|`right`|`scratch`, no `other`): omitted/`left` is the main pane,
     /// NOT the focused one — the pre-pane behavior, so existing automation is unaffected; `scratch` is
     /// typable while hidden since its surface is kept alive. Selecting never creates a split pane, so the

@@ -169,6 +169,11 @@ side, and reads `lastAppliedIsDark` when bare. Refuse it outside XCUITest; provi
   unrealized session, with or without `select`, so `session.new --no-select` plus an immediate type does
   not race the mount+layout gap (#349). The probe precedes every sleep, so a realized session pays nothing
   and `select` moves selection only when the surface was not ready. `right`/`scratch` still fail fast.
+- `session.type` ok means the keystrokes were queued to the pty, not that the shell read or ran them (#350).
+  Nothing is lost in between: libghostty's write mailbox blocks instead of dropping, messages queued before
+  the io thread starts are drained once the subprocess is up, and no code path flushes pending tty input.
+  A caller needing execution polls `session.text`, which is what the e2e marker idiom does.
+  `ghostty_surface_key`'s bool reports consumption, not delivery, so checking it would add no readiness.
 - `inject` emits Ghostty key events and Return keycode 36 for newline/CR/CRLF. Never replace it with
   `ghostty_surface_text`, whose bracketed paste suppresses Return and can expose `\e[200~`/`\e[201~`
   markers under rapid use.
