@@ -317,7 +317,7 @@ public final class AppStore {
     /// false leaves the target where it is. `ensureWorkspace(named:revealNewWorkspace:)` forwards both.
     @discardableResult
     public func addWorkspace(name: String, collapsed: Bool = false, revealNewWorkspace: Bool = true) -> Workspace {
-        // {AGT_WORKSPACE_NAME} expands unquoted into /bin/sh -c; strip control chars as the OSC path does (TerminalText).
+        // the name feeds {AGT_WORKSPACE_NAME}; see TerminalText.
         let workspace = Workspace(name: TerminalText.sanitized(name), isExpanded: !collapsed)
         workspaces.append(workspace)
         if revealNewWorkspace {
@@ -332,8 +332,7 @@ public final class AppStore {
     /// The first workspace whose name exactly equals `name` (case-sensitive, trimmed); nil when none matches
     /// or `name` is blank. Backs `session.new --workspace-name` (addressing by sidebar label, not id).
     public func workspace(named name: String) -> Workspace? {
-        // sanitize the needle like the stored names, so a raw control-char lookup still finds its workspace
-        // (session.new --workspace-name without --create-workspace calls this directly).
+        // the needle sanitizes like the stored names, or a raw control-char lookup misses its own workspace.
         guard let needle = TerminalText.sanitized(name).trimmedOrNil else { return nil }
         return workspaces.first { $0.name == needle }
     }
@@ -342,8 +341,8 @@ public final class AppStore {
     /// is forwarded to `addWorkspace` on the create path. Nil only when blank. Backs `--workspace-name --create-workspace`.
     @discardableResult
     public func ensureWorkspace(named name: String, revealNewWorkspace: Bool = true) -> Workspace? {
-        // sanitize before the blank check: a control-char-only name must read as blank, not create an
-        // unmatchable empty-named workspace on every call.
+        // sanitize before the blank check, so a control-char-only name reads as blank instead of appending
+        // an unmatchable empty-named workspace on every call.
         guard let needle = TerminalText.sanitized(name).trimmedOrNil else { return nil }
         return workspace(named: needle) ?? addWorkspace(name: needle, revealNewWorkspace: revealNewWorkspace)
     }
@@ -357,9 +356,8 @@ public final class AppStore {
     public func addSession(toWorkspace workspaceID: UUID, cwd: String, command: String? = nil,
                            name: String? = nil, wait: Bool = false, at index: Int? = nil, select: Bool = true) -> Session? {
         guard let wsIndex = workspaces.firstIndex(where: { $0.id == workspaceID }) else { return nil }
-        // Both seed values reach a custom-command token that expands unquoted into /bin/sh -c: cwd via
-        // initialCwd → effectiveCwd → {AGT_SESSION_PWD} until OSC 7 reports, and name via customName →
-        // {AGT_SESSION_NAME}. Strip control characters the same way the OSC path does. See TerminalText.
+        // cwd feeds {AGT_SESSION_PWD} through initialCwd → effectiveCwd until OSC 7 reports; name feeds
+        // {AGT_SESSION_NAME}. See TerminalText.
         let session = Session(initialCwd: TerminalText.sanitized(cwd),
                               customName: name.map(TerminalText.sanitized)?.trimmedOrNil)
         session.initialCommand = command

@@ -317,7 +317,7 @@ public final class WindowLibrary {
     /// Defaults the name to "window N".
     @discardableResult
     public func newWindow(name: String? = nil) -> WindowInfo {
-        // {AGT_WINDOW_NAME} expands unquoted into /bin/sh -c; strip control chars as the OSC path does (TerminalText).
+        // the name feeds {AGT_WINDOW_NAME}; see TerminalText.
         let info = WindowInfo(name: name.map(TerminalText.sanitized)?.trimmedOrNil ?? defaultWindowName)
         let store = makeStore(for: info.id, persistence: persistenceStore(for: info.id))
         let workspace = store.addWorkspace(name: "workspace 1")
@@ -398,7 +398,7 @@ public final class WindowLibrary {
 
     /// Renames a window; the name lives only in the index. An empty/whitespace-only name is ignored.
     public func renameWindow(_ id: UUID, to name: String) {
-        // {AGT_WINDOW_NAME} expands unquoted into /bin/sh -c; strip control chars as the OSC path does (TerminalText).
+        // the name feeds {AGT_WINDOW_NAME}; see TerminalText.
         guard let trimmed = TerminalText.sanitized(name).trimmedOrNil, let index = windows.firstIndex(where: { $0.id == id }) else { return }
         guard windows[index].name != trimmed else { return }
         windows[index].name = trimmed
