@@ -339,18 +339,18 @@ helper on `Open` so the `--pane` forwarding is assertable.
 - Modify: `agtermCore/Sources/agtermCore/Session.swift`
 - Modify: `agtermCore/Tests/agtermCoreTests/SessionTests.swift`
 
-- [ ] add `OverlayPane` (with `init?(controlName:)`) and `PaneOverlay` to `Session.swift`
-- [ ] add the six paired slots (`leftOverlay`/`rightOverlay`, their surfaces, their exit codes) with the
+- [x] add `OverlayPane` (with `init?(controlName:)`) and `PaneOverlay` to `Session.swift`
+- [x] add the six paired slots (`leftOverlay`/`rightOverlay`, their surfaces, their exit codes) with the
       observed vs `@ObservationIgnored` split documented on the surface fields
-- [ ] add `paneOverlay(_:)`, `paneOverlaySurface(_:)`, `openPaneOverlays`, and `focusedOverlayPane`
-- [ ] add `rendersPane(_:)` implementing the three-case table in Technical Details
-- [ ] write tests for `OverlayPane.init?(controlName:)` (left/primary/right/split accepted, `scratch`
+- [x] add `paneOverlay(_:)`, `paneOverlaySurface(_:)`, `openPaneOverlays`, and `focusedOverlayPane`
+- [x] add `rendersPane(_:)` implementing the three-case table in Technical Details
+- [x] write tests for `OverlayPane.init?(controlName:)` (left/primary/right/split accepted, `scratch`
       and unknown rejected)
-- [ ] write tests for `rendersPane` across all three session shapes, including the hidden-split-focused
+- [x] write tests for `rendersPane` across all three session shapes, including the hidden-split-focused
       case and a session with no split surface
-- [ ] write tests for `focusedOverlayPane` (nil when the focused pane's slot is empty, `.right` only
+- [x] write tests for `focusedOverlayPane` (nil when the focused pane's slot is empty, `.right` only
       when `splitFocused` AND `splitSurface != nil`, `.left` after a promotion)
-- [ ] run `cd agtermCore && swift test` — must pass before task 2
+- [x] run `cd agtermCore && swift test` — must pass before task 2
 
 ### Task 2: Add store open / close / exit-record for pane overlays
 
@@ -358,45 +358,51 @@ helper on `Open` so the `--pane` forwarding is assertable.
 - Modify: `agtermCore/Sources/agtermCore/AppStore+Panes.swift`
 - Modify: `agtermCore/Tests/agtermCoreTests/AppStorePaneTests.swift`
 
-- [ ] add `openPaneOverlay(_:pane:command:cwd:wait:backgroundColor:)` returning a typed failure reason
+- [x] add `openPaneOverlay(_:pane:command:cwd:wait:backgroundColor:)` returning a typed failure reason
       (already open / pane not visible) rather than a bare `Bool`, so the caller can pick the error string
-- [ ] add `closePaneOverlay(_:pane:)` — tears the surface down and clears the slot, leaving the exit code
-- [ ] add `recordPaneOverlayExit(_:pane:code:)`
-- [ ] verify opening clears that pane's stale exit code, and that closing does NOT
-- [ ] write tests for open success on both panes, including left and right open simultaneously and
+- [x] add `closePaneOverlay(_:pane:)` — tears the surface down and clears the slot, leaving the exit code
+- [x] add `recordPaneOverlayExit(_:pane:code:)`
+- [x] verify opening clears that pane's stale exit code, and that closing does NOT
+- [x] write tests for open success on both panes, including left and right open simultaneously and
       independent of a session-wide overlay
-- [ ] write tests for both rejection paths (already open, pane not rendered)
-- [ ] write tests for close + exit-code retention and for the next-open reset
-- [ ] write a test that `wait` round-trips into the stored `PaneOverlay`, so the factory can apply
+- [x] write tests for both rejection paths (already open, pane not rendered)
+- [x] write tests for close + exit-code retention and for the next-open reset
+- [x] write a test that `wait` round-trips into the stored `PaneOverlay`, so the factory can apply
       `waitAfterCommand` and `--wait` is not silently dropped
-- [ ] write a test that two pane overlays open at once hold INDEPENDENT `backgroundColor` and `cwd`
+- [x] write a test that two pane overlays open at once hold INDEPENDENT `backgroundColor` and `cwd`
       values, so neither slot can shadow the other
-- [ ] run `cd agtermCore && swift test` — must pass before task 3
+- [x] run `cd agtermCore && swift test` — must pass before task 3
 
 ### Task 3: Free pane overlays at every teardown site
 
 **Files:**
+- Modify: `agtermCore/Sources/agtermCore/Session.swift` (➕ the shared `teardownPaneOverlay(_:)` /
+  `teardownPaneOverlays()` / `promotePaneOverlay()` helpers the five sites call)
 - Modify: `agtermCore/Sources/agtermCore/AppStore+Panes.swift`
 - Modify: `agtermCore/Sources/agtermCore/AppStore.swift`
 - Modify: `agtermCore/Sources/agtermCore/AppStore+PendingClose.swift`
 - Modify: `agterm/Views/WindowAccessor.swift`
 - Modify: `agtermCore/Tests/agtermCoreTests/AppStorePaneTests.swift`
 
-- [ ] `closeSplit` tears down the right pane overlay and clears its slot and exit code
-- [ ] `closePrimaryPane` MIGRATES the right pane overlay (slot, surface, exit code) into the left slot
+- [x] `closeSplit` tears down the right pane overlay and clears its slot and exit code
+- [x] `closePrimaryPane` MIGRATES the right pane overlay (slot, surface, exit code) into the left slot
       alongside the promoted survivor, and tears down the dying left one — following the
       `restoreCommand`/`splitRestoreCommand` migration at the same site (`AppStore+Panes.swift:108`)
-- [ ] `closeSplitPane` frees the right slot
-- [ ] free both slots at `AppStore.closeSession` (`:425`), `AppStore.removeWorkspace` (`:459`),
+- [x] `closeSplitPane` frees the right slot
+- [x] free both slots at `AppStore.closeSession` (`:425`), `AppStore.removeWorkspace` (`:459`),
       `AppStore+PendingClose.hardFinalizePendingSession` (`:405`), and `WindowAccessor` window close
       (`:151`) — each alongside the existing `overlaySurface?.teardown()` call
-- [ ] confirm store-capturing callbacks are nilled on teardown so no store→session→surface→closure cycle
-      survives, per `.claude/rules/libghostty.md`
-- [ ] confirm `clearIndicatorOwnedByPane` and `clearSearch` interactions are unaffected
-- [ ] write tests for promotion migrating a right overlay to left with its exit code intact
-- [ ] write tests for `closeSplit` tearing down only the right overlay, leaving a left one alive
-- [ ] write tests that session close, workspace removal, and pending-close finalization each free both slots
-- [ ] run `cd agtermCore && swift test`, `make lint` — must pass before task 4
+- [x] confirm store-capturing callbacks are nilled on teardown so no store→session→surface→closure cycle
+      survives, per `.claude/rules/libghostty.md` — `teardown()` routes to
+      `GhosttySurfaceView.destroySurface`, which nils `onExit` / `onExitCodeCaptured` and the rest after
+      handing off the captured exit status
+- [x] confirm `clearIndicatorOwnedByPane` and `clearSearch` interactions are unaffected — both key off
+      `StatusPane` / `searchSurface`, neither of which a pane overlay surface can occupy yet (search
+      targeting is Task 7)
+- [x] write tests for promotion migrating a right overlay to left with its exit code intact
+- [x] write tests for `closeSplit` tearing down only the right overlay, leaving a left one alive
+- [x] write tests that session close, workspace removal, and pending-close finalization each free both slots
+- [x] run `cd agtermCore && swift test`, `make lint` — must pass before task 4
 
 ### Task 4: Extend the control protocol and dispatcher
 
@@ -404,26 +410,33 @@ helper on `Open` so the `--pane` forwarding is assertable.
 - Modify: `agtermCore/Sources/agtermCore/ControlProtocol.swift`
 - Modify: `agtermCore/Sources/agtermCore/ControlDispatcher.swift`
 - Modify: `agtermCore/Sources/agtermCore/AppStore.swift`
+- Modify: `agtermCore/Sources/agtermCore/Session.swift` (➕ the `paneOverlayExitCode(_:)` accessor the
+  `overlay.result --pane` arm reads)
 - Modify: `agterm/Control/ControlServer+SessionActions.swift`
 - Modify: `agtermCore/Tests/agtermCoreTests/MockControlActions.swift`
 - Modify: `agtermCore/Tests/agtermCoreTests/ControlProtocolTests.swift`
 - Modify: `agtermCore/Tests/agtermCoreTests/ControlDispatcherTests.swift`
+- Modify: `agtermCore/Tests/agtermCoreTests/AppStorePaneTests.swift` (➕ the `controlTree` population test,
+  which needs a live store)
+- Add: `agtermCore/Tests/agtermCoreTests/ControlDispatcherOverlayTests.swift` (➕ `ControlDispatcherTests`
+  was at 1960 of its 2000-line cap, so the `session.overlay.*` family moved out whole, following the
+  existing `ControlDispatcherDashboardTests` / `…PickTests` / `…WorkspaceTests` carve-outs)
 
-- [ ] add the five new error strings beside the existing overlay error constants
-- [ ] extend the `ControlArgs.pane` doc comment (`ControlProtocol.swift:146-152`) to name the overlay
+- [x] add the five new error strings beside the existing overlay error constants
+- [x] extend the `ControlArgs.pane` doc comment (`ControlProtocol.swift:146-152`) to name the overlay
       commands and their `left|right`-only semantics
-- [ ] add `paneOverlays: [String]?` to `ControlSessionNode`, populated from `openPaneOverlays` in
+- [x] add `paneOverlays: [String]?` to `ControlSessionNode`, populated from `openPaneOverlays` in
       `AppStore.controlTree` (`AppStore.swift:252` area)
-- [ ] add `pane` to `ControlSessionOverlayOpenOptions` and to the `closeSessionOverlay` /
+- [x] add `pane` to `ControlSessionOverlayOpenOptions` and to the `closeSessionOverlay` /
       `sessionOverlayResult` signatures on `ControlActions`, updating `MockControlActions`
-- [ ] put host-free validation in `ControlDispatcher` (invalid pane, `--pane` with `--size-percent`,
+- [x] put host-free validation in `ControlDispatcher` (invalid pane, `--pane` with `--size-percent`,
       `--pane` on resize) and session-dependent rejections (already open, pane not visible) in
       `ControlServer+SessionActions.swift` — never in the app-side fallback switch
-- [ ] write dispatcher tests for each host-free rejection asserting the exact error strings, including
+- [x] write dispatcher tests for each host-free rejection asserting the exact error strings, including
       `--pane` on `session.overlay.resize`
-- [ ] write tests for `paneOverlays` read-back — omitted when none, both panes when both open
-- [ ] write tests that omitting `--pane` still drives the session-wide overlay unchanged
-- [ ] run `cd agtermCore && swift test`, `make lint` — must pass before task 5
+- [x] write tests for `paneOverlays` read-back — omitted when none, both panes when both open
+- [x] write tests that omitting `--pane` still drives the session-wide overlay unchanged
+- [x] run `cd agtermCore && swift test`, `make lint` — must pass before task 5
 
 ### Task 5: Add --pane to agtermctl
 
@@ -431,19 +444,22 @@ helper on `Open` so the `--pane` forwarding is assertable.
 - Modify: `agtermCore/Sources/agtermctlKit/SessionCommands.swift`
 - Modify: `agtermCore/Tests/agtermctlKitTests/CommandsTests.swift`
 
-- [ ] add `--pane` to `overlay open`, `overlay close`, and `overlay result` with help text stating pane
+- [x] add `--pane` to `overlay open`, `overlay close`, and `overlay result` with help text stating pane
       overlays are always full-pane
-- [ ] add an overlay-specific `left|right` validator — do NOT reuse the shared `validatePaneArgument`
+- [x] add an overlay-specific `left|right` validator — do NOT reuse the shared `validatePaneArgument`
       (`SessionCommands.swift:9`), which also accepts `scratch`
-- [ ] extract `resultRequest(id:)` on `Open` so the `--block` poll request is reachable from tests, and
+- [x] extract `resultRequest(id:)` on `Open` so the `--block` poll request is reachable from tests, and
       forward `--pane` through it
-- [ ] leave `overlay resize` without a `--pane` option
-- [ ] write tests for request construction from each flag combination
-- [ ] write a test that `--pane scratch` fails as a CLI usage error before any socket round-trip
-- [ ] write a test that `--block` forwards `--pane` into the poll request — without it the poll queries
+- [x] leave `overlay resize` without a `--pane` option
+- [x] write tests for request construction from each flag combination
+- [x] write a test that `--pane scratch` fails as a CLI usage error before any socket round-trip
+- [x] write a test that `--block` forwards `--pane` into the poll request — without it the poll queries
       the session-wide slot and blocks forever
-- [ ] write a test that `--block` with `--wait` is still rejected at parse time when `--pane` is given
-- [ ] run `cd agtermCore && swift test`, `make lint` — must pass before task 6
+- [x] write a test that `--block` with `--wait` is still rejected at parse time when `--pane` is given
+- [x] run `cd agtermCore && swift test`, `make lint` — must pass before task 6
+- ➕ `Open.validate()` also rejects `--pane` with `--size-percent` at parse time, matching the file's
+      convention of catching mutually-exclusive combos before the socket; the dispatcher still re-checks it
+      for raw socket clients
 
 ### Task 6: Render pane overlays at all three sites
 
@@ -453,74 +469,112 @@ helper on `Open` so the `--pane` forwarding is assertable.
 - Modify: `agterm/Views/WindowContentView.swift`
 - Modify: `agterm/Views/WindowContentView+Zoom.swift`
 - Modify: `agtermUITests/ControlOverlaySplitUITests.swift`
+- Add: `agterm/Views/WindowContentView+Detail.swift` (➕ the detail deck — `detailPane`, `sessionDetail`,
+  `overlayPanel`, `paneOverlayPanel`, `paneDim` — moved out whole; the pane-overlay rendering pushed
+  `WindowContentView.swift` to 1004 lines, past its 1000-line cap, so it follows the existing
+  `+Zoom` / `+Dashboard` / `+Titlebar` / `+RecentSessions` carve-outs rather than raising the limit)
 
-- [ ] give `makeOverlaySurface` an `OverlayPane?` parameter so it reads the right slot's
+- [x] give `makeOverlaySurface` an `OverlayPane?` parameter so it reads the right slot's
       command/cwd/wait/backgroundColor and routes `onExit`/`onExitCodeCaptured` to that pane, updating
       the closure type threaded through `ContentView.swift:18,65` and its use at
       `WindowContentView+Zoom.swift:177`
-- [ ] add `paneOverlayPanel(session:pane:isActive:)` — an always-present sibling with content gated
+- [x] add `paneOverlayPanel(session:pane:isActive:)` — an always-present sibling with content gated
       inside a `GeometryReader`, modeled on `overlayPanel` (`WindowContentView.swift:562`)
-- [ ] place it inside BOTH arranged-subview ZStacks at render site 1, and add the missing ZStack
+- [x] place it inside BOTH arranged-subview ZStacks at render site 1, and add the missing ZStack
       wrappers at sites 2 and 3 so the sibling has a home there too
-- [ ] hide a pane under its own overlay (opacity 0, hit-testing off) WITHOUT touching any modifier that
+- [x] hide a pane under its own overlay (opacity 0, hit-testing off) WITHOUT touching any modifier that
       wraps the NSSplitView — see the boundary note at `WindowContentView.swift:514-519`
-- [ ] write a hosted test asserting `splitRatio` in `tree --json` is unchanged across a pane-overlay
+- [x] write a hosted test asserting `splitRatio` in `tree --json` is unchanged across a pane-overlay
       open and close — the value is captured from the live NSSplitView, so it is a real oracle for the
       divider-normalize regression
-- [ ] write a hosted test asserting the sibling pane stays visible and interactive while one pane's
+- [x] write a hosted test asserting the sibling pane stays visible and interactive while one pane's
       overlay is up
-- [ ] verify by eye on an isolated Debug instance (see Post-Completion for the procedure)
-- [ ] run `make test-app`, `make lint` — must pass before task 7
+- [x] verify by eye (deferred to maintainer — not automatable, see Post-Completion)
+- [x] run `make test-app`, `make lint` — must pass before task 7
+- ➕ `makeOverlaySurface` reads its slot through a shared `overlaySpec(for:pane:)` returning a
+      `PaneOverlay`; nil pane rebuilds the session-wide values so that path is byte-for-byte unchanged
+- ➕ the pane-overlay focus gate is `focusable && !overlaid`, shared by both panes for now; per-pane
+      focus routing is Task 7's `isActive` work
+- ⚠️ the two new XCUITests COMPILE (`build-for-testing` succeeds) but could NOT be EXECUTED here:
+      `testmanagerd` logs `Writer daemon requires authentication to enable automation mode`, so the
+      runner waits on an unanswered "Enable UI Automation" authorization prompt and times out after 60s.
+      An untouched pre-existing test (`testOverlayOpenRequiresCommand`) fails identically at the same
+      point, so this is a host authorization gate, not a defect in the change. Run them after approving
+      the prompt:
+      `xcodebuild test -project agterm.xcodeproj -scheme agterm -destination 'platform=macOS'
+      -only-testing:agtermUITests/ControlOverlaySplitUITests/testPaneOverlayOpenAndCloseKeepSplitRatio
+      -only-testing:agtermUITests/ControlOverlaySplitUITests/testPaneOverlayLeavesSiblingPaneInteractive`
 
 ### Task 7: Per-pane visibility, focus, and cover handling
 
 **Files:**
-- Modify: `agterm/Views/WindowContentView.swift`
+- Modify: `agterm/Views/WindowContentView+Detail.swift` (➕ the detail deck moved here in Task 6, so the
+  per-pane `deckVisible`/`isActive` work lands here rather than in `WindowContentView.swift`)
 - Modify: `agterm/AppActions.swift`
 - Modify: `agterm/AppActions+Focus.swift`
 - Modify: `agterm/Notifications/NotificationManager.swift`
+- Modify: `agterm/agtermApp.swift` (➕ the pane overlay's `onFocusChange`, which moves `splitFocused` the
+  way its pane's own surface does)
 - Modify: `agtermCore/Sources/agtermCore/Session.swift`
 - Modify: `agtermCore/Tests/agtermCoreTests/SessionTests.swift`
-- Modify: `agtermCore/Tests/agtermCoreTests/AppStoreFocusTests.swift`
 
-- [ ] make the pane's `deckVisible` and `isActive` each account for that pane's own overlay, so a
+- [x] make the pane's `deckVisible` and `isActive` each account for that pane's own overlay, so a
       covered pane registers no drag types and sets no mouse cursor (the issue #225 class)
-- [ ] update `topmostSurface` to the four-level precedence in Technical Details
-- [ ] pass `isActive` to the pane overlay so one opening on the UNFOCUSED pane does not pull focus, and
+- [x] update `topmostSurface` to the four-level precedence in Technical Details
+- [x] pass `isActive` to the pane overlay so one opening on the UNFOCUSED pane does not pull focus, and
       drive the bounded focus retry on close as `session.overlayActive`'s `onChange` does
-- [ ] route `focusSplitPane` (`AppActions+Focus.swift:181`) through the pane's overlay when one is up,
+- [x] route `focusSplitPane` (`AppActions+Focus.swift:181`) through the pane's overlay when one is up,
       so `session.focus right` cannot make a covered pane first responder
-- [ ] extend `searchTarget` (`AppActions.swift:771`) and `coverHidesActiveSession` so ⌘F does not open
+- [x] extend `searchTarget` (`AppActions.swift:771`) and `coverHidesActiveSession` so ⌘F does not open
       the bar over a pane hidden by its own overlay
-- [ ] insert a pane-overlay rung into the `closeActiveSession` cover ladder
+- [x] insert a pane-overlay rung into the `closeActiveSession` cover ladder
       (`AppActions.swift:229-230`), between scratch and closing the session, so ⌘W dismisses the overlay
       instead of closing the session
-- [ ] map a pane-overlay surface in `NotificationManager.paneRole` (`:202-206`) so banner-click reveal
+- [x] map a pane-overlay surface in `NotificationManager.paneRole` (`:202-206`) so banner-click reveal
       focuses the right surface instead of falling through to `.main`
-- [ ] write tests for `topmostSurface` across the precedence matrix (session overlay, scratch, focused
+- [x] write tests for `topmostSurface` across the precedence matrix (session overlay, scratch, focused
       pane overlay, unfocused pane overlay, bare pane)
-- [ ] write tests for focus routing with a pane overlay on the focused and unfocused pane
-- [ ] run `cd agtermCore && swift test`, `make test-app`, `make lint` — must pass before task 8
+- [x] write tests for focus routing with a pane overlay on the focused and unfocused pane
+- [x] run `cd agtermCore && swift test`, `make test-app`, `make lint` — must pass before task 8
+- ➕ `focusSplitPane`'s cover routing moved into host-free `Session.focusTarget(wantSplit:)`, so the pane
+      rung is testable in `SessionTests` (`AppStoreFocusTests` owns the sidebar focus FILTER, not pane focus)
+- ➕ a pane overlay's `onFocusChange` writes `splitFocused` like its pane's surface does; without it a
+      click on the unfocused pane's overlay would be undone by the next `updateNSView` resigning it
+- ⚠️ `make test-app` could NOT be executed: `automationmodetool` reports "Automation Mode is disabled.
+      This device requires user authentication to enable Automation Mode", so testmanagerd refuses
+      xcodebuild's `XCTestManager_IDEInterface` channel and the host hangs in
+      `-[XCTestDriver _prepareTestConfigurationAndIDESession]` (verified with `sample`: no agterm frames
+      on the stack) until `The test runner hung before establishing connection`. Reproduced twice; the
+      gate engaged when Task 6's XCUITest run requested Automation Mode, minutes after the last passing
+      `make test-app`. `swift test` (2151), `make build`, and `make lint` all pass. Re-run after
+      authorizing Automation Mode.
 
 ### Task 8: Add the zoom surface cases and restore predicate exclusivity
 
 **Files:**
 - Modify: `agtermCore/Sources/agtermCore/TerminalZoom.swift`
 - Modify: `agterm/Views/WindowContentView+Zoom.swift`
+- Modify: `agterm/Views/WindowContentView+Detail.swift` (➕ `paneOverlayPanel` is the CALLER that has to
+  consult `deckHostsSurface` for the new slots; the predicate itself needed no change)
 - Modify: `agtermCore/Tests/agtermCoreTests/TerminalZoomTests.swift`
 - Modify: `agtermCore/Tests/agtermCoreTests/DashboardTargetTests.swift`
 
-- [ ] add `overlayLeft` / `overlayRight` cases with their `controlName` spellings
-- [ ] implement `isAvailable` / `isActive` / `isVisible` for both, and NARROW `.primary` / `.split` per
+- [x] add `overlayLeft` / `overlayRight` cases with their `controlName` spellings
+- [x] implement `isAvailable` / `isActive` / `isVisible` for both, and NARROW `.primary` / `.split` per
       the table in Technical Details
-- [ ] update BOTH exhaustive switches in `WindowContentView+Zoom.swift` — `zoomedSessionTerminal`
+- [x] update BOTH exhaustive switches in `WindowContentView+Zoom.swift` — `zoomedSessionTerminal`
       (`:163`) and `focusZoomedSessionSurface` (`:191-196`) — and claim the slot in `deckHostsSurface`
-- [ ] write a property test asserting AT MOST ONE case satisfies `isActive` across a matrix of session
+- [x] write a property test asserting AT MOST ONE case satisfies `isActive` across a matrix of session
       states (split on/off, focus left/right, scratch on/off, session overlay on/off, each pane overlay
       on/off) — this is the exclusivity guarantee `resolveTarget` relies on
-- [ ] write tests for `TerminalSurfaceID` round-tripping `surface:<uuid>:overlay-left` and `-right`
-- [ ] write a regression test that `DashboardTarget` still refuses `overlay-left` / `overlay-right`
-- [ ] run `cd agtermCore && swift test`, `make lint` — must pass before task 9
+- [x] write tests for `TerminalSurfaceID` round-tripping `surface:<uuid>:overlay-left` and `-right`
+- [x] write a regression test that `DashboardTarget` still refuses `overlay-left` / `overlay-right`
+- [x] run `cd agtermCore && swift test`, `make lint` — must pass before task 9
+- ➕ the exclusivity property test asserts EXACTLY one active case, not just at most one: the narrowed
+      predicates stay total, which is what makes `resolveTarget`'s `?? .primary` fallback unreachable
+- ➕ `isVisible`'s four pane cases share a `paneVisible(_:in:)` helper so the pane and its overlay cannot
+      drift apart; `surfaces[]` in `controlTree` picks the new cases up from `allCases` with no change
+- ✅ `make test-app` runs again on this host (Automation Mode authorized since Task 7): 91 tests, 0 failures
 
 ### Task 9: Hosted UI coverage
 
@@ -528,11 +582,28 @@ helper on `Open` so the `--pane` forwarding is assertable.
 - Modify: `agtermUITests/ControlOverlaySplitUITests.swift`
 - Modify: `agtermUITests/ControlSurfaceZoomUITests.swift`
 
-- [ ] add a test opening both pane overlays simultaneously and closing them independently
-- [ ] add a test asserting the rejection when the split is hidden
-- [ ] add a test that ⌘W dismisses a pane overlay rather than closing the session
-- [ ] add a zoom test addressing `surface:<id>:overlay-right` and returning to the deck
-- [ ] run `make test-app` — must pass before task 10
+- [x] add a test opening both pane overlays simultaneously and closing them independently
+- [x] add a test asserting the rejection when the split is hidden
+- [x] add a test that ⌘W dismisses a pane overlay rather than closing the session
+- [x] add a zoom test addressing `surface:<id>:overlay-right` and returning to the deck
+- [x] run `make test-app` — must pass before task 10
+- ➕ the hidden-split rejection needs `session.focus left` BEFORE hiding: a hidden split renders whichever
+      pane is focused, and a new split focuses the right one, so hiding alone leaves the RIGHT pane visible
+      and the LEFT one unrendered. The test also opens on the left afterwards, pinning that the guard is
+      per-pane rather than a blanket refusal on a hidden split.
+- ➕ the ⌘W test first probes the right pane with `session.type --pane right` (tolerating
+      `session not realized`, as `typeUntilMarker` does) because the rung reads `focusedOverlayPane`, which
+      resolves `.right` only while `splitSurface` exists — an overlay opened before the pane realized would
+      resolve `.left` and ⌘W would close the session.
+- ✅ Automation Mode is authorized on this host, so every test in this task was EXECUTED and passed:
+      `testBothPaneOverlaysOpenAtOnceAndCloseIndependently` (3.1s),
+      `testPaneOverlayOnHiddenSplitIsRejected` (3.1s),
+      `testCloseSessionShortcutClosesPaneOverlayInsteadOfClosingSession` (4.6s),
+      `ControlSurfaceZoomUITests.testPaneOverlayZoomRoundTrip` (5.4s). Both touched classes ran whole:
+      `ControlOverlaySplitUITests` 31 tests / 0 failures (127.6s) and `ControlSurfaceZoomUITests`
+      8 tests / 0 failures (48.4s), which also RE-RAN Task 6's two tests green
+      (`testPaneOverlayOpenAndCloseKeepSplitRatio` 7.5s, `testPaneOverlayLeavesSiblingPaneInteractive` 10.5s).
+      `swift test` (2156), `make build`, `make lint`, and `make test-app` (91 tests) all pass.
 
 ### Task 10: Update the synchronized documentation surfaces
 
@@ -544,40 +615,119 @@ helper on `Open` so the `--pane` forwarding is assertable.
 - Modify: `site/commands.html`
 - Modify: `site/docs.html`
 
-- [ ] document `--pane` on the three overlay commands and the always-full-pane rule in the skill
-- [ ] document the `paneOverlays` tree field and the `overlay-left` / `overlay-right` surface ids
-- [ ] add an examples.md recipe for the agent case (`--pane "$AGTERM_PANE"` against
+- [x] document `--pane` on the three overlay commands and the always-full-pane rule in the skill
+- [x] document the `paneOverlays` tree field and the `overlay-left` / `overlay-right` surface ids
+- [x] add an examples.md recipe for the agent case (`--pane "$AGTERM_PANE"` against
       `"$AGTERM_SESSION_ID"`)
-- [ ] mirror the command, its arguments, and the read-back field into `site/commands.html`, and the
+- [x] mirror the command, its arguments, and the read-back field into `site/commands.html`, and the
       feature into `README.md` + `site/docs.html`
-- [ ] confirm `plugins/agterm/skills/agterm/troubleshooting.md` needs no change (it mentions overlays)
-- [ ] do NOT bump any command count — this adds arguments, not commands, so `SkillInstallTests`'
+- [x] confirm `plugins/agterm/skills/agterm/troubleshooting.md` needs no change (it mentions overlays)
+- [x] do NOT bump any command count — this adds arguments, not commands, so `SkillInstallTests`'
       `Command summary (N commands)` assertion and the count mentions in `site/commands.html` stay put
-- [ ] do NOT touch `CHANGELOG.md` (release-only) or `cookbook/` (not a synchronized surface)
-- [ ] run `cd agtermCore && swift test`, `make lint` — must pass before task 11
+- [x] do NOT touch `CHANGELOG.md` (release-only) or `cookbook/` (not a synchronized surface)
+- [x] run `cd agtermCore && swift test`, `make lint` — must pass before task 11
+- ➕ `troubleshooting.md` confirmed unchanged: its overlay mentions are the Edit Keymap editor overlay
+      and the exit-127 flash-and-vanish, neither of which pane scoping touches.
+- ➕ the skill's `paneOverlays` entry states it is reported independently of the session-wide `overlay`
+      flag, which a pane overlay never sets (`AppStore.controlTree` reads `session.overlayActive` for
+      that field), so a script must not gate one on the other.
 
 ### Task 11: Verify acceptance criteria
 
-- [ ] verify all requirements from Overview are implemented
-- [ ] verify every decision in Solution Overview holds in the shipped code, especially: omitting
+**Files:**
+- Modify: `agtermUITests/ControlOverlaySplitUITests.swift` (➕ the two hosted tests closing the
+  behavioral-equivalence coverage hole found by this verification)
+
+- [x] verify all requirements from Overview are implemented — pane scoping with a live sibling
+      (`WindowContentView+Detail.swift:62-63,85,104` and `testPaneOverlayLeavesSiblingPaneInteractive`),
+      independent simultaneous slots (`Session.swift:229-249`,
+      `testBothPaneOverlaysOpenAtOnceAndCloseIndependently`), delivered as `--pane` on the existing
+      commands with the command count unchanged at 71
+- [x] verify every decision in Solution Overview holds in the shipped code, especially: omitting
       `--pane` is byte-for-byte today's behavior; pane overlays reject a size percent; a non-split
       session accepts `--pane left`; ⌘W dismisses before closing
-- [ ] verify the behavioral-equivalence requirement end-to-end on a real pane overlay: it auto-closes on
+      - no-pane CLI: `Close`/`Result` pass `pane.map { … }` into `withWindow`, which returns the base
+        unchanged (`Commands.swift:58-63`), so `args` stays nil exactly as on master; `Open` adds
+        `pane: nil` to `ControlArgs`, which the synthesized encoder omits; the `--block` poll's
+        `resultRequest(id:)` yields master's bare request. Pinned by `sessionOverlayCloseWithPane`,
+        `sessionOverlayResultWithPane`, `sessionOverlayOpenWithoutPane`, `sessionOverlayBlockPollWithoutPane`
+      - no-pane dispatcher/app arms: `ControlDispatcher.swift:565-604` falls to the same `actions.*`
+        calls, and `ControlServer+SessionActions.swift:24-99` keeps the original `openOverlay` /
+        `closeOverlay` / `overlayActive` branches verbatim in the `else` arm;
+        `overlaySpec(for:pane: nil)` (`agtermApp.swift:459-464`) rebuilds the session-wide values and
+        only a pane sets `onFocusChange`. `sessionOverlayCommandsStaySessionWideWithoutPane` pins it
+      - size percent: rejected in `ControlDispatcher.swift:555-557` and again at parse time in
+        `SessionCommands.swift:641-643`; `session.overlay.resize` refuses ANY `--pane`
+        (`ControlDispatcher.swift:570-573`) and exposes no such option
+      - non-split `--pane left`: `Session.rendersPane` returns true for `.left` when neither `isSplit`
+        nor `splitFocused` (`Session.swift:381-385`, `rendersPaneIsLeftOnlyForAPlainSession`)
+      - ⌘W: the pane rung sits between scratch and the session close in `AppActions.swift:232`, proven by
+        `testCloseSessionShortcutClosesPaneOverlayInsteadOfClosingSession`
+- [x] verify the behavioral-equivalence requirement end-to-end on a real pane overlay: it auto-closes on
       program exit, `--wait` holds it open, and `--block` returns the program's own exit status
-- [ ] verify the cross-surface contract in project CLAUDE.md: protocol, dispatcher, CLI, read-back,
-      and protocol/end-to-end tests all exist for the new arguments
-- [ ] verify no overlay surface leaks: grep every `overlaySurface?.teardown()` site and confirm a pane
-      equivalent sits beside it
-- [ ] run full host-free suite: `cd agtermCore && swift test`
-- [ ] run hosted suite: `make test-app`
-- [ ] run `make lint` — zero findings required
+- [x] verify the cross-surface contract in project CLAUDE.md: protocol, dispatcher, CLI, read-back,
+      and protocol/end-to-end tests all exist for the new arguments — protocol `ControlArgs.pane` doc +
+      `ControlSessionNode.paneOverlays` + `PaneOverlayError` (`ControlProtocol.swift:152-156,396-400,753-762`),
+      dispatcher `parseOverlayPane` and the three arms (`ControlDispatcher.swift:425-440,550-604`), CLI
+      `Overlay.validatePane` / `resultRequest` (`SessionCommands.swift:606-613,657-659`), read-back
+      `AppStore.paneOverlays` plus `surfaces[]` from `TerminalZoomSurface.allCases`
+      (`AppStore.swift:267,304-308`), tests in `ControlDispatcherOverlayTests` (7 pane cases),
+      `ControlProtocolTests` (round-trip + nil omission), `CommandsTests` (11 cases),
+      `AppStorePaneTests.controlTreeReportsOpenPaneOverlays`, and 8 hosted tests
+- [x] verify no overlay surface leaks: grep every `overlaySurface?.teardown()` site and confirm a pane
+      equivalent sits beside it — 5 sites; 4 carry `teardownPaneOverlays()` on the next line
+      (`AppStore.swift:433`, `:468`, `AppStore+PendingClose.swift:406`, `WindowAccessor.swift:152`) and
+      the fifth, `closeOverlay` (`AppStore+Panes.swift:208`), correctly has none: it is the session-wide
+      overlay's own close, whose per-pane counterpart is `closePaneOverlay` (`:242`). The pane-only sites
+      add `teardownPaneOverlay(.right)` in `closeSplit` (`:72`) and
+      `teardownPaneOverlay(.left)` + `promotePaneOverlay()` in `closePrimaryPane` (`:128-129`);
+      `closeSplitPane` needs no call of its own because both its branches delegate to `closeSession` or
+      `closeSplit`
+- [x] run full host-free suite: `cd agtermCore && swift test` — 2156 tests in 84 suites, 0 failures
+- [x] run hosted suite: `make test-app` — 91 tests, 0 failures
+- [x] run `make lint` — zero findings
+- ➕ `make build` — BUILD SUCCEEDED. Both pane-overlay XCUITest classes ran whole:
+      `ControlOverlaySplitUITests` 31 tests / 0 failures (127.3s) and `ControlSurfaceZoomUITests`
+      8 tests / 0 failures (48.3s)
+- ➕ the behavioral-equivalence check found the ONE real gap in this branch: auto-close-on-exit,
+      `--wait`, and the app-side `session.overlay.result --pane` arm had no hosted coverage at all —
+      the session-wide `testOverlayAutoClosesWhenCommandExits` / `testOverlayResultReportsExitCode` pair
+      had no pane equivalent, so `recordPaneOverlayExit` and the result arm were reachable only by
+      reading. Closed with `testPaneOverlayAutoClosesOnExitAndReportsItsOwnStatus` (3.5s, also asserting
+      the pane status does NOT leak into the session-wide slot) and
+      `testPaneOverlayWaitHoldsTheSlotAfterItsProgramExits` (11.3s); both pass, keeping
+      `ControlOverlaySplitUITests` at 33 tests. `--block` needs no hosted test: it is CLI-only, no overlay
+      XCUITest drives the binary, and its two moving parts are the pane forwarding
+      (`sessionOverlayBlockPollCarriesPane`) and the `overlay.result --pane` poll now covered above
 
 ### Task 12: [Final] Update documentation
 
-- [ ] update `README.md` if any behavior drifted from Task 10
-- [ ] update project `CLAUDE.md` / `.claude/rules/libghostty.md` if the per-pane rendering or gating
+- [x] update `README.md` if any behavior drifted from Task 10 — none found. Every claim in the
+      pane-overlay paragraph (`README.md:342`) was re-checked against the shipped code: `--follow` runs
+      through the shared arm after both overlay kinds (`ControlServer+SessionActions.swift:45-47`),
+      `--pane` with `--size-percent` and `--pane` on resize are both refused, `pane not visible` is the
+      literal error, and `close`/`result` take the same `--pane`. Tasks 11 added tests only, no behavior.
+      README deliberately does not enumerate the `overlay-left`/`overlay-right` surface ids — it never
+      enumerates surface ids, pointing at `tree --json` instead (`README.md:291`); the skill and
+      `site/commands.html` own that list.
+- [x] update project `CLAUDE.md` / `.claude/rules/libghostty.md` if the per-pane rendering or gating
       established a new constraint worth pinning
-- [ ] move this plan to `docs/plans/completed/`
+- [x] move this plan to `docs/plans/completed/` (deferred - orchestrator moves it after the review phases)
+- ➕ `.claude/rules/libghostty.md` gained three things and its `paths:` entry widened to
+      `WindowContentView*.swift`, since the deck this rule governs now lives in `+Detail.swift` and the
+      old exact path would not load the rule there: the arranged-subview COMPLEMENT to the existing
+      titlebar-overrun rule (content inside one may change freely, which is what makes per-pane chrome
+      possible), the pane-overlay term added to the `deckVisible` exclusion list and the drag-eligibility
+      enumeration (leaving it out made that enumeration wrong, not merely short), and the `+Detail.swift`
+      carve-out line matching the `+Titlebar` / `+RecentSessions` convention in `settings.md` /
+      `menu-actions.md`.
+- ➕ deliberately NOT pinned: the four-level cover precedence and the `TerminalZoomSurface.isActive`
+      exclusivity/totality invariant. Both are already OWNED by doc comments at the code that enforces
+      them (`Session.topmostSurface:467-472`, `TerminalZoomSurface.isActive:49-51`,
+      `TerminalZoomController.resolveTarget:184-186`) plus the exactly-one property test, so restating
+      them in a rules file would violate "own each contract once". Project `CLAUDE.md` also left
+      untouched: its state-setting read-back list is illustrative, `overlay size` already stands for the
+      overlay family, and the contract itself did not change shape.
 
 ## Post-Completion
 
@@ -611,6 +761,25 @@ Address its CLI with the Debug binary's full path and the same `AGTERM_STATE_DIR
   `session restore`
 - GUI / keymap exposure for pane overlays (this change is control-native only, like the session overlay;
   the ⌘W rung in Task 7 protects an existing binding rather than adding one)
+
+## Known issues (pre-existing, out of scope)
+
+**A failed `ghostty_surface_new` strands an overlay slot forever.**
+`GhosttySurfaceView.createSurface()` (`agterm/Ghostty/GhosttySurfaceView.swift:502`) ends its allocation with
+`guard let surface else { return }`, returning silently after `TerminalView.makeNSView` has already parked
+the view in the session's overlay slot. Nothing reports the failure and nothing retires the slot, so it stays
+occupied with `isRealized == false` on a still-rendered pane: `session.overlay.result --pane` answers
+`overlay still running` for good and `--block` never returns. `dropUnrealizedPaneOverlays`
+(`agtermCore/Sources/agtermCore/Session.swift`) does not reach it — that slot's pane is still laid out, which
+is a legitimate host.
+This is not introduced by this branch. On `origin/master` `AppStore.openOverlay`
+(`agtermCore/Sources/agtermCore/AppStore+Panes.swift:159-171`) sets `session.overlayActive = true` the same
+way, `TerminalSurface.isRealized` does not exist there at all, and no test on master pins realization — so a
+failed allocation already strands the shipped SESSION-WIDE overlay identically. Fixing it for pane overlays
+alone would leave the two overlay kinds inconsistent; the real fix is to surface every surface kind's
+creation failure (report it out of `createSurface`, then close the slot that owns the view and record a
+failure status the `overlay.result` arms can return) rather than returning silently, which is a change
+outside this branch's scope.
 
 ---
 

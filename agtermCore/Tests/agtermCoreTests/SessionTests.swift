@@ -487,6 +487,371 @@ struct SessionTests {
         #expect(session.splitRestoreCommand == "tail -f /var/log/x")
     }
 
+    @Test(arguments: [
+        ("left", OverlayPane.left),
+        ("primary", OverlayPane.left),
+        ("right", OverlayPane.right),
+        ("split", OverlayPane.right),
+    ])
+    func overlayPaneAcceptsBothSpellingsOfEachPane(name: String, expected: OverlayPane) {
+        #expect(OverlayPane(controlName: name) == expected)
+    }
+
+    @Test(arguments: ["scratch", "overlay", "", "Left", "middle"])
+    func overlayPaneRejectsAnythingButLeftOrRight(name: String) {
+        #expect(OverlayPane(controlName: name) == nil)
+    }
+
+    @Test func rendersPaneCoversBothPanesWhileSplitIsShown() {
+        let session = Session(initialCwd: "/repo")
+        session.isSplit = true
+        session.splitSurface = FakeSurface()
+        #expect(session.rendersPane(.left))
+        #expect(session.rendersPane(.right))
+    }
+
+    @Test func rendersPaneIsRightOnlyForAHiddenSplitWithFocus() {
+        let session = Session(initialCwd: "/repo")
+        session.hasSplit = true
+        session.splitSurface = FakeSurface()
+        session.splitFocused = true
+        #expect(session.rendersPane(.left) == false)
+        #expect(session.rendersPane(.right))
+    }
+
+    @Test func rendersPaneIsLeftOnlyWithoutASplitSurface() {
+        // splitFocused without a split surface is the promoted-survivor window: the left pane is what
+        // sessionDetail lays out, so a right overlay would never realize.
+        let session = Session(initialCwd: "/repo")
+        session.splitFocused = true
+        #expect(session.rendersPane(.left))
+        #expect(session.rendersPane(.right) == false)
+    }
+
+    @Test func rendersPaneIsLeftOnlyForAPlainSession() {
+        let session = Session(initialCwd: "/repo")
+        #expect(session.rendersPane(.left))
+        #expect(session.rendersPane(.right) == false)
+    }
+
+    @Test func rendersPaneIsLeftOnlyForAHiddenSplitWithoutFocus() {
+        let session = Session(initialCwd: "/repo")
+        session.hasSplit = true
+        session.splitSurface = FakeSurface()
+        #expect(session.rendersPane(.left))
+        #expect(session.rendersPane(.right) == false)
+    }
+
+    @Test func renderedPanesFollowsTheShapeTheDeckBranchesOn() {
+        let session = Session(initialCwd: "/repo")
+        #expect(session.renderedPanes == [.left])
+        session.isSplit = true
+        session.hasSplit = true
+        session.splitSurface = FakeSurface()
+        #expect(session.renderedPanes == [.left, .right])
+        session.splitFocused = true
+        session.isSplit = false
+        #expect(session.renderedPanes == [.right])
+    }
+
+    @Test func dropUnrealizedPaneOverlaysRetiresOnlyTheStrandedSlot() {
+        let session = Session(initialCwd: "/repo")
+        let realized = FakeSurface()
+        session.hasSplit = true
+        session.splitSurface = FakeSurface()
+        session.leftOverlay = PaneOverlay(command: "revdiff")   // its pane is rendered
+        session.rightOverlay = PaneOverlay(command: "htop")     // un-rendered, never realized
+        session.dropUnrealizedPaneOverlays()
+        #expect(session.openPaneOverlays == [.left])
+
+        // a REALIZED overlay on an un-rendered pane keeps its program: the surface unmounts and a re-show
+        // remounts it.
+        session.rightOverlay = PaneOverlay(command: "htop")
+        session.rightOverlaySurface = realized
+        session.dropUnrealizedPaneOverlays()
+        #expect(session.openPaneOverlays == [.left, .right])
+        #expect(realized.teardownCount == 0)
+    }
+
+    // the focus flip is the non-store way a pane stops being laid out: `session.focus left` on a hidden
+    // split un-renders the right pane, and an overlay opened there before its surface realized would sit
+    // active with no program forever.
+    @Test func dropUnrealizedPaneOverlaysCoversAFocusFlipOnAHiddenSplit() {
+        let session = Session(initialCwd: "/repo")
+        session.hasSplit = true
+        session.splitSurface = FakeSurface()
+        session.splitFocused = true
+        session.rightOverlay = PaneOverlay(command: "htop")
+        session.dropUnrealizedPaneOverlays()
+        #expect(session.rightOverlay?.command == "htop")
+
+        session.splitFocused = false
+        session.dropUnrealizedPaneOverlays()
+        #expect(session.rightOverlay == nil)
+    }
+
+    // the deck parks its view in the surface slot BEFORE libghostty creates the terminal, so an occupied slot
+    // is no proof a program started: that gap left `overlay result --pane` answering "overlay still running"
+    // forever.
+    @Test func dropUnrealizedPaneOverlaysRetiresASlotWhoseTerminalWasNeverCreated() {
+        let session = Session(initialCwd: "/repo")
+        let parked = FakeSurface()
+        parked.isRealized = false
+        session.hasSplit = true
+        session.splitSurface = FakeSurface()
+        session.splitFocused = true
+        session.rightOverlay = PaneOverlay(command: "htop")
+        session.rightOverlaySurface = parked
+
+        session.splitFocused = false
+        session.dropUnrealizedPaneOverlays()
+        #expect(session.rightOverlay == nil)
+        #expect(session.rightOverlaySurface == nil)
+        #expect(parked.teardownCount == 1)
+    }
+
+    // the deck is not the only host: `overlay open --pane right` then `surface zoom show --target
+    // surface:<id>:overlay-right` then focusing away tore the SELECTED zoom target down before the zoom
+    // layer could mount and realize it, breaking the surfaces[]/surface zoom contract.
+    @Test func dropUnrealizedPaneOverlaysSparesASlotTerminalZoomIsHosting() {
+        let session = Session(initialCwd: "/repo")
+        let windowID = UUID()
+        let zoom = TerminalZoomController()
+        TerminalZoomRegistry.shared.register(windowID, controller: zoom)
+        defer { TerminalZoomRegistry.shared.unregister(windowID) }
+        session.hasSplit = true
+        session.splitSurface = FakeSurface()
+        session.splitFocused = true
+        session.rightOverlay = PaneOverlay(command: "htop")
+        zoom.set(.on, target: .session(session.id, .overlayRight))
+
+        session.splitFocused = false
+        #expect(session.rendersPane(.right) == false)
+        #expect(session.paneOverlayHosted(.right))
+        session.dropUnrealizedPaneOverlays()
+        #expect(session.rightOverlay?.command == "htop")
+
+        // leaving zoom takes the last host away, so the still-unrealized slot is retired then.
+        zoom.clear()
+        #expect(session.paneOverlayHosted(.right) == false)
+        session.dropUnrealizedPaneOverlays()
+        #expect(session.rightOverlay == nil)
+    }
+
+    @Test func dropUnrealizedPaneOverlaysRetiresASlotZoomIsNotTargeting() {
+        let session = Session(initialCwd: "/repo")
+        let windowID = UUID()
+        let zoom = TerminalZoomController()
+        TerminalZoomRegistry.shared.register(windowID, controller: zoom)
+        defer { TerminalZoomRegistry.shared.unregister(windowID) }
+        session.hasSplit = true
+        session.splitSurface = FakeSurface()
+        session.splitFocused = true
+        session.rightOverlay = PaneOverlay(command: "htop")
+        // the PANE, not that pane's overlay, and another session's overlay slot: neither hosts this one.
+        zoom.set(.on, target: .session(session.id, .split))
+        session.splitFocused = false
+        session.dropUnrealizedPaneOverlays()
+        #expect(session.rightOverlay == nil)
+
+        session.splitFocused = true
+        session.rightOverlay = PaneOverlay(command: "htop")
+        zoom.set(.on, target: .session(UUID(), .overlayRight))
+        session.splitFocused = false
+        session.dropUnrealizedPaneOverlays()
+        #expect(session.rightOverlay == nil)
+    }
+
+    @Test func paneOverlayAccessorsReadEachSlotIndependently() {
+        let session = Session(initialCwd: "/repo")
+        let leftSurface = FakeSurface(), rightSurface = FakeSurface()
+        #expect(session.paneOverlay(.left) == nil)
+        #expect(session.openPaneOverlays.isEmpty)
+
+        session.leftOverlay = PaneOverlay(command: "revdiff", cwd: "/a", backgroundColor: "#101010", wait: true)
+        session.leftOverlaySurface = leftSurface
+        #expect(session.paneOverlay(.left)?.command == "revdiff")
+        #expect(session.paneOverlay(.left)?.wait == true)
+        #expect(session.paneOverlay(.right) == nil)
+        #expect(session.paneOverlaySurface(.left) === leftSurface)
+        #expect(session.paneOverlaySurface(.right) == nil)
+        #expect(session.openPaneOverlays == [.left])
+
+        session.rightOverlay = PaneOverlay(command: "lazygit")
+        session.rightOverlaySurface = rightSurface
+        #expect(session.paneOverlay(.right)?.command == "lazygit")
+        #expect(session.paneOverlaySurface(.right) === rightSurface)
+        #expect(session.openPaneOverlays == [.left, .right])
+    }
+
+    @Test func focusedOverlayPaneIsNilWhenTheFocusedPaneHasNoOverlay() {
+        let session = Session(initialCwd: "/repo")
+        session.isSplit = true
+        session.splitSurface = FakeSurface()
+        session.rightOverlay = PaneOverlay(command: "revdiff")
+        #expect(session.focusedOverlayPane == nil)
+        session.splitFocused = true
+        #expect(session.focusedOverlayPane == .right)
+    }
+
+    @Test func focusedOverlayPaneNeedsASplitSurfaceForRight() {
+        let session = Session(initialCwd: "/repo")
+        session.splitFocused = true
+        session.leftOverlay = PaneOverlay(command: "revdiff")
+        session.rightOverlay = PaneOverlay(command: "lazygit")
+        #expect(session.focusedOverlayPane == .left)
+        session.splitSurface = FakeSurface()
+        #expect(session.focusedOverlayPane == .right)
+    }
+
+    // pins the shape `session.split --mode on` leaves before the lazy right surface exists: the right pane is
+    // already laid out and focused, so the cover predicates must agree with what openPaneOverlay accepts.
+    @Test func focusedOverlayPaneFollowsAShownSplitBeforeItsSurfaceRealizes() {
+        let session = Session(initialCwd: "/repo")
+        session.isSplit = true
+        session.hasSplit = true
+        session.splitFocused = true
+        session.rightOverlay = PaneOverlay(command: "revdiff")
+
+        #expect(session.focusedPane == .right)
+        #expect(session.rendersPane(.right))
+        #expect(session.focusedOverlayPane == .right)
+        #expect(session.topmostSurface == nil, "an unrealized covering overlay leaves the retry to re-resolve")
+    }
+
+    @Test func focusedPaneAndRendersPaneNeverDisagreeAboutTheFocusedSide() {
+        let session = Session(initialCwd: "/repo")
+        for combination in 0..<8 {
+            session.isSplit = combination & 1 != 0
+            session.splitFocused = combination & 2 != 0
+            session.splitSurface = combination & 4 != 0 ? FakeSurface() : nil
+            #expect(session.rendersPane(session.focusedPane),
+                    "the focused pane must always be one the deck lays out [\(combination)]")
+        }
+    }
+
+    @Test func paneOverlayRoleResolvesTheSlotASurfaceCurrentlyOccupies() {
+        let session = Session(initialCwd: "/repo")
+        let left = FakeSurface(), right = FakeSurface(), stranger = FakeSurface()
+        #expect(session.paneOverlayRole(of: left) == nil)
+
+        session.leftOverlaySurface = left
+        session.rightOverlaySurface = right
+        #expect(session.paneOverlayRole(of: left) == .left)
+        #expect(session.paneOverlayRole(of: right) == .right)
+        #expect(session.paneOverlayRole(of: stranger) == nil)
+    }
+
+    // the promotion regression: the right pane overlay's surface MOVES into the left slot without being
+    // rebuilt, so its callbacks must resolve `.left` from it or they act on a slot nothing occupies.
+    @Test func promotePaneOverlayRetargetsTheMigratedSurfacesRole() {
+        let session = Session(initialCwd: "/repo")
+        let overlaySurface = FakeSurface()
+        session.rightOverlay = PaneOverlay(command: "revdiff")
+        session.rightOverlaySurface = overlaySurface
+        session.rightOverlayExitCode = nil
+        #expect(session.paneOverlayRole(of: overlaySurface) == .right)
+
+        session.teardownPaneOverlay(.left)
+        session.promotePaneOverlay()
+
+        #expect(session.paneOverlayRole(of: overlaySurface) == .left)
+        #expect(session.paneOverlay(.left)?.command == "revdiff")
+        #expect(session.paneOverlaySurface(.left) === overlaySurface)
+        #expect(session.openPaneOverlays == [.left])
+        #expect(overlaySurface.teardownCount == 0, "promotion must not tear the migrating surface down")
+    }
+
+    @Test func focusedOverlayPaneIsLeftAfterAPromotion() {
+        // the survivor moves into `surface` while `splitSurface` is nilled, so the migrated overlay reads
+        // as the left pane's even before splitFocused settles.
+        let session = Session(initialCwd: "/repo")
+        session.splitFocused = true
+        session.splitSurface = FakeSurface()
+        session.rightOverlay = PaneOverlay(command: "revdiff")
+        #expect(session.focusedOverlayPane == .right)
+
+        session.surface = session.splitSurface
+        session.splitSurface = nil
+        session.leftOverlay = session.rightOverlay
+        session.rightOverlay = nil
+        #expect(session.focusedOverlayPane == .left)
+    }
+
+    @Test func topmostSurfaceRanksTheFocusedPaneOverlayBelowScratchAndTheSessionOverlay() {
+        let session = Session(initialCwd: "/repo")
+        let primary = FakeSurface(), scratch = FakeSurface(), overlay = FakeSurface(), leftOverlay = FakeSurface()
+        session.surface = primary
+        session.scratchSurface = scratch
+        session.overlaySurface = overlay
+        session.leftOverlay = PaneOverlay(command: "revdiff")
+        session.leftOverlaySurface = leftOverlay
+        #expect(session.topmostSurface === leftOverlay)
+        session.scratchActive = true
+        #expect(session.topmostSurface === scratch)
+        session.overlayActive = true
+        #expect(session.topmostSurface === overlay)
+        session.overlayActive = false
+        session.scratchActive = false
+        session.leftOverlay = nil
+        #expect(session.topmostSurface === primary)
+    }
+
+    @Test func topmostSurfaceIgnoresAnOverlayOnTheUnfocusedPane() {
+        let session = Session(initialCwd: "/repo")
+        let primary = FakeSurface(), split = FakeSurface(), rightOverlay = FakeSurface()
+        session.surface = primary
+        session.splitSurface = split
+        session.isSplit = true
+        session.rightOverlay = PaneOverlay(command: "lazygit")
+        session.rightOverlaySurface = rightOverlay
+        #expect(session.topmostSurface === primary)
+        session.splitFocused = true
+        #expect(session.topmostSurface === rightOverlay)
+    }
+
+    @Test func topmostSurfaceIsNilWhileACoveringPaneOverlayHasNotRealized() {
+        let session = Session(initialCwd: "/repo")
+        session.surface = FakeSurface()
+        session.leftOverlay = PaneOverlay(command: "revdiff")
+        #expect(session.topmostSurface == nil)
+    }
+
+    @Test func focusTargetRoutesThroughTheRequestedPanesOwnOverlay() {
+        let session = Session(initialCwd: "/repo")
+        let primary = FakeSurface(), split = FakeSurface(), rightOverlay = FakeSurface()
+        session.surface = primary
+        session.splitSurface = split
+        session.isSplit = true
+        session.rightOverlay = PaneOverlay(command: "lazygit")
+        session.rightOverlaySurface = rightOverlay
+        #expect(session.focusTarget(wantSplit: true) === rightOverlay)
+        #expect(session.focusTarget(wantSplit: false) === primary)
+    }
+
+    @Test func focusTargetKeepsASessionWideCoverOverAPaneOverlay() {
+        let session = Session(initialCwd: "/repo")
+        let primary = FakeSurface(), split = FakeSurface(), scratch = FakeSurface(), leftOverlay = FakeSurface()
+        session.surface = primary
+        session.splitSurface = split
+        session.isSplit = true
+        session.scratchSurface = scratch
+        session.leftOverlay = PaneOverlay(command: "revdiff")
+        session.leftOverlaySurface = leftOverlay
+        session.scratchActive = true
+        #expect(session.focusTarget(wantSplit: false) === scratch)
+        #expect(session.focusTarget(wantSplit: true) === scratch)
+    }
+
+    @Test func focusTargetIsNilWhileTheRequestedPanesOverlayHasNotRealized() {
+        let session = Session(initialCwd: "/repo")
+        session.surface = FakeSurface()
+        session.splitSurface = FakeSurface()
+        session.isSplit = true
+        session.rightOverlay = PaneOverlay(command: "lazygit")
+        #expect(session.focusTarget(wantSplit: true) == nil)
+    }
+
     @Test func takePendingRestoreOverrideNeverReadsThePersistedValue() {
         // a persisted override with nothing armed (a mid-process window reload, a socket write during this
         // run) must not fire — the factory path can only reach the transient payload.
@@ -500,7 +865,11 @@ struct SessionTests {
 
 private final class FakeSurface: TerminalSurface {
     var paneToken: String
+    var teardownCount = 0
+    /// Defaults to a live terminal, the state a surface parked in a session slot reaches a beat later; the
+    /// stranded-slot cases set it false.
+    var isRealized = true
     init(paneToken: String = "") { self.paneToken = paneToken }
-    func teardown() {}
+    func teardown() { teardownCount += 1 }
     func promoteToPrimaryPane() {}
 }

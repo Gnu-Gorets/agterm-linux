@@ -229,6 +229,10 @@ final class AppActions {
         guard let store, let session = store.activeSession else { return false }
         if session.overlayActive { store.closeOverlay(session.id); return true }
         if session.scratchActive { store.toggleScratch(session.id); return true }
+        // the focused pane's own overlay is the last cover: without this rung ⌘W over one falls straight
+        // through and closes the SESSION. An overlay on the other pane is not in front of the user, so it
+        // does not intercept — that pane stays live and ⌘W keeps its ordinary meaning.
+        if let pane = session.focusedOverlayPane { store.closePaneOverlay(session.id, pane: pane); return true }
         // handled either way — returning true on cancel keeps the File menu from closing the whole window.
         guard confirmCloseSession(session) else { return true }
         closeSessionAfterConfirmation(session.id, in: store)
@@ -771,13 +775,19 @@ final class AppActions {
         if let session = store?.activeSession, session.scratchActive, !session.overlayActive {
             return session.topmostSurface as? GhosttySurfaceView
         }
+        // the focused pane hidden under its OWN overlay has no searchable target: the overlay is unsearchable
+        // and returning the pane would strand the bar over it. The sibling pane keeps its own ⌘F once focused.
+        // AFTER the scratch rung on purpose: the scratch covers the pane overlays too, and it IS searchable.
+        if store?.activeSession?.focusedOverlayPane != nil { return nil }
         if let view = focusedSurface(), view.isSearchable { return view }
         return store?.activeSession?.activeSurface as? GhosttySurfaceView
     }
 
-    /// Whether a cover BLOCKS ⌘F — the frontmost quick terminal or the active session's FULL overlay, neither
-    /// searchable, so the bar would strand over a hidden pane. The scratch IS searchable, so it never blocks
-    /// and ⌘F opens the bar over it; the ⌘F-again CLOSE runs regardless of any cover.
+    /// Whether a SESSION-WIDE cover BLOCKS ⌘F — the frontmost quick terminal or the active session's FULL
+    /// overlay, neither searchable, so the bar would strand over a hidden pane. The scratch IS searchable, so
+    /// it never blocks and ⌘F opens the bar over it; the ⌘F-again CLOSE runs regardless. A covering PANE
+    /// overlay is NOT a term here — `searchTarget` owns that rung, in the one order that gets the
+    /// scratch-above-a-pane-overlay case right; duplicating it here would block ⌘F on the searchable scratch.
     private var coverHidesActiveSession: Bool {
         if frontmostQuickTerminal?.isVisible == true { return true }
         guard let session = store?.activeSession else { return false }

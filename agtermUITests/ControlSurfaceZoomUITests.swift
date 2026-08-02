@@ -49,14 +49,9 @@ final class ControlSurfaceZoomUITests: ControlAPITestCase {
 
         // Prove the future survivor's shell is ready before the one-shot primary exit.
         let survivorReady = markerDir.appendingPathComponent("zoom-survivor-ready")
-        var survivorValue: String?
-        for _ in 0..<4 where survivorValue == nil {
-            let typed = try sendCommand(typeRequest(
-                text: "printf ZOOMSURVIVOR > '\(survivorReady.path)'\n",
-                target: sessionID, select: false, pane: "right"))
-            XCTAssertEqual(typed["ok"] as? Bool, true, "typing to the split survivor should succeed: \(typed)")
-            survivorValue = pollMarker(survivorReady, timeout: 3)
-        }
+        let survivorValue = try typeUntilMarker("printf ZOOMSURVIVOR > '\(survivorReady.path)'\n",
+                                                target: sessionID, file: survivorReady, select: false,
+                                                pane: "right", perAttempt: 3)
         XCTAssertEqual(survivorValue, "ZOOMSURVIVOR", "the split survivor should be reading commands")
 
         let leftSurface = try activeSurfaceID(kind: "left")
@@ -239,6 +234,49 @@ final class ControlSurfaceZoomUITests: ControlAPITestCase {
         app.typeText("cd")
         XCTAssertTrue(pollFieldValue(searchField, equals: "abcd", timeout: 8),
                       "a background window's zoom exit must not steal the frontmost window's keyboard focus")
+    }
+
+    // a pane overlay is addressable at `surface:<session>:overlay-right`, the id `surfaces[]` reports — the
+    // documented contract that a reported surface IS a zoom address. The round trip must also leave the
+    // overlay in its pane, not tear it down.
+    func testPaneOverlayZoomRoundTrip() throws {
+        let sessionID = try activeSessionID()
+        XCTAssertEqual(try sendCommand(#"{"cmd":"session.split","args":{"mode":"on"}}"#)["ok"] as? Bool, true,
+                       "split on should succeed")
+        XCTAssertTrue(try pollSplit(sessionID, timeout: 10), "the split should be live before the overlay opens")
+
+        let marker = markerDir.appendingPathComponent("zoom-pane-overlay")
+        let json = try! JSONSerialization.data(withJSONObject: [
+            "cmd": "session.overlay.open", "target": sessionID,
+            // APPENDS: a re-created (rather than re-hosted) surface would spawn a SECOND program and a
+            // truncating `>` would rewrite the same value, hiding the orphan behind a passing assertion.
+            "args": ["command": "sh -c 'printf OVERLAYUP >> \(marker.path); cat'", "pane": "right"]])
+        XCTAssertEqual(try sendCommand(String(data: json, encoding: .utf8)!)["ok"] as? Bool, true,
+                       "opening the right pane overlay should succeed")
+        XCTAssertEqual(pollMarker(marker, timeout: 15), "OVERLAYUP", "the pane overlay's program should run")
+
+        let overlaySurface = try activeSurfaceID(kind: "overlay-right")
+        XCTAssertEqual(overlaySurface.lowercased(), "surface:\(sessionID.lowercased()):overlay-right",
+                       "the reported surface id should be the documented zoom address")
+
+        let zoom = try sendCommand(#"{"cmd":"surface.zoom","target":"\#(overlaySurface)","args":{"mode":"show"}}"#)
+        XCTAssertEqual(zoom["ok"] as? Bool, true, "zooming the pane overlay should succeed: \(zoom)")
+        XCTAssertTrue(app.buttons["terminal-zoom-exit"].waitForExistence(timeout: 10),
+                      "the zoomed pane overlay should own the zoom host")
+        XCTAssertEqual(try treeZoomedSurface(), overlaySurface,
+                       "the tree's zoomedSurface must echo the zoomed pane overlay's id")
+
+        XCTAssertEqual(try sendCommand(#"{"cmd":"surface.zoom","args":{"mode":"hide"}}"#)["ok"] as? Bool, true,
+                       "zoom hide should succeed")
+        XCTAssertTrue(app.buttons["terminal-zoom-exit"].waitForNonExistence(timeout: 10),
+                      "hiding the zoom should return the overlay to the deck")
+        XCTAssertNil(try treeZoomedSurface(), "zoomedSurface should clear on zoom exit")
+        XCTAssertEqual(try sessionNode(id: sessionID)["paneOverlays"] as? [String], ["right"],
+                       "the pane overlay should still be up in its pane after the zoom round trip")
+        // the discriminating half of the append: exactly one program ran, so zoom RE-HOSTED the surface
+        // rather than building a second one and orphaning the first.
+        XCTAssertEqual(try String(contentsOf: marker, encoding: .utf8), "OVERLAYUP",
+                       "the zoom round trip must re-host the overlay's surface, never re-create it")
     }
 
     /// Polls `window.list` until the window with `id` reports active (frontmost/key) — a window.new/select
