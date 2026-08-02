@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.20.1 - 2026-08-02
+
+### Improved
+
+- Settings ▸ General fits without scrolling again: the caption under the workspace row-click toggle is gone. It spelled out that the disclosure triangle keeps working either way, which the section did not need a whole line to say b35dd34 @umputun
+
 ## v0.20.0 - 2026-08-02
 
 ### New Features
