@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.20.0 - 2026-08-02
+
+### New Features
+
+- overlays can cover one pane of a split instead of the whole session: `session overlay open|close|result` take `--pane left|right`, the sibling pane stays visible and interactive, and both panes can hold their own overlay with its own command, cwd and background color. Pane overlays are always full-pane, so `--pane` is rejected with `--size-percent` and `session overlay resize` takes none #343 @umputun
+- `agtermctl dashboard` accepts a `:left` or `:right` suffix on each positional id, so one pane of a split can go on the grid instead of the session always contributing both. It is the same form `tree --json` reports in `dashboardMembers`, so write and read round-trip, and it composes with any head #334 @umputun
+- caller-supplied pickers match a row's label only and never its subtitle, closing a path where typing a refusal filtered the safe row out and left the destructive one preselected. An empty query now keeps the caller's item order instead of re-sorting alphabetically, `--query` prefills the field, and a picker with no items is allowed #339 @umputun
+- clicking anywhere on a workspace row toggles its expansion, behind a new Settings ▸ General ▸ Mouse toggle that is on by default. The disclosure triangle is untouched and works either way #342 @umputun
+- a first launch on a machine opens a welcome alert naming the Help menu's optional installers, with two checkboxes that install the agent skill and the agent status hooks in one pass, because nothing else tells a new user they exist #353 @umputun
+
+### Improved
+
+- a cookbook recipe that picks a project in the native picker and opens a session in its workspace, creating that workspace when it does not exist, and hands a prompt typed after the project's name to a configured command #352 @x9x9x9x9x9x91
+- a cookbook recipe that lists what the Claude Code run in a session was working on, newest first, in a floating overlay, each item an age, a title, a one-sentence detail and a status #345 @umputun
+- a cookbook recipe joining Kimi Code to the agent-status integration, so its sessions report status onto their sidebar row with the stock hook script and four config entries #336 @x9x9x9x9x9x91
+- the opencode session-resume recipe's removal step and Usage paragraph named a flat state path while the function honors `$XDG_STATE_HOME`, so a reader with a custom state home cleaned the wrong directory and left his bindings behind. Both now name the path the function actually uses, and the `--session` passthrough claim is corrected #330 @cherkale
+
+### Bug Fixes
+
+- typing into a session right after `session new --no-select` failed with "session not realized", because the reply came from a synchronous store mutation that raced the mount and layout gap. The main pane now runs the same bounded poll with or without select, so the select-then-reselect workaround, which tears down the workspace focus filter and rewrites recency, is no longer needed #351 @umputun
+- hovering the divider between two split panes showed the terminal's I-beam instead of the resize cursor, in any window with more than one session. Dragging always worked and only the pointer feedback was wrong; #324 fixed the flicker, but its fix held only while a single session was mounted #344 @umputun
+- `agtermctl` died on signal 13 with no output when a request went over the server's 1 MiB cap. The client fd never set `SO_NOSIGPIPE`, so it took the signal before it could read the server's "request too large" reply #340 @x9x9x9x9x9x91
+- a session's blinking status glyph strobed instead of pulsing when its terminal title updated rapidly, as Codex CLI does every ~100ms while working. The row builder reset every recycled cell to an idle indicator before re-applying the real one, which restarted the fade each time #335 @umputun
+
 ## v0.19.1 - 2026-07-31
 
 ### Improved
