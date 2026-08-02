@@ -93,7 +93,6 @@ private struct GeneralSettingsView: View {
                     .accessibilityIdentifier("settings-right-click-paste")
                 Toggle("Click a workspace row to expand or collapse", isOn: workspaceRowClickExpands)
                     .accessibilityIdentifier("settings-workspace-row-click-expands")
-                SettingHint("The disclosure triangle always toggles, whichever way this is set.")
             }
 
             Section("Sessions") {
