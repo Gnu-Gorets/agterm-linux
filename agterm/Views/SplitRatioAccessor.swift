@@ -2,10 +2,24 @@ import agtermCore
 import AppKit
 import SwiftUI
 
+extension NSView {
+    /// The `NSSplitView` this view is arranged inside, nil when it is not in a split. Shared by the probe
+    /// and by `GhosttySurfaceView.ownsPointer`, which both answer the divider from the split itself.
+    func enclosingSplitView() -> NSSplitView? {
+        var view: NSView? = superview
+        while let current = view {
+            if let split = current as? NSSplitView { return split }
+            view = current.superview
+        }
+        return nil
+    }
+}
+
 /// Bridges to the AppKit `NSSplitView` under SwiftUI's `HSplitView` to (1) persist and restore the split
-/// divider ratio — no public SwiftUI API exposes the divider position — and (2) clip the split's divider
-/// out of the titlebar strip. Attached as a `.background` on the primary pane so its `NSView` lives inside
-/// the split's view tree without becoming a third arranged pane.
+/// divider ratio — no public SwiftUI API exposes the divider position — (2) clip the split's divider out
+/// of the titlebar strip, and (3) paint the divider's own resize cursor, which nothing else writes.
+/// Attached as a `.background` on the primary pane so its `NSView` lives inside the split's view tree
+/// without becoming a third arranged pane.
 ///
 /// (1) Once the split has a real width it restores `session.splitRatio` via `setPosition`; on each divider
 /// resize it writes the current left-pane fraction back to the session, which the next `save()` (or the
@@ -24,6 +38,10 @@ struct SplitRatioAccessor: NSViewRepresentable {
     let session: Session
     let titlebarHeight: CGFloat
     let suspended: Bool
+    /// On screen and uncovered: the deck's `visible` minus any overlay or scratch over the panes. Gates (3)
+    /// alone — a background session's split is still laid out at the full frame with its tracking area
+    /// armed, so its divider column would paint over whatever session IS on screen.
+    let deckVisible: Bool
     let onPersist: () -> Void
 
     func makeNSView(context _: Context) -> SplitProbeView {
@@ -31,12 +49,14 @@ struct SplitRatioAccessor: NSViewRepresentable {
         view.onPersist = onPersist
         view.titlebarHeight = titlebarHeight
         view.suspended = suspended
+        view.deckVisible = deckVisible
         return view
     }
     func updateNSView(_ nsView: SplitProbeView, context _: Context) {
         nsView.onPersist = onPersist
         nsView.titlebarHeight = titlebarHeight // re-clip on a toolbar-mode change (changes titlebarHeight)
         nsView.suspended = suspended
+        nsView.deckVisible = deckVisible
     }
 
     final class SplitProbeView: NSView {
@@ -44,6 +64,7 @@ struct SplitRatioAccessor: NSViewRepresentable {
         var onPersist: (() -> Void)?
         /// Top strip (in points) to clip the split's divider out of; updated on a toolbar-mode change.
         var titlebarHeight: CGFloat = 0 { didSet { if titlebarHeight != oldValue { updateDividerClip() } } }
+        var deckVisible: Bool = true
         var suspended: Bool = false {
             didSet {
                 guard suspended != oldValue else { return }
@@ -57,6 +78,7 @@ struct SplitRatioAccessor: NSViewRepresentable {
         nonisolated(unsafe) private var saveWorkItem: DispatchWorkItem?
         private weak var splitView: NSSplitView?
         private var dividerClipMask: CALayer?
+        private var dividerTracking: NSTrackingArea?
         private var restored = false
 
         init(session: Session) {
@@ -67,9 +89,20 @@ struct SplitRatioAccessor: NSViewRepresentable {
         @available(*, unavailable)
         required init?(coder _: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+        /// Hand the tracking area back before the split outlives this probe: `NSTrackingArea` does not retain
+        /// its owner, so a stale one would message a freed view on the next move. `layout()` reinstalls it if
+        /// the probe is re-hosted.
+        override func viewWillMove(toWindow newWindow: NSWindow?) {
+            super.viewWillMove(toWindow: newWindow)
+            guard newWindow == nil, let dividerTracking else { return }
+            splitView?.removeTrackingArea(dividerTracking)
+            self.dividerTracking = nil
+        }
+
         override func layout() {
             super.layout()
             attachIfNeeded()
+            updateDividerTracking()
             updateDividerClip() // keep the titlebar-strip clip sized to the current split bounds
             guard !suspended else { return }
             guard !restored, let split = splitView else { return }
@@ -98,6 +131,47 @@ struct SplitRatioAccessor: NSViewRepresentable {
                 forName: .agtermApplySplitRatio, object: session, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.applyRatio() }
             }
+        }
+
+        /// Arm the split for `mouseMoved`/`cursorUpdate`. `.inVisibleRect` keeps it sized across divider and
+        /// window resizes, so this only has to survive a re-host.
+        private func updateDividerTracking() {
+            guard let split = splitView else { return }
+            if let dividerTracking, split.trackingAreas.contains(dividerTracking) { return }
+            let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .cursorUpdate, .activeInKeyWindow, .inVisibleRect],
+                                      owner: self)
+            split.addTrackingArea(area)
+            dividerTracking = area
+        }
+
+        /// Paint ↔ over the divider. Nothing else does once a second session is mounted: the pane declines the
+        /// band (`ownsPointer`) and AppKit's own divider cursor never fires there, leaving the arrow. Per move
+        /// plus one deferred re-assert, as the cursor section of `.claude/rules/libghostty.md` requires.
+        override func mouseMoved(with event: NSEvent) { paintDividerCursor(at: event.locationInWindow) }
+        override func cursorUpdate(with event: NSEvent) { paintDividerCursor(at: event.locationInWindow) }
+
+        private func paintDividerCursor(at pointInWindow: NSPoint) {
+            guard dividerOwns(pointInWindow) else { return }
+            NSCursor.resizeLeftRight.set()
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let window, window.isKeyWindow,
+                      dividerOwns(window.mouseLocationOutsideOfEventStream) else { return }
+                NSCursor.resizeLeftRight.set()
+            }
+        }
+
+        /// Whether THIS split's grab band owns the window point. The band is asked of the split itself, which
+        /// is what its own drag resolves from, so no width is guessed — a window-down hit would answer for
+        /// whichever session's split the deck stacked last, since all of them are mounted at the full frame.
+        ///
+        /// The cover is a separate question, and the window-down hit is what answers it, under `ownsPointer`'s
+        /// chrome-only rule: another surface above means only invisible deck content covers the band, while a
+        /// palette scrim, the search bar or the compact-mode titlebar strip means real chrome does.
+        private func dividerOwns(_ pointInWindow: NSPoint) -> Bool {
+            guard deckVisible, !suspended, let split = splitView, let parent = split.superview else { return false }
+            guard split.hitTest(parent.convert(pointInWindow, from: nil)) === split else { return false }
+            guard let hit = split.window?.contentView?.hitTest(pointInWindow) else { return true }
+            return hit === split || hit.isDescendant(of: split) || hit is GhosttySurfaceView || hit is NSSplitView
         }
 
         /// Move the live divider to the session's stored `splitRatio` (set by `session.resize` just before
@@ -166,15 +240,6 @@ struct SplitRatioAccessor: NSViewRepresentable {
             let work = DispatchWorkItem { [weak self] in self?.onPersist?() }
             saveWorkItem = work
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
-        }
-
-        private func enclosingSplitView() -> NSSplitView? {
-            var view: NSView? = superview
-            while let current = view {
-                if let split = current as? NSSplitView { return split }
-                view = current.superview
-            }
-            return nil
         }
 
         deinit {

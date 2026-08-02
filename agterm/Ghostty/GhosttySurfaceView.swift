@@ -723,6 +723,11 @@ final class GhosttySurfaceView: NSView, TerminalSurface {
 
     /// In view-only mode refuse hit-testing, so a click passes THROUGH to the SwiftUI cell overlay instead of
     /// reaching `mouseDown` — AppKit routes clicks here regardless of `.allowsHitTesting(false)`.
+    ///
+    /// `deckVisible` deliberately does NOT gate this. Refusing while off-screen only promotes the hidden deck
+    /// entry's own container — its `NSSplitView` or pane view — to answer in its place, and that is not a
+    /// `GhosttySurfaceView`, so `ownsPointer` then declines across the whole visible terminal and it loses
+    /// every cursor shape it paints.
     override func hitTest(_ point: NSPoint) -> NSView? {
         viewOnly ? nil : super.hitTest(point)
     }
