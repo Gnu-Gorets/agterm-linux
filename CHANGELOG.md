@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.20.2 - 2026-08-03
+
+### Improved
+
+- double-clicking the divider between two split panes snaps the split back to even. A drag can never hit exactly 50/50, and the gesture is recognized only on the pixels the split already owns for its own drag, so word selection in the terminal is untouched. A re-grab after a nudge-drag, which macOS also reports as a double-click, does not throw the adjustment away #357 @umputun
+- a cookbook recipe that grids the flagged sessions' panes that are running something, on one chord. The unit is a pane, so a split whose left half sits at a prompt while its right runs a build contributes one cell, and pressing the chord again closes the grid #355 @umputun
+
+### Bug Fixes
+
+- a pane started with `session new --command` always read as idle in `tree --json`: its `foreground` was omitted however hard the program worked, so nothing driving the control API could tell a busy agent session from an empty shell. Such a pane has no job-control shell, so its program stays in the process group led by setuid-root `login`, whose argv is refused to a non-root caller. The tree read now descends the group to the first readable member, while the quit-time restore capture deliberately does not, so a `--command` session still restores through the exec path with its `--wait` hold intact #358 @umputun
+- a pane overlay opened on the unfocused side of a split rendered at full brightness, so both panes read as live and the split focus cue was gone. The overlay now carries the same wash an inactive pane gets, blended against the overlay's own background rather than the session's, so an overlay opened with `--background-color` fades its text instead of shifting its background #356 @umputun
+- an interior newline in a session, workspace or window name, or in a session's `--cwd`, survived into the stored value and expanded unquoted into the `/bin/sh -c` line of a custom command through the `{AGT_SESSION_NAME}` / `{AGT_SESSION_PWD}` / `{AGT_WORKSPACE_NAME}` / `{AGT_WINDOW_NAME}` tokens, where a newline separates statements. The OSC path already sanitized these values; the control-socket and GUI rename paths trimmed surrounding whitespace only #354 @x9x9x9x9x9x91
+
 ## v0.20.1 - 2026-08-02
 
 ### Improved
