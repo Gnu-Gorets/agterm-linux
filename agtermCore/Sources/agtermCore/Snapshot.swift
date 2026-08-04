@@ -63,10 +63,15 @@ public struct Snapshot: Codable, Equatable, Sendable {
     /// the whole tree survives a bad optional at any depth.
     ///
     /// What still throws is identity and payload: `version`, `workspaces`, and each nested `id`/`name`/
-    /// `cwd`/`sessions`. Those cannot be dropped to a default without either losing a workspace or a
-    /// session silently, or keeping one that names nothing. A parse-level failure is outside this
-    /// entirely: unterminated JSON never reaches these guards, and `save` writes atomically so the app
-    /// itself cannot leave that behind.
+    /// `cwd`/`sessions`. That gap is real and unclosed, not a safe floor: a hand-edited `"cwd": 5` on one
+    /// session still wipes the entire tree, the same #360 path these guards exist to close. It stands
+    /// because the alternatives each cost something this one does not, never because throwing is cheaper.
+    /// It is the most destructive outcome available. Recovering the field keeps a session pointing
+    /// somewhere the user never left it; dropping the element loses that session silently. Pick one
+    /// deliberately before treating this line as settled.
+    ///
+    /// A parse-level failure is outside all of it: unterminated JSON never reaches these guards, and
+    /// `save` writes atomically so the app itself cannot leave that behind.
     ///
     /// Also migrates the legacy `focusedWorkspaceID`: its presence implied the filter was on, so it becomes
     /// a one-member ENABLED set. Neither key present decodes to nil/nil — an empty, disabled filter.
@@ -202,8 +207,9 @@ public struct SessionSnapshot: Codable, Equatable, Sendable {
     /// `kind`/`fit`/`position` after a DOWNGRADE, or any hand-edit typo, drops that field to nil rather
     /// than throwing. A throw here fails the whole `SessionSnapshot`, which fails the `workspaces` array
     /// above it, and `PersistenceStore.load` starts fresh, wiping everything over one session's font size.
-    /// Only `id` and `cwd` stay strict: a session that cannot say which it is or where to spawn is not
-    /// restorable, and dropping it silently would lose a session while looking like a clean load.
+    /// `id` and `cwd` stay strict, and that is the unclosed half: a session that cannot say which it is
+    /// or where to spawn is not restorable, but throwing here costs the WHOLE tree, not this one session.
+    /// See `Snapshot.init(from:)` above for the trade-off and why it has not been picked yet.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
