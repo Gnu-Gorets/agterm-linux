@@ -55,12 +55,12 @@ public struct Snapshot: Codable, Equatable, Sendable {
         case focusedWorkspaceID
     }
 
-    /// Custom decode so `sessionRecency` and `sidebarMode` are LOSSY: a present-but-invalid value (a
-    /// malformed UUID, an unknown enum raw value from a newer build or a hand edit) drops to nil.
-    /// `Optional` alone tolerates only a MISSING key, so one bad value would fail the whole `Snapshot` and
-    /// `PersistenceStore.load` would start fresh, wiping every workspace and session over a non-essential
-    /// field. Mirrors `backgroundWatermark` below; the remaining optionals stay strict — primitives and
-    /// UUIDs can't gain a value a newer build writes.
+    /// Custom decode so `sessionRecency`, `sidebarMode`, and `focusedWorkspaceIDs` are LOSSY: a
+    /// present-but-invalid value (a malformed UUID, an unknown enum raw value from a newer build or a hand
+    /// edit) drops to nil. `Optional` alone tolerates only a MISSING key, so one bad value would fail the
+    /// whole `Snapshot` and `PersistenceStore.load` would start fresh, wiping every workspace and session
+    /// over a non-essential field. Mirrors `backgroundWatermark` below; the remaining optionals stay
+    /// strict, scalars and a single UUID that can't gain a value a newer build writes.
     ///
     /// Also migrates the legacy `focusedWorkspaceID`: its presence implied the filter was on, so it becomes
     /// a one-member ENABLED set. Neither key present decodes to nil/nil — an empty, disabled filter.
@@ -74,7 +74,7 @@ public struct Snapshot: Codable, Equatable, Sendable {
         sidebarMode = (try? c.decodeIfPresent(SidebarMode.self, forKey: .sidebarMode)) ?? nil
         let legacyContainer = try decoder.container(keyedBy: LegacyCodingKeys.self)
         let legacyFocus = try legacyContainer.decodeIfPresent(UUID.self, forKey: .focusedWorkspaceID)
-        let ids = try c.decodeIfPresent([UUID].self, forKey: .focusedWorkspaceIDs)
+        let ids = (try? c.decodeIfPresent([UUID].self, forKey: .focusedWorkspaceIDs)) ?? nil
         if ids == nil, let legacyID = legacyFocus {
             focusedWorkspaceIDs = [legacyID]
             focusEnabled = true

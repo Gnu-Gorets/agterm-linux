@@ -368,6 +368,22 @@ final class PersistenceTests {
         }
     }
 
+    @Test func malformedFocusedWorkspaceIDsDropsToNilKeepingTree() throws {
+        // an invalid focusedWorkspaceIDs must drop to nil lossily, never fail the whole Snapshot decode
+        // and wipe the tree on the next save.
+        let ws = UUID()
+        let session = UUID()
+        let tree = #""selectedSessionID": "\#(session.uuidString)", "workspaces": "# +
+            #"[ { "id": "\#(ws.uuidString)", "name": "work", "sessions": [ { "id": "\#(session.uuidString)", "cwd": "/a" } ] } ]"#
+        for bad in [#""focusedWorkspaceIDs": ["not-a-uuid"]"#, #""focusedWorkspaceIDs": 42"#] {
+            try Data(#"{ "version": 1, \#(bad), \#(tree) }"#.utf8).write(to: fileURL)
+            let loaded = store.load()
+            #expect(loaded.workspaces.map(\.id) == [ws])
+            #expect(loaded.selectedSessionID == session)
+            #expect(loaded.focusedWorkspaceIDs == nil)
+        }
+    }
+
     @Test func restoreInsertsAbsentSelectionAtFront() {
         let a = UUID()
         let b = UUID()
