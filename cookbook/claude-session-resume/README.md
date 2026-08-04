@@ -80,7 +80,7 @@ The function then wraps `claude`: on the first launch in a tab it pins the conve
 
 On restart agterm replays the remembered command, the function recognizes "its own" id, sees the conversation already exists, and reopens exactly that one. Each tab, its own.
 
-On the agterm side that replay is a foreground-process capture. At quit agterm records the argv of whatever the pane was running, and on relaunch it types that line back into the tab's fresh login shell with each argument single-quoted. Quoting suppresses alias expansion but not function lookup, which is why a shell function named `claude` still catches the replayed line and an alias would not.
+On the agterm side that replay is a foreground-process capture. At quit agterm records the argv of whatever the pane was running, and on relaunch it types that line back into the tab's fresh login shell with each argument single-quoted. Quoting suppresses alias expansion but not function lookup, which is why a shell function named `claude` still catches the replayed line; in zsh an alias would not. fish has no such distinction, since its `alias` defines a function.
 
 ## Limits
 
