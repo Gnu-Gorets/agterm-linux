@@ -343,7 +343,8 @@ final class AppActions {
 
     /// Open `keymap.conf` in the user's editor (`$VISUAL`/`$EDITOR`, else `vi`) in a 95% floating overlay
     /// over the active session, via the login shell so an exported `$EDITOR` is honored; exiting reloads the
-    /// keymap. No-op with no active session, before the settings model is wired, or with an overlay open.
+    /// keymap. No-op with no active session, before the settings model is wired, or with a caller's PROGRAM
+    /// in the overlay slot — a HUD there yields, as it does to any `openOverlay`.
     func editKeymap() {
         guard uiActionsEnabled else { return }
         guard let store, let id = store.selectedSessionID, let path = settingsModel?.keymapPath else { return }
@@ -772,7 +773,7 @@ final class AppActions {
     /// searchable, else the active session's focused pane. Full overlay and quick terminal are unsearchable
     /// (blocked by `coverHidesActiveSession`); a FLOATING overlay leaves the pane visible, so it targets it.
     private func searchTarget() -> GhosttySurfaceView? {
-        if let session = store?.activeSession, session.scratchActive, !session.overlayActive {
+        if let session = store?.activeSession, session.scratchActive, !session.programOverlayActive {
             return session.topmostSurface as? GhosttySurfaceView
         }
         // the focused pane hidden under its OWN overlay has no searchable target: the overlay is unsearchable

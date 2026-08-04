@@ -94,13 +94,14 @@ struct agtermApp: App {
                         Self.makeOverlaySurface(for: $0, store: $1, pane: $2, env: surfaceEnv(for: $0))
                     },
                     makeScratchSurface: { session, store in
-                        // suppress the scratch's creation autoFocus when a full overlay or this window's quick
-                        // terminal is up — each renders above it and owns focus.
+                        // suppress the scratch's creation autoFocus when a caller's program overlay or this
+                        // window's quick terminal is up — each renders above it and owns focus. A HUD renders
+                        // above it too but owns nothing, so it must not hold focus off a scratch just shown.
                         let qtVisible = library.windowID(forSession: session.id)
                             .flatMap { QuickTerminalRegistry.shared.controller(for: $0) }?.isVisible ?? false
                         return Self.makeScratchSurface(for: session, store: store,
                                                        env: surfaceEnv(for: session, pane: .scratch),
-                                                       suppressAutoFocus: session.overlayActive || qtVisible,
+                                                       suppressAutoFocus: session.programOverlayActive || qtVisible,
                                                        library: library)
                     },
                     quickTerminalEnv: { quickTerminalEnv(for: $0) },
@@ -423,19 +424,28 @@ struct agtermApp: App {
     /// `pane` picks WHICH slot supplies the command/cwd/wait/color and receives the exit status: nil is the
     /// session-wide overlay, `left`/`right` the pane-scoped one covering that split pane alone. The temp
     /// exit-code file is minted per call, so two pane overlays open at once never share one.
+    ///
+    /// A HUD occupies the session-wide slot with the bundled helper as its command: it spawns NON-FOCUSING
+    /// and captures no exit status, since it is a message the app painted rather than a program the caller
+    /// ran. Its body file is the helper's only input, deleted with the surface like the exit-code file.
     @MainActor
     private static func makeOverlaySurface(for session: Session, store: AppStore, pane: OverlayPane?,
                                            env: [String: String]) -> GhosttySurfaceView {
         let sessionID = session.id
         let spec = Self.overlaySpec(for: session, pane: pane)
+        // the session-wide slot's occupant decides passivity; the body file is what that occupant needs
+        let isHud = pane == nil && session.hudActive
+        let hudFile = isHud ? session.hudFile : nil
         let codeFile = (NSTemporaryDirectory() as NSString).appendingPathComponent("agterm-ovl-\(UUID().uuidString).code")
         var overlayEnv = env
         overlayEnv[OverlayCapture.cmdEnvKey] = spec.command
         overlayEnv[OverlayCapture.codeEnvKey] = codeFile
+        if let hudFile { overlayEnv[HudLayout.fileEnvKey] = hudFile }
         let view = GhosttySurfaceView(workingDirectory: spec.cwd ?? session.effectiveCwd,
                                       fontSize: session.fontSize.map(Float.init), command: overlayExitWrapper,
-                                      waitAfterCommand: spec.wait, autoFocus: true, env: overlayEnv)
+                                      waitAfterCommand: spec.wait, autoFocus: !isHud, env: overlayEnv)
         view.overlayCodeFile = codeFile
+        view.hudBodyFile = hudFile
         // the overlay's own background color (`session.overlay.open --background-color`), applied in
         // createSurface — the overlay is sessionless, so it can't read it off the session there.
         view.overlayBackgroundColorHex = spec.backgroundColor
@@ -464,7 +474,11 @@ struct agtermApp: App {
                 store.session(withID: sessionID)?.splitFocused = livePane() == .right
             }
         } else {
-            view.onExitCodeCaptured = { store.recordOverlayExit(sessionID, code: $0) }
+            // a HUD records nothing: its "program" is the app's own painter, so an exit status would put a
+            // number `session.overlay.result` could report for a message nobody ran.
+            if !isHud {
+                view.onExitCodeCaptured = { store.recordOverlayExit(sessionID, code: $0) }
+            }
             view.onExit = { store.closeOverlay(sessionID) }
         }
         // typing is user activity: resets the auto-follow idle timer so an idle fire can't change the selection
