@@ -2,7 +2,7 @@
 
 Installable `agtermctl` workflows. Each recipe is a directory holding a README and, where it needs one, its scripts: what it does, what it needs, how to set it up, and where it stops. They are written to be copied into your own setup and edited, not only read.
 
-Recipes come from other people as well as the maintainer. Every one is reviewed before it is accepted, but they are shell scripts you run on your own machine against your own sessions, and several close sessions or delete workspaces, so read a recipe before you run it.
+Recipes come from other people as well as the maintainer. Every one is reviewed before it is accepted, but they are scripts you run on your own machine against your own sessions, and several close sessions or delete workspaces, so read a recipe before you run it.
 
 ## Recipes
 
