@@ -384,6 +384,28 @@ final class PersistenceTests {
         }
     }
 
+    @Test func malformedOptionalScalarsDropToNilKeepingTree() throws {
+        // every optional in Snapshot must survive a wrong JSON type from a hand edit or a truncated write.
+        // only version and workspaces are strict, so none of these may take the tree down with them.
+        let ws = UUID()
+        let session = UUID()
+        let tree = #""workspaces": "# +
+            #"[ { "id": "\#(ws.uuidString)", "name": "work", "sessions": [ { "id": "\#(session.uuidString)", "cwd": "/a" } ] } ]"#
+        let bads = [
+            #""selectedSessionID": "not-a-uuid""#,
+            #""sidebarWidth": "wide""#,
+            #""sidebarVisible": "yes""#,
+            #""focusedWorkspaceID": "not-a-uuid""#,
+            #""focusEnabled": 42"#,
+        ]
+        for bad in bads {
+            try Data(#"{ "version": 1, \#(bad), \#(tree) }"#.utf8).write(to: fileURL)
+            let loaded = store.load()
+            #expect(loaded.workspaces.map(\.id) == [ws], "\(bad) wiped the tree")
+            #expect(loaded.workspaces.first?.sessions.map(\.id) == [session], "\(bad) wiped the sessions")
+        }
+    }
+
     @Test func restoreInsertsAbsentSelectionAtFront() {
         let a = UUID()
         let b = UUID()

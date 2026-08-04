@@ -55,32 +55,32 @@ public struct Snapshot: Codable, Equatable, Sendable {
         case focusedWorkspaceID
     }
 
-    /// Custom decode so `sessionRecency`, `sidebarMode`, and `focusedWorkspaceIDs` are LOSSY: a
-    /// present-but-invalid value (a malformed UUID, an unknown enum raw value from a newer build or a hand
-    /// edit) drops to nil. `Optional` alone tolerates only a MISSING key, so one bad value would fail the
-    /// whole `Snapshot` and `PersistenceStore.load` would start fresh, wiping every workspace and session
-    /// over a non-essential field. Mirrors `backgroundWatermark` below; the remaining optionals stay
-    /// strict, scalars and a single UUID that can't gain a value a newer build writes.
+    /// Custom decode so EVERY optional is LOSSY: a present-but-invalid value (a malformed UUID, an unknown
+    /// enum raw value from a newer build, a wrong JSON type from a hand edit or a truncated write) drops to
+    /// nil. `Optional` alone tolerates only a MISSING key, so one bad value would fail the whole `Snapshot`
+    /// and `PersistenceStore.load` would start fresh, wiping every workspace and session over a
+    /// non-essential field. Mirrors `backgroundWatermark` below. Only `version` and `workspaces` stay
+    /// strict: they are the payload itself, so a snapshot that can't decode them has no tree worth keeping.
     ///
     /// Also migrates the legacy `focusedWorkspaceID`: its presence implied the filter was on, so it becomes
     /// a one-member ENABLED set. Neither key present decodes to nil/nil — an empty, disabled filter.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = try c.decode(Int.self, forKey: .version)
-        selectedSessionID = try c.decodeIfPresent(UUID.self, forKey: .selectedSessionID)
+        selectedSessionID = (try? c.decodeIfPresent(UUID.self, forKey: .selectedSessionID)) ?? nil
         workspaces = try c.decode([WorkspaceSnapshot].self, forKey: .workspaces)
-        sidebarWidth = try c.decodeIfPresent(Double.self, forKey: .sidebarWidth)
-        sidebarVisible = try c.decodeIfPresent(Bool.self, forKey: .sidebarVisible)
+        sidebarWidth = (try? c.decodeIfPresent(Double.self, forKey: .sidebarWidth)) ?? nil
+        sidebarVisible = (try? c.decodeIfPresent(Bool.self, forKey: .sidebarVisible)) ?? nil
         sidebarMode = (try? c.decodeIfPresent(SidebarMode.self, forKey: .sidebarMode)) ?? nil
         let legacyContainer = try decoder.container(keyedBy: LegacyCodingKeys.self)
-        let legacyFocus = try legacyContainer.decodeIfPresent(UUID.self, forKey: .focusedWorkspaceID)
+        let legacyFocus = (try? legacyContainer.decodeIfPresent(UUID.self, forKey: .focusedWorkspaceID)) ?? nil
         let ids = (try? c.decodeIfPresent([UUID].self, forKey: .focusedWorkspaceIDs)) ?? nil
         if ids == nil, let legacyID = legacyFocus {
             focusedWorkspaceIDs = [legacyID]
             focusEnabled = true
         } else {
             focusedWorkspaceIDs = ids
-            focusEnabled = try c.decodeIfPresent(Bool.self, forKey: .focusEnabled)
+            focusEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .focusEnabled)) ?? nil
         }
         sessionRecency = (try? c.decodeIfPresent([UUID].self, forKey: .sessionRecency)) ?? nil
     }
