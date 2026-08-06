@@ -51,7 +51,7 @@ Everything else is optional, set as prefix assignments in the keymap line since 
 - `CLAUDE_FG_MATCH` — the pattern deciding whether a pane runs Claude Code, as described above. The default, `(^|/)claude$`, matches a direct run only. It is anchored to a whole path component, so a wrapper of your own is not matched by accident and neither is a neighbour like `claude-helper`.
 - `CLAUDE_RESUME_CMD` — what to type at a shell prompt, when `claude` is not the command you start it with.
 - `CLAUDE_RESUME_MAX` — how many conversations the picker lists at all, newest first (default 80). Every one below the cap costs a file read on each press.
-- `CLAUDE_RESUME_NAME_MAX` — how many of those newest conversations get a name (default 20). The rest are listed under their opening prompt.
+- `CLAUDE_RESUME_NAME_MAX` — how many of those newest conversations get a name (default 20). The rest are listed under their opening prompt. The digests go to the naming model as a single argument, so raising this several-fold eventually runs into the system's argument-size limit rather than into a slow press.
 - `CLAUDE_RESUME_MODEL` — the naming model. The default is a small fast one, named by its full id: a short alias is not recognized and silently falls back to your default model, which is slower and costs more for a six-word label.
 - `CLAUDE_RESUME_PANE_POINTER` — a file naming the conversation open in a pane, as a template with `{sid}` and `{pane}`. Claude Code publishes no such thing, so this is off unless your own statusline hook writes one; when set, the conversation you are already in is dropped from the list instead of offered back to you.
 
