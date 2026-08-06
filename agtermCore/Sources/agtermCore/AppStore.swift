@@ -815,9 +815,10 @@ public final class AppStore {
     /// current state wholesale. A persisted selection pointing at a session that no longer exists is cleared.
     /// Deliberately does NOT call `save()` — it loads what was just read from disk; the closing
     /// `reselectIfSelectionHidden` is the exception, since repairing a stranded selection is worth writing.
-    /// `launchRestore` marks an APP-BOOTSTRAP restore, the only thing that arms a persisted `session.restore`
-    /// override for this launch. It defaults to false because reopening a closed window mid-process reloads
-    /// its store through here, and that RUNTIME caller must not execute anything.
+    /// `launchRestore` marks an APP-BOOTSTRAP restore, the only thing that arms anything executable — a
+    /// persisted `session.restore` override and the captured `foregroundCommand`/`splitForegroundCommand`.
+    /// It defaults to false because reopening a closed window mid-process reloads its store through here,
+    /// and that RUNTIME caller must not execute anything.
     public func restore(from snapshot: Snapshot, launchRestore: Bool = false) {
         freshWorkspaceID = nil // live create-time state, never restored from disk
         // fold duplicate workspace ids into the first occurrence and keep only the first snapshot of a
@@ -957,9 +958,11 @@ public final class AppStore {
     }
 
     /// Rebuilds one session from its snapshot. `launchRestore` marks an APP-BOOTSTRAP restore, the only path
-    /// allowed to arm a persisted `restoreCommand` by copying it into the transient `pendingRestoreCommand`
-    /// the surface factory consumes; it defaults to false so any other rebuild (a mid-process window reload,
-    /// Reopen Closed Item) comes back with nothing armed.
+    /// allowed to arm anything executable: the captured `foregroundCommand`/`splitForegroundCommand`
+    /// (persisted only by an app-exit capture, but a stale file could still carry one — a mid-run reopen
+    /// must never replay a command without any quit) and the persisted `restoreCommand`, copied into the
+    /// transient `pendingRestoreCommand` the surface factory consumes. It defaults to false so any other
+    /// rebuild (a mid-process window reload, Reopen Closed Item) comes back with nothing armed.
     ///
     /// A split hidden at the last quit is NOT rebuilt (`hasSplit` follows `isSplit`), so its pinned override
     /// describes a pane that no longer exists and is DROPPED here, the rule `closeSplit` applies when a pane
@@ -973,8 +976,6 @@ public final class AppStore {
         session.initialSplitCwd = snapshot.splitCwd
         session.splitRatio = snapshot.splitRatio.map { min(AppStore.splitRatioMax, max(AppStore.splitRatioMin, $0)) }
         session.flagged = snapshot.flagged ?? false
-        session.foregroundCommand = snapshot.foregroundCommand
-        session.splitForegroundCommand = snapshot.splitForegroundCommand
         session.initialCommand = snapshot.initialCommand
         session.commandWait = snapshot.commandWait ?? false
         session.wasRestored = true
@@ -982,6 +983,8 @@ public final class AppStore {
         session.restoreCommand = snapshot.restoreCommand
         session.splitRestoreCommand = session.isSplit ? snapshot.splitRestoreCommand : nil
         if launchRestore {
+            session.foregroundCommand = snapshot.foregroundCommand
+            session.splitForegroundCommand = snapshot.splitForegroundCommand
             session.pendingRestoreCommand = snapshot.restoreCommand
             if session.isSplit { session.pendingSplitRestoreCommand = session.splitRestoreCommand }
         }
