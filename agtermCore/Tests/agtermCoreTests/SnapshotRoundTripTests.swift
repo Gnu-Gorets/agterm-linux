@@ -29,6 +29,9 @@ struct SnapshotRoundTripTests {
         let store = makeStore()
         let ws = store.addWorkspace(name: "work")
         let session = store.addSession(toWorkspace: ws.id, cwd: "/a")!
+        // split, because the capture path only ever records a split argv for a SHOWN split and the launch
+        // restore arms the split slot on the same condition
+        session.isSplit = true
         session.foregroundCommand = ["ssh", "gate", "-p", "22"]
         session.splitForegroundCommand = ["tail", "-f", "/var/log/x"]
         let snap = store.snapshot()
@@ -40,8 +43,11 @@ struct SnapshotRoundTripTests {
         let restored = makeStore()
         restored.restore(from: snap, launchRestore: true)
         let r = restored.workspaces[0].sessions[0]
-        #expect(r.foregroundCommand == ["ssh", "gate", "-p", "22"])
-        #expect(r.splitForegroundCommand == ["tail", "-f", "/var/log/x"])
+        #expect(r.pendingForegroundCommand == ["ssh", "gate", "-p", "22"])
+        #expect(r.pendingSplitForegroundCommand == ["tail", "-f", "/var/log/x"])
+        // re-snapshotting the restored store must not write the argv back — that is what makes the
+        // launch-time strip durable against any save before the surfaces consume it.
+        #expect(restored.snapshot().workspaces[0].sessions[0].foregroundCommand == nil)
     }
 
     @Test func legacySnapshotWithoutForegroundCommandDecodesNil() throws {

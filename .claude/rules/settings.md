@@ -139,7 +139,19 @@ paths:
   Replay arms ONLY on a launch restore: `session(from:launchRestore:)` copies
   `foregroundCommand`/`splitForegroundCommand` (like the pending override) under `launchRestore` alone,
   so a mid-run window reopen or Reopen Closed Item comes back a plain shell.
-  Against STALE files from older builds, `loadStore` rewrites a snapshot that carried captures on a
+  Consumption is one-shot AND durable, and that rests on WHERE the launch arms it.
+  `session(from:launchRestore:)` seeds the TRANSIENT `pendingForegroundCommand`/
+  `pendingSplitForegroundCommand`, which `snapshot()` does not serialize, and leaves the persisted fields
+  nil; `loadStore` strips the file in the same step.
+  So no save landing between arming and the surface spawning can write the argv back — several do land
+  there (`applyInactiveWindowSidebarHiding`, the debounced save `reselectIfSelectionHidden` schedules),
+  and arming the persisted fields instead would let any of them resurrect it.
+  A crash can then cost a restore but never repeat one; a failed strip disarms the pending slots rather
+  than leaving a replay nothing recorded.
+  Anything else that must cancel an armed replay clears those slots too, never the persisted fields:
+  `recoverOrphanedWindows`, `Session.clearPendingRestoreOverrides` on the soft-close round trip, and
+  `restore.clear`, which the socket can receive before the later windows' decks have mounted.
+  Against STALE files from older builds, `loadStore` also rewrites a snapshot that carried captures on a
   mid-run reopen, and `recoverOrphanedWindows` drops captures while the sticky override still arms
   (a corrupt index must not re-execute a closed window's last command).
 - Restore only when the toggle is on and basename is absent from user

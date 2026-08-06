@@ -97,8 +97,12 @@ struct AppStoreRestoreSeedTests {
         let snap = SessionSnapshot(id: UUID(), customName: nil, cwd: "/a", isSplit: true,
                                    foregroundCommand: ["tee", "/tmp/m"], splitForegroundCommand: ["tail", "-f"])
         let session = store.session(from: snap, launchRestore: true)
-        #expect(session.foregroundCommand == ["tee", "/tmp/m"])
-        #expect(session.splitForegroundCommand == ["tail", "-f"])
+        // the transient slots, never the persisted fields: `snapshot()` serializes those, so arming them
+        // would let a save before the surface spawns rewrite the argv the launch strip just removed.
+        #expect(session.pendingForegroundCommand == ["tee", "/tmp/m"])
+        #expect(session.pendingSplitForegroundCommand == ["tail", "-f"])
+        #expect(session.foregroundCommand == nil)
+        #expect(session.splitForegroundCommand == nil)
     }
 
     @Test func nonBootstrapRebuildDropsCapturedForegroundCommands() {
@@ -112,6 +116,8 @@ struct AppStoreRestoreSeedTests {
         let session = store.session(from: snap)
         #expect(session.foregroundCommand == nil)
         #expect(session.splitForegroundCommand == nil)
+        #expect(session.pendingForegroundCommand == nil)
+        #expect(session.pendingSplitForegroundCommand == nil)
     }
 
     @Test func freshSessionHasNoOverrideState() {

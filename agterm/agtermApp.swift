@@ -222,9 +222,9 @@ struct agtermApp: App {
         // captured foreground preempts `initialCommand` even when denylist-suppressed. A `session.restore` override
         // beats both, from the TRANSIENT pending slot (only an app-bootstrap restore seeds it) not the sticky
         // persisted field; taking it clears it, so this pane's next surface is a plain shell.
-        let hadForeground = session.foregroundCommand != nil
-        let restoreInput = Self.restoreInitialInput(session.foregroundCommand)
-        session.foregroundCommand = nil
+        let pendingForeground = session.takePendingForegroundCommand(pane: .left)
+        let hadForeground = pendingForeground != nil
+        let restoreInput = Self.restoreInitialInput(pendingForeground)
         let inputs = CommandRestore.RestoreInputs(wasRestored: session.wasRestored,
                                                   restoreEnabled: GhosttyApp.shared.restoreRunningCommand,
                                                   hadForeground: hadForeground, foregroundInput: restoreInput,
@@ -380,8 +380,7 @@ struct agtermApp: App {
         // `restorePlan` — `restoreInput` alone decides. A `session.restore` override wins over the capture, from
         // the TRANSIENT pending slot (seeded only by an app-bootstrap restore whose split was shown) not the
         // sticky persisted field; taking it clears it, so a fresh ⌘D split after a split shell exits is a shell.
-        let capturedInput = Self.restoreInitialInput(session.splitForegroundCommand)
-        session.splitForegroundCommand = nil
+        let capturedInput = Self.restoreInitialInput(session.takePendingForegroundCommand(pane: .right))
         let restoreInput = CommandRestore.restoreInput(restoreEnabled: GhosttyApp.shared.restoreRunningCommand,
                                                        restoreOverride: session.takePendingRestoreOverride(pane: .right),
                                                        capturedInput: capturedInput)

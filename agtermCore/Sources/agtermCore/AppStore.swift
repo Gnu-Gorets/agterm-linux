@@ -791,25 +791,6 @@ public final class AppStore {
 
     // MARK: - Persistence
 
-    /// Builds a `Snapshot` of the current tree; each session captures its live `currentCwd` (or `initialCwd`
-    /// if no PWD report arrived). Runs on `@MainActor`; the result is `Sendable`, safe to hand to a writer.
-    public func snapshot() -> Snapshot {
-        let workspaceSnapshots = workspaces.map { workspace in
-            let sessions = workspace.sessions.map(sessionSnapshot)
-            // only a collapsed workspace writes the flag, so an all-expanded tree matches a legacy snapshot.
-            return WorkspaceSnapshot(id: workspace.id, name: workspace.name, sessions: sessions,
-                                     collapsed: workspace.isExpanded ? nil : true)
-        }
-        // TREE order keeps the on-disk list deterministic (not the Set's hash order); an unmarked store omits
-        // both focus keys, matching a file written before the set existed. `focusedWorkspaceID` stays unused.
-        let focusIDs = workspaces.map(\.id).filter(focusedWorkspaceIDs.contains)
-        return Snapshot(selectedSessionID: selectedSessionID, workspaces: workspaceSnapshots,
-                        sidebarWidth: sidebarWidth, sidebarVisible: sidebarVisible, sidebarMode: sidebarMode,
-                        focusedWorkspaceIDs: focusIDs.isEmpty ? nil : focusIDs,
-                        focusEnabled: focusEnabled ? true : nil,
-                        sessionRecency: sessionRecency.items)
-    }
-
     /// Rebuilds the tree from a snapshot: fresh `Session`s (surfaces and shells spawn lazily on first
     /// display) keyed by the persisted ids so the restored `selectedSessionID` still resolves, replacing the
     /// current state wholesale. A persisted selection pointing at a session that no longer exists is cleared.
@@ -937,63 +918,6 @@ public final class AppStore {
             if let first = workspace.sessions.first { return first.id }
         }
         return nil
-    }
-
-    func sessionSnapshot(_ session: Session) -> SessionSnapshot {
-        SessionSnapshot(id: session.id, customName: session.customName, cwd: session.currentCwd ?? session.initialCwd,
-                        isSplit: session.isSplit, fontSize: session.fontSize,
-                        splitCwd: session.splitCwd ?? session.initialSplitCwd, splitRatio: session.splitRatio,
-                        flagged: session.flagged,
-                        foregroundCommand: session.foregroundCommand,
-                        splitForegroundCommand: session.splitForegroundCommand,
-                        initialCommand: session.initialCommand, commandWait: session.commandWait ? true : nil,
-                        backgroundWatermark: session.backgroundWatermark,
-                        restoreCommand: session.restoreCommand,
-                        splitRestoreCommand: session.splitRestoreCommand)
-    }
-
-    func workspaceSnapshot(_ workspace: Workspace) -> WorkspaceSnapshot {
-        WorkspaceSnapshot(id: workspace.id, name: workspace.name, sessions: workspace.sessions.map(sessionSnapshot),
-                          collapsed: workspace.isExpanded ? nil : true)
-    }
-
-    /// Rebuilds one session from its snapshot. `launchRestore` marks an APP-BOOTSTRAP restore, the only path
-    /// allowed to arm anything executable: the captured `foregroundCommand`/`splitForegroundCommand`
-    /// (persisted only by an app-exit capture, but a stale file could still carry one — a mid-run reopen
-    /// must never replay a command without any quit) and the persisted `restoreCommand`, copied into the
-    /// transient `pendingRestoreCommand` the surface factory consumes. It defaults to false so any other
-    /// rebuild (a mid-process window reload, Reopen Closed Item) comes back with nothing armed.
-    ///
-    /// A split hidden at the last quit is NOT rebuilt (`hasSplit` follows `isSplit`), so its pinned override
-    /// describes a pane that no longer exists and is DROPPED here, the rule `closeSplit` applies when a pane
-    /// goes away. Keeping it would leave a value `tree` reports but no write can clear (`session.restore
-    /// --pane right` is rejected without a split), and a fresh ⌘D split at the next quit would inherit it.
-    func session(from snapshot: SessionSnapshot, launchRestore: Bool = false) -> Session {
-        let session = Session(id: snapshot.id, initialCwd: snapshot.cwd, customName: snapshot.customName)
-        session.isSplit = snapshot.isSplit ?? false
-        session.hasSplit = session.isSplit
-        session.fontSize = snapshot.fontSize
-        session.initialSplitCwd = snapshot.splitCwd
-        session.splitRatio = snapshot.splitRatio.map { min(AppStore.splitRatioMax, max(AppStore.splitRatioMin, $0)) }
-        session.flagged = snapshot.flagged ?? false
-        session.initialCommand = snapshot.initialCommand
-        session.commandWait = snapshot.commandWait ?? false
-        session.wasRestored = true
-        session.backgroundWatermark = snapshot.backgroundWatermark
-        session.restoreCommand = snapshot.restoreCommand
-        session.splitRestoreCommand = session.isSplit ? snapshot.splitRestoreCommand : nil
-        if launchRestore {
-            session.foregroundCommand = snapshot.foregroundCommand
-            session.splitForegroundCommand = snapshot.splitForegroundCommand
-            session.pendingRestoreCommand = snapshot.restoreCommand
-            if session.isSplit { session.pendingSplitRestoreCommand = session.splitRestoreCommand }
-        }
-        return session
-    }
-
-    func workspace(from snapshot: WorkspaceSnapshot) -> Workspace {
-        Workspace(id: snapshot.id, name: snapshot.name, sessions: snapshot.sessions.map { session(from: $0) },
-                  isExpanded: !(snapshot.collapsed ?? false))
     }
 
 }

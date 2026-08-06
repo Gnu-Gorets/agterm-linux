@@ -350,16 +350,28 @@ public final class WindowLibrary {
         let snapshot = persistence.load()
         store.restore(from: snapshot, launchRestore: launchRestore)
         stores[id] = store
-        if !launchRestore {
+        let carriedCaptures = snapshot.workspaces.contains { workspace in
+            workspace.sessions.contains { $0.foregroundCommand != nil || $0.splitForegroundCommand != nil }
+        }
+        if launchRestore {
+            // the replay is armed in the sessions' TRANSIENT slots, which `snapshot()` never serializes, so
+            // strip the FILE now and nothing can put the argv back: the persisted fields are already nil,
+            // and a save landing before the surfaces spawn writes that nil. Without the strip the argv
+            // would outlive its one replay whenever no save happens at all, and a crash would run it again
+            // next launch. If the strip fails, disarm instead: losing a restore to a disk error beats
+            // re-running the user's command unasked.
+            if carriedCaptures, !stripCaptures(from: snapshot, into: persistence) {
+                for session in store.workspaces.flatMap(\.sessions) {
+                    session.pendingForegroundCommand = nil
+                    session.pendingSplitForegroundCommand = nil
+                }
+            }
+        } else {
             // the launch-only gate just dropped any captured foreground command from the live sessions;
             // rewrite the snapshot too, or the stale argv survives on disk and a force-quit before the
             // next save replays it on the following launch — after the user last saw this window as a
             // plain shell.
-            if snapshot.workspaces.contains(where: { workspace in
-                workspace.sessions.contains { $0.foregroundCommand != nil || $0.splitForegroundCommand != nil }
-            }) {
-                store.save()
-            }
+            if carriedCaptures { store.save() }
             for workspace in store.workspaces {
                 for session in workspace.sessions { store.emitSessionCreated(session, workspace: workspace.id) }
             }
@@ -367,6 +379,26 @@ public final class WindowLibrary {
         }
         saveIndex()
         return store
+    }
+
+    /// Rewrites `snapshot` without the one-shot foreground captures, leaving every other field — including
+    /// the sticky `restoreCommand` override, which fires again on the next launch. Returns whether the
+    /// write landed; the caller disarms the live sessions when it did not.
+    private func stripCaptures(from snapshot: Snapshot, into persistence: PersistenceStore) -> Bool {
+        var stripped = snapshot
+        for workspaceIndex in stripped.workspaces.indices {
+            for sessionIndex in stripped.workspaces[workspaceIndex].sessions.indices {
+                stripped.workspaces[workspaceIndex].sessions[sessionIndex].foregroundCommand = nil
+                stripped.workspaces[workspaceIndex].sessions[sessionIndex].splitForegroundCommand = nil
+            }
+        }
+        do {
+            try persistence.save(stripped)
+            return true
+        } catch {
+            log("stripCaptures failed: \(error)")
+            return false
+        }
     }
 
     @discardableResult
@@ -584,11 +616,13 @@ public final class WindowLibrary {
             // build, or an exit capture resurrected abnormally — may carry a command the user last saw
             // closed. Drop the one-shot captures and persist; the sticky `session.restore` override
             // stays armed (the user pinned it to fire on every restart).
+            // disarm the TRANSIENT slots: `loadStore` armed those, not the persisted fields, so clearing
+            // the latter here would leave every recovered window's capture live and replaying.
             var stripped = false
             for session in store.workspaces.flatMap(\.sessions)
-            where session.foregroundCommand != nil || session.splitForegroundCommand != nil {
-                session.foregroundCommand = nil
-                session.splitForegroundCommand = nil
+            where session.pendingForegroundCommand != nil || session.pendingSplitForegroundCommand != nil {
+                session.pendingForegroundCommand = nil
+                session.pendingSplitForegroundCommand = nil
                 stripped = true
             }
             if stripped { store.save() }
