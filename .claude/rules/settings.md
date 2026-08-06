@@ -19,6 +19,8 @@ paths:
 - Theme slots and following are owned by the theme-picker rule. `ToolbarMode` is
   `normal|compact|hidden`, stored raw; nil defaults compact. Normal adds cwd, hidden removes titlebar and
   traffic lights but leaves an invisible roughly 3-point drag strip above the first row at padding 6.
+  Hidden also drops the title/terminal hairline both columns draw: `titlebarHeight` is 0 there, so the line
+  would sit on the window's top edge separating nothing and read as a rendering artifact.
   `effectiveToolbarMode` falls back through legacy `compactToolbar` (`false` = normal, nil/true = compact);
   writing a mode clears the legacy field.
 - Default-on nil fields are `notificationsEnabled`, `notificationBadgeEnabled`, `rightClickPaste`, and
@@ -97,12 +99,6 @@ paths:
   `CGSSetWindowBackgroundBlurRadius`; absence is a no-op. `ghosttyConfigLines()` pins renderer opacity and
   blur to 0. At opacity 1, restore opaque rendering. Reduce Transparency temporarily forces opaque,
   unblurred windows/panels without changing saved settings or config.
-- In native fullscreen AppKit relocates the chrome into an `NSToolbarFullScreenWindow` child window, so the
-  window's own view tree holds no `NSTitlebarContainerView` and the whole blend is skipped.
-  Hidden toolbar mode falls back to that child, or `NSTitlebarBackgroundView` paints a hairline across the
-  top edge of the full-bleed terminal. Other modes keep AppKit's own fullscreen rendering.
-  Key the `_NSTitlebarDecorationView` suppression off the mode, never the traffic-light flag, whose
-  fullscreen carve-out would un-hide what AppKit hides there itself.
 - On macOS 26, find the wrapping `NSContainerConcentricGlassEffectView` by walking from
   `agterm-sidebar-scroll`; for translucent windows use clear style plus terminal tint. Its Liquid Glass
   blur is not pixel-identical to CGS blur. Reapply on key/main/fullscreen and appearance changes.
