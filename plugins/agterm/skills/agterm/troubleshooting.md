@@ -173,6 +173,18 @@ refocus click is not forwarded into the pty), so the terminal is not at fault. T
 anthropics/claude-code#72188 (mouse-click variant #72273). Workaround: answer before switching away, or
 `Esc` the stuck prompt and let it re-ask.
 
+### "⌘-hover does not underline links inside tmux or vim"
+
+By design, NOT a bug. Do not file an agterm issue for it. libghostty detects links only while the
+foreground program has mouse reporting OFF, so a program that captures the mouse takes link handling with
+it: ⌘-hover stops underlining, the pointer stays a text bar, and ⌘-click opens nothing, all four together
+and only inside that program. Ghostty.app behaves the same. It is per-program, not per-category:
+`tmux` with `mouse on` and stock `vim` (`defaults.vim` sets `mouse=a`) suppress it, while an agent CLI
+that never enables mouse reporting keeps links working. Workaround: hold shift too (⌘⇧-hover, ⌘⇧-click).
+A program can claim shift via `XTSHIFTESCAPE`, so `mouse-shift-capture = never` in
+`~/.config/agterm/ghostty.conf` makes shift always win; `mouse-reporting = false` there turns reporting
+off for every program, trading in-program mouse support for always-on selection and links.
+
 ## Reporting: decide bug vs unsupported FIRST
 
 - A **supported** thing misbehaves (a documented command/feature does the wrong thing, a crash, a parse

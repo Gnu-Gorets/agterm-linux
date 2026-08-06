@@ -134,6 +134,26 @@ Reload with **File ▸ Reload Config** or `agtermctl config reload`. The keybind
 - **Agent-status glyph does not update.** Install the hooks from Help ▸ Install Agent Status Hooks…. For shell-integrated agents, start a fresh shell so the `source` line added to your shell rc takes effect. For Pi, restart it or run `/reload` so it loads `~/.pi/agent/extensions/agterm-status.ts`; Pi status is only installed when `~/.pi/agent` already exists. For OpenCode, restart it so it loads `~/.config/opencode/plugins/agterm-status.js`; the plugin installs only when `~/.config/opencode` already exists. The hooks call `agtermctl session status`, so `agtermctl` must resolve first (see above).
 - **Agent-status glyph updates the wrong session.** One session's glyph blinks while the work happens in another — typically when agents run inside tmux (or a tmux-backed session manager such as agent-deck). The working process inherited another session's `AGTERM_SESSION_ID`: the status hooks target whatever id is in their environment, and a long-lived daemon started from inside an agterm session (a tmux server is the usual carrier) captures that session's `AGTERM_*` variables into its global environment and passes them to every child it ever creates. Check `tmux show-environment -g | grep AGTERM` — if present, clear them with `tmux set-environment -g -r AGTERM_SESSION_ID` (and the other `AGTERM_*` names), then restart the affected panes. To avoid it, start such daemons with the variables scrubbed (`env -u AGTERM_SESSION_ID … <command>`) or from a terminal outside agterm.
 
+## ⌘-hover does not underline links inside tmux or vim
+
+Inside a program that has turned mouse reporting on, ⌘-hover stops underlining URLs, the pointer stays a
+text bar instead of becoming a hand, and ⌘-click opens nothing. All four go together, and they come back
+the moment you leave that program.
+
+This is not a bug. libghostty detects links only while the foreground program has mouse reporting off, so
+a program that captures the mouse takes link handling with it. Ghostty.app behaves the same way. It is
+per-program, not a property of any category of app: `tmux` with `mouse on` and stock `vim` (whose
+`defaults.vim` sets `mouse=a`) both suppress it, while an agent CLI that never touches mouse reporting
+leaves links working normally.
+
+Hold shift as well — ⌘⇧-hover and ⌘⇧-click — to bypass the capture without changing any setting. A program
+can claim shift for itself with `XTSHIFTESCAPE`, in which case add `mouse-shift-capture = never` to
+`~/.config/agterm/ghostty.conf` so shift always wins.
+
+To turn mouse reporting off for every program instead, set `mouse-reporting = false` in the same file.
+Selection and links then always work, at the cost of mouse support inside programs that wanted it — mouse
+scrolling in `tmux`, clicking to position the cursor in `vim`.
+
 ## Claude Code's question or permission prompt stops responding after switching apps
 
 While Claude Code shows an interactive prompt (a question menu or a permission dialog), switching to another app and back can leave that prompt unresponsive to the keyboard: the arrow keys and Return do nothing. The regular Claude Code prompt and the shell are unaffected, so you can still type there.
