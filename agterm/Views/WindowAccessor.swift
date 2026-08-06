@@ -145,17 +145,11 @@ struct WindowAccessor: NSViewRepresentable {
                     // reopened window would load a stale snapshot. skipped once the window is no longer open:
                     // a delete already dropped the store and removed the per-window file, so this resurrects it.
                     if library.isOpen(windowID) {
-                        // restore-running-command: capture the panes' live foreground commands NOW, while the
-                        // surfaces below are still alive — a close-the-last-window exit reaches
-                        // `applicationWillTerminate`'s capture only AFTER this teardown, which silently
-                        // dropped every running command from the saved state. Skipped during app termination:
-                        // `applicationWillTerminate` has ALREADY captured, and a re-read here could overwrite
-                        // a good value with nil for a foreground that exited in the meantime (the capture
-                        // assigns unconditionally, and a dead pid reads as nil).
-                        // Scoped to the app-exit close (`openIDs() == [windowID]`, read before `closeWindow`
-                        // runs): a non-last-window capture has no correct consumer — a mid-run reopen is
-                        // gated, and the launch restore can't tell this window's file from one open at exit,
-                        // so its stale argv could replay via the never-windowless reopen fallback.
+                        // restore-running-command: capture while the surfaces below are still alive. Skipped
+                        // under termination — the quit-time capture already ran, and a re-read assigns
+                        // unconditionally, so a foreground that exited since would overwrite it with nil.
+                        // `openIDs()` is read before `closeWindow` runs, so it scopes this to the app-exit
+                        // close. Contract in `.claude/rules/settings.md`.
                         if !library.isTerminating, library.openIDs() == [windowID],
                            GhosttyApp.shared.restoreRunningCommand {
                             AppDelegate.captureForegroundCommands(sessions: store.workspaces.flatMap(\.sessions))

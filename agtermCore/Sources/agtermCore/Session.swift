@@ -183,8 +183,9 @@ public final class Session: Identifiable {
     /// a plain shell when off). Never persisted.
     @ObservationIgnored public var wasRestored = false
 
-    /// The main pane's foreground command (full argv) for restore-running-command, captured at the last clean
-    /// quit and read once by the surface factory on restore, then cleared. Persisted; nil at a prompt.
+    /// The main pane's foreground command (full argv) for restore-running-command, read once by the surface
+    /// factory on a launch restore, then cleared. Persisted; nil at a prompt. Capture sites and the
+    /// launch-only replay gate: `.claude/rules/settings.md`.
     @ObservationIgnored public var foregroundCommand: [String]?
     /// The split (right) pane's foreground command (full argv), the split analogue of `foregroundCommand`.
     @ObservationIgnored public var splitForegroundCommand: [String]?

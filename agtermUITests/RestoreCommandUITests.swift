@@ -306,10 +306,8 @@ final class RestoreCommandUITests: XCTestCase {
                       "with no override pinned, the split pane re-runs its captured foreground command")
     }
 
-    // Exiting by closing the LAST window must capture the running command like ⌘Q: the close path tears
-    // surfaces down in `willClose` BEFORE the auto-quit reaches `applicationWillTerminate`, so the
-    // quit-time capture alone finds no surfaces and silently dropped every running command — the
-    // `willClose` capture (skipped only under `isTerminating`) is what re-runs `tee` here.
+    // pins #369: the close path tears surfaces down before `applicationWillTerminate`, so the quit-time
+    // capture alone finds none and saves nulls over every running command.
     func testWindowCloseExitCapturesRunningCommand() throws {
         seedRestoreFlag(true)
         app.launchForUITest()

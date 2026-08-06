@@ -328,12 +328,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsModel?.flushPendingSaves()
     }
 
-    /// Capture every open pane's foreground command (main + split) into its `Session` fields for the snapshot
-    /// save. `ForegroundProcess` returns nil for a pane at its shell prompt, so plain shells stay plain.
-    /// Session-list capture, shared with the window-close path: `WindowAccessor`'s `willClose` captures a
-    /// closing window's sessions BEFORE it tears their surfaces down — the quit-time capture (which calls
-    /// this with every open session) runs too late for a close-the-last-window exit (teardown precedes
-    /// `applicationWillTerminate`), which silently dropped every running command.
+    /// Capture the given panes' foreground commands (main + split) into their `Session` fields for the
+    /// snapshot save. `ForegroundProcess` returns nil for a pane at its shell prompt, so plain shells stay
+    /// plain. Two callers on different lifecycle edges: `applicationWillTerminate` passes every open
+    /// session, `WindowAccessor`'s `willClose` passes one closing window's — on a close-the-last-window
+    /// exit the quit-time capture runs after that teardown, too late to see any surface. Both sites and
+    /// the launch-only replay gate are stated in `.claude/rules/settings.md`.
     @MainActor
     static func captureForegroundCommands(sessions: [Session]) {
         let shellBasename = ProcessInfo.processInfo.environment["SHELL"].map(CommandRestore.basename)

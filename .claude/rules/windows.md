@@ -58,6 +58,8 @@ session drag are out of scope.
   availability conditionals without an `AnyScene` eraser. Deduplicate by ID on both systems.
 - `TitleProbeView` sets `frameAutosaveName("agterm-window-<id>")`, reports key/main changes, and on close
   tears down surfaces before `closeWindow`.
+  An app-exit close captures foreground commands first, while those surfaces are still alive; see
+  [[settings]] for that contract.
 - `AppActions`, commands, palette construction, `ControlServer`, `SettingsModel`, and `SessionSwitcher`
   resolve through observable `WindowLibrary.activeStore`: frontmost open store, then first open store.
 - On termination, set `isTerminating` before windows close, then `saveAllOpen` and `saveIndex`. This preserves

@@ -124,29 +124,24 @@ paths:
   non-zero diagnostics. A config-directory change reloads both co-located files. Launch also reports
   cached diagnostics.
 - **Restore running commands is opt-in, and both capture and replay are exit-scoped.**
-  Capture runs at two points through the same `AppDelegate.captureForegroundCommands`:
-  `applicationWillTerminate` before `saveAllOpen()`, and the LAST window's `willClose` before its
-  surface teardown (guarded by `openIDs() == [windowID]` and skipped under `isTerminating`,
-  where the quit-time capture already ran).
-  The second point is what preserves commands when the exit is close-the-last-window,
-  whose teardown precedes `applicationWillTerminate`.
-  A NON-last window close captures nothing: such a capture has no correct consumer
-  (mid-run reopen is gated below, and a launch restore can't tell that window's file from one
-  open at exit, so the stale argv could replay via the never-windowless reopen fallback).
+  `AppDelegate.captureForegroundCommands` runs at two points: `applicationWillTerminate` before
+  `saveAllOpen()`, and the LAST window's `willClose` before its surface teardown, which precedes
+  `applicationWillTerminate` and is therefore the only point where a close-the-last-window exit's
+  commands are still readable.
+  Guarded by `openIDs() == [windowID]`, skipped under `isTerminating`.
+  A NON-last close captures nothing: a launch restore can't tell that window's file from one open at
+  exit, so its argv could replay via the never-windowless reopen fallback.
   Argv comes from `ghostty_surface_foreground_pid`, `sysctl(KERN_PROCARGS2)`, and host-free parsing.
   Capture no hidden split.
-  A known shell with only flags is idle and omitted; scripts/payload args remain,
-  including `/bin/sh <script>`.
-  Strip login `-` before shell recognition.
-  Force quit preserves snapshots/cwd but skips command capture.
+  Strip login `-` before shell recognition; a known shell with only flags is idle and omitted, while
+  scripts/payload args remain, including `/bin/sh <script>`.
+  Force quit preserves snapshots/cwd but skips capture.
   Replay arms ONLY on a launch restore: `session(from:launchRestore:)` copies
-  `foregroundCommand`/`splitForegroundCommand` (like the pending override) only under `launchRestore`,
+  `foregroundCommand`/`splitForegroundCommand` (like the pending override) under `launchRestore` alone,
   so a mid-run window reopen or Reopen Closed Item comes back a plain shell.
-  Defense-in-depth against STALE files (written by older builds, or an exit capture resurrected
-  abnormally): a mid-run reopen REWRITES the window snapshot when it carried captures
-  (`WindowLibrary.loadStore`), and `recoverOrphanedWindows` drops captures from every recovered
-  window (a corrupt index must not re-execute a closed window's last command) while the sticky
-  override still arms.
+  Against STALE files from older builds, `loadStore` rewrites a snapshot that carried captures on a
+  mid-run reopen, and `recoverOrphanedWindows` drops captures while the sticky override still arms
+  (a corrupt index must not re-execute a closed window's last command).
 - Restore only when the toggle is on and basename is absent from user
   `restore-denylist.conf`, seeded with `tmux`, `screen`, and `zellij`. Feed captured argv once through
   shell-quoted `config.initial_input` so exit returns to the shell, then nil it. Only one foreground
