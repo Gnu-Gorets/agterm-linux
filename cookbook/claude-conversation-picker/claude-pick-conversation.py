@@ -246,14 +246,20 @@ def first_prompt(path: Path) -> tuple[str, str]:
 
 
 def rows(directory: Path) -> list[dict[str, Any]]:
-    """rows builds the conversation list, newest first."""
+    """rows builds the conversation list, newest first.
+
+    The file is carried alongside the id it reported. They usually agree, but the id comes from
+    inside the transcript and the name from the filesystem, so rebuilding one from the other would
+    silently read nothing whenever they do not.
+    """
     out: list[dict[str, Any]] = []
     for path in transcripts(directory):
         sid, prompt = first_prompt(path)
         if not sid or not prompt:
             continue
         stat = path.stat()
-        out.append({"id": sid, "first": prompt, "mtime": int(stat.st_mtime), "size": stat.st_size})
+        out.append({"id": sid, "first": prompt, "path": path,
+                    "mtime": int(stat.st_mtime), "size": stat.st_size})
     return out
 
 
@@ -453,7 +459,7 @@ class Naming:
         return items
 
 
-def name_rows(agt: Agt, directory: Path, cache_file: Path, all_rows: list[dict[str, Any]]) -> dict[str, Any]:
+def name_rows(agt: Agt, cache_file: Path, all_rows: list[dict[str, Any]]) -> dict[str, Any]:
     """name_rows names whatever moved since the last press and returns the updated cache.
 
     A model that fails or times out leaves the row on its opening prompt rather than blocking the
@@ -476,7 +482,7 @@ def name_rows(agt: Agt, directory: Path, cache_file: Path, all_rows: list[dict[s
     blocks: list[str] = []
     for index, row in enumerate(todo, start=1):
         agt.hud(f"reading conversation {index} of {len(todo)} · {len(all_rows)} in this directory")
-        block = digest(directory / f"{row['id']}.jsonl", str(row["id"]))
+        block = digest(row["path"], str(row["id"]))
         if block:
             blocks.append(block)
     if not blocks:
@@ -541,7 +547,9 @@ def live_conversation(sid: str, pane: str, running: bool) -> str:
     try:
         path = Path(PANE_POINTER.format(sid=sid, pane=pane))
         return Path(path.read_text().splitlines()[0]).stem
-    except (OSError, IndexError, KeyError):
+    except (OSError, IndexError, KeyError, ValueError):
+        # ValueError covers a malformed template, e.g. an unmatched brace: a typo in the variable
+        # must cost the skip-this-row feature, not the whole chord
         return ""
 
 
@@ -568,7 +576,7 @@ def main() -> int:
     skip = live_conversation(agt.sid, pane, bool(launcher))
 
     try:
-        cache = name_rows(agt, directory, CACHE_DIR / f"{root.name}-{slug_of(cwd)}.json",
+        cache = name_rows(agt, CACHE_DIR / f"{root.name}-{slug_of(cwd)}.json",
                           naming_candidates(all_rows, skip))
     finally:
         agt.hud_close()
