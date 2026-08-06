@@ -12,14 +12,13 @@ public enum AccessibilityInsert {
     ///
     /// Two terms, because neither covers the other:
     ///
-    /// - `Character.isNewline` for line breaks. NOT `text.contains("\n") || text.contains("\r")`:
-    ///   Swift's `String` is a collection of grapheme clusters and CRLF is a SINGLE cluster equal to
-    ///   neither `"\n"` nor `"\r"`, so the naive pair silently reports false for `"ls -la\r\n"` — and
-    ///   CRLF is exactly what a browser `<textarea>` value carries per the HTML spec, i.e. what a
-    ///   dictation client is likely to hand over. Missing it skipped the paste branch entirely (no
-    ///   bracketed-paste wrap at all), so the raw CR reached the pty, ICRNL mapped it to NL, and the
-    ///   line ran unconditionally. This term also covers the line breaks that are NOT C0 — NEL
-    ///   (U+0085), LS (U+2028) and PS (U+2029).
+    /// - `Character.isNewline` for the line breaks ABOVE C0 — NEL (U+0085), LS (U+2028) and PS (U+2029) —
+    ///   which the scalar term below does not reach. It is deliberately not
+    ///   `text.contains("\n") || text.contains("\r")`: `String` is a collection of grapheme clusters and
+    ///   CRLF is a SINGLE cluster equal to neither, so the naive pair reports false for `"ls -la\r\n"`,
+    ///   which is what a browser `<textarea>` value carries per the HTML spec and so what a dictation
+    ///   client is likely to hand over. CRLF itself is caught either way, since `unicodeScalars` sees its
+    ///   U+000D and U+000A separately.
     /// - the C0 range (U+0000–U+001F) plus DEL (U+007F) for every other control character. A TAB is the
     ///   live case: unwrapped, `insertText` hands 0x09 to the shell, readline reads it as completion and
     ///   expands a filename or spews a candidate list instead of inserting the text — and a tab is

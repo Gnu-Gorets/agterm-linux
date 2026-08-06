@@ -740,6 +740,11 @@ final class GhosttySurfaceView: NSView, TerminalSurface {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // above the nil-window guard: DETACHING is the transition nothing else reports. Hiding the quick
+        // terminal unmounts its view with `deckVisible`/`viewOnly`/`surface` all unchanged, so this is the
+        // only site that can clear the latch — below the guard it never ran, and the re-show then compared
+        // equal and stayed silent too.
+        postAccessibilityExposureChange()
         guard let window else { return }
         if surface == nil {
             createSurface()
@@ -752,8 +757,6 @@ final class GhosttySurfaceView: NSView, TerminalSurface {
             }
             updateGhosttyFocus()
         }
-        // moving between windows (or out of one) changes the `window?.isVisible` term.
-        postAccessibilityExposureChange()
         updateMetalLayerSize()
         // focus is driven by TerminalView.updateNSView when this surface becomes the active session's detail
         // view; only an auto-focus (overlay) surface grabs here, since that grab misses a deferred surface.

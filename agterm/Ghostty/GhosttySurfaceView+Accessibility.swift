@@ -218,8 +218,11 @@ extension GhosttySurfaceView {
     ///
     /// The post is DEFERRED one run-loop turn for exactly that reason: inside the first-responder
     /// transitions AppKit has not yet updated `window.firstResponder`, so `liveFocus` reads stale there.
-    /// The hop also coalesces — one focus move fires resign THEN become, and `axFocusPostScheduled` makes
-    /// the pair evaluate once, after the responder has settled, so only the net result is announced.
+    /// The deferral is also what makes each view evaluate once the responder has settled. It is NOT what
+    /// keeps a resign/become pair to one post: those fire on two DIFFERENT views, each with its own
+    /// `axFocusPostScheduled`, so both schedule. `axFocusPostScheduled` coalesces repeat calls on the same
+    /// view (the reparent/retry case); the per-view `axPostedFocus` latch is what suppresses a post whose
+    /// value did not change.
     func postAccessibilityFocusChange() {
         guard !axFocusPostScheduled else { return }
         axFocusPostScheduled = true

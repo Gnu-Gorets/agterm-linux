@@ -10,8 +10,9 @@ import XCTest
 /// These tests lock down the GATING the review asked for: the surface is exposed ONLY for the on-screen
 /// deck pane(s) — one for a plain session, BOTH for a visible split (`deckVisible` is not focus-gated) —
 /// never for the eagerly-realized background sessions (the deck mounts every session's surface at once)
-/// nor for the view-only dashboard cells. The write path itself is not reachable from XCUITest — there is
-/// no public API to call `setAccessibilityValue` on another process's element — but its ROUTING decision
+/// nor for the view-only dashboard cells. The write path itself is not reachable from XCUITest — XCUITest
+/// exposes no API for SETTING an element's AX value (`AXUIElementSetAttributeValue` is public and
+/// cross-process, it is just not something the harness surfaces) — but its ROUTING decision
 /// (inline `insertText` vs bracketed-paste `insertPasted`) is not AppKit at all: it is the host-free
 /// `AccessibilityInsert.needsPasteRouting`, unit-tested under `swift test`
 /// (`AccessibilityInsertTests`, incl. the CRLF case). Only the two AppKit insert calls themselves rest on
@@ -69,10 +70,10 @@ final class AccessibilityDictationUITests: ControlAPITestCase {
     }
 
     // The dashboard hides the deck panes (`deckVisible` false) and mounts every member surface as a cell,
-    // so nothing is a live text destination: no Terminal text area is exposed while it is open. This pins
-    // the `deckVisible` exclusion specifically — the `!viewOnly` half of the gate can't be what fails here,
-    // since no host mounts a `viewOnly` surface with `deckVisible: true`. Closing restores the single
-    // on-screen exposure, proving the exclusion is a live read, not a one-way latch.
+    // so nothing is a live text destination: no Terminal text area is exposed while it is open. Both terms
+    // exclude a cell at once, so the open leg holds under either alone. The post-close assertion is the one
+    // that discriminates: with `deckVisible` gone from `axExposed`, all three sessions satisfy the rest and
+    // it reads 3, not 1. It also proves the exclusion is a live read, not a one-way latch.
     func testDashboardCellsAreNotAccessibleTextAreas() throws {
         let ids = try prepareSessions(extra: 2)
         assertStableTerminalTextAreaCount(1, timeout: 15, hold: 1, "baseline: one exposed pane before opening the dashboard")
