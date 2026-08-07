@@ -1,0 +1,81 @@
+name: sync upstream
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  UPSTREAM_REPOSITORY: https://github.com/umputun/agterm.git
+  UPSTREAM_BRANCH: master
+  UPSTREAM_SYNC_BRANCH: upstream-sync
+  LINUX_SYNC_BRANCH: linux-port-sync
+
+jobs:
+  sync:
+    name: Open upstream sync PRs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Fetch upstream
+        run: |
+          git remote add agterm-upstream "$UPSTREAM_REPOSITORY"
+          git fetch --no-tags agterm-upstream "$UPSTREAM_BRANCH"
+          git fetch origin master linux-port
+
+      - name: Update upstream sync branch
+        run: |
+          git switch --force-create "$UPSTREAM_SYNC_BRANCH" origin/master
+          git reset --hard "agterm-upstream/$UPSTREAM_BRANCH"
+          git push --force-with-lease origin "$UPSTREAM_SYNC_BRANCH"
+
+      - name: Open master sync PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet origin/master "$UPSTREAM_SYNC_BRANCH"; then
+            echo "master is already up to date"
+            exit 0
+          fi
+          if [ "$(gh pr list --repo "$GITHUB_REPOSITORY" \
+            --base master --head "$UPSTREAM_SYNC_BRANCH" --state open \
+            --json number --jq 'length')" -eq 0 ]; then
+            gh pr create \
+              --repo "$GITHUB_REPOSITORY" \
+              --base master \
+              --head "$UPSTREAM_SYNC_BRANCH" \
+              --title "Sync master with upstream agterm" \
+              --body "Automated sync from \`umputun/agterm:master\`.\n\nReview upstream changes before merging."
+          fi
+
+      - name: Update Linux sync branch
+        run: |
+          git switch --force-create "$LINUX_SYNC_BRANCH" origin/master
+          git push --force-with-lease origin "$LINUX_SYNC_BRANCH"
+
+      - name: Open Linux sync PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git merge-base --is-ancestor origin/master origin/linux-port; then
+            echo "linux-port is already up to date"
+            exit 0
+          fi
+          if [ "$(gh pr list --repo "$GITHUB_REPOSITORY" \
+            --base linux-port --head "$LINUX_SYNC_BRANCH" --state open \
+            --json number --jq 'length')" -eq 0 ]; then
+            gh pr create \
+              --repo "$GITHUB_REPOSITORY" \
+              --base linux-port \
+              --head "$LINUX_SYNC_BRANCH" \
+              --title "Sync linux-port with upstream master" \
+              --body "Automated sync from local \`master\`.\n\nReview Linux-specific conflicts and run Linux CI before merging."
+          fi
