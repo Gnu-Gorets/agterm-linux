@@ -18,6 +18,13 @@ These run inside the app, so a mistake can kill the host instead of failing an a
   item-header/payload pairs, write the minidump attachment as `.dmp`, then run
   `lldb -b -o "bt all" -c <dmp>`. CI discards both sources, so temporarily upload the crash directory
   and `build/DerivedData/Logs/Test/*.xcresult` under `if: failure()`, then remove the step.
+- **A menu fixture needs `NSMenuItem.usesUserKeyEquivalents = false` in `setUp`, restored in `tearDown`.**
+  AppKit substitutes an App Shortcut from System Settings by menu-item title as soon as the item joins a
+  menu, a detached one included, replacing the key equivalent and mask the test just set. Titles like
+  "Paste and Match Style", "Zoom" and "Close" are real system commands, so a developer who rebound one
+  fails on his machine alone while CI stays green. `defaults read -g NSUserKeyEquivalents` names the
+  bindings. Suppress the substitution rather than renaming fixtures: `CloseSessionChordTests` needs the
+  real "Close" to test chord ownership, and the substitution matches invented titles just as readily.
 - Never stub `GhosttyApp`; its handler is the only crash record.
 - `AGTERM_HOSTED_TESTS=1`, set by the `agtermTests` scheme, renders `Color.clear` and skips the scene task
   that assigns `appDelegate.library`; it stays nil. SwiftUI's `@NSApplicationDelegateAdaptor` also makes
