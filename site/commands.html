@@ -433,7 +433,10 @@
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace">cwd</span>,
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace">title</span> (raw OSC terminal title, omitted when
                 none), <span style="font-family: &quot;JetBrains Mono&quot;, monospace">active</span>,
-                <span style="font-family: &quot;JetBrains Mono&quot;, monospace">split</span>,
+                <span style="font-family: &quot;JetBrains Mono&quot;, monospace">split</span> (the split is SHOWN side by side),
+                <span style="font-family: &quot;JetBrains Mono&quot;, monospace">hasSplit</span> (a second pane exists at all, shown or
+                hidden, omitted when there is none — read this rather than
+                <span style="font-family: &quot;JetBrains Mono&quot;, monospace">split</span> to tell whether a session has a split),
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace">splitRatio</span>,
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace">splitFocused</span>,
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace">overlay</span>,
@@ -1094,6 +1097,11 @@
                 A side-by-side second shell in the same session.
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace">off</span> <em>hides</em> it but keeps the shell alive
                 (mirroring ⌘D); the pane's surface is torn down only when its own shell exits. Idempotent; an unknown mode errors.
+                Read back via the session node's <span style="font-family: &quot;JetBrains Mono&quot;, monospace">split</span> (shown) and
+                <span style="font-family: &quot;JetBrains Mono&quot;, monospace">hasSplit</span> (exists at all); a hidden split reads
+                <span style="font-family: &quot;JetBrains Mono&quot;, monospace">split: false</span> with the pane still alive, and
+                <span style="font-family: &quot;JetBrains Mono&quot;, monospace">agtermctl tree</span> tags it
+                <span style="font-family: &quot;JetBrains Mono&quot;, monospace">(split hidden)</span>.
               </p>
             </div>
 

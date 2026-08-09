@@ -22,6 +22,25 @@ struct AppStorePaneTests {
         #expect(session.splitFocused == true)
     }
 
+    @Test func controlTreeReportsHasSplitAcrossHide() {
+        let store = makeStore()
+        let ws = store.addWorkspace(name: "work")
+        let session = store.addSession(toWorkspace: ws.id, cwd: "/a")!
+        func node() -> ControlSessionNode? { store.controlTree().workspaces.first?.sessions.first }
+        #expect(node()?.split == false)
+        #expect(node()?.hasSplit == nil)
+        store.toggleSplit(session.id)
+        #expect(node()?.split == true)
+        #expect(node()?.hasSplit == true)
+        store.toggleSplit(session.id)
+        #expect(node()?.split == false)
+        #expect(node()?.hasSplit == true)
+        #expect(node()?.splitFocused != nil, "a hidden split still reports its focused pane")
+        store.closeSplit(session.id)
+        #expect(node()?.hasSplit == nil)
+        #expect(node()?.splitFocused == nil)
+    }
+
     @Test func toggleSplitReshowPreservesFocusedPane() {
         let store = makeStore()
         let ws = store.addWorkspace(name: "work")

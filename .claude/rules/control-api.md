@@ -127,7 +127,10 @@ side, and reads `lastAppliedIsDark` when bare. Refuse it outside XCUITest; provi
   first, then the selected session's, then `workspaces.last` — so repeated moves may target a different
   workspace; use an ID to keep one target.
 - `session.split` drives the addressed session, not active-only `AppActions.toggleSplit`. Off hides and
-  retains the shell; only shell exit tears it down.
+  retains the shell; only shell exit tears it down. `split` reports SHOWN, so a hidden split reads false;
+  `hasSplit` reports the pane existing at all and is present exactly when `splitRatio`/`splitFocused`
+  can be. Callers asking "does this session have a split" read `hasSplit`, and `agtermctl tree` tags the
+  hidden case `(split hidden)`.
 - `session.scratch` is a third, nonpersisted login shell with on/off/toggle. It spawns lazily, survives
   hiding, recreates after exit, and renders as a full translucent cover below overlay. It has no session
   PWD/title link but a weak watermark link. GUI surfaces are Command-J, titlebar, View, and palette.

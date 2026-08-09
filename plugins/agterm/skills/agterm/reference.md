@@ -103,7 +103,11 @@ SIGTERM use normal process behavior.
 `agtermctl tree [--json] [--window W]` — the workspace/session tree. Each session node:
 `id`, `name`, `cwd`, `title` (the raw OSC terminal title — e.g. a remote host over SSH — omitted
 when none reported; distinct from `name`, the derived sidebar label), `active` (selected),
-`split` (split shown), `splitRatio` (the left-pane fraction 0.05–0.95 of a session that HAS a split —
+`split` (split SHOWN side by side, the read side of `session split on|off`),
+`hasSplit` (whether a second pane exists at all, shown or hidden with ⌘D; omitted when there is none —
+read THIS to decide whether a session has a split, because a hidden split reports `split: false` while
+its pane stays alive, and it is present exactly when `splitRatio`/`splitFocused` can be),
+`splitRatio` (the left-pane fraction 0.05–0.95 of a session that HAS a split —
 shown or hidden; omitted when there's no split or the ratio was never explicitly set (divider at the
 default 0.5) — the read side
 of `session resize`, record it to restore the exact divider position),
