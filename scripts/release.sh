@@ -154,6 +154,10 @@ if [ "$SIGNED" = "1" ]; then
   codesign --force --options runtime --timestamp \
     --entitlements "$ROOT/agterm/agterm.entitlements" --sign "$SIGN_ID" "$APP"
   codesign --verify --deep --strict "$APP"
+  if codesign -d --entitlements - "$APP/Contents/MacOS/agtermctl" 2>/dev/null | grep -q 'com.apple.security'; then
+    echo "agtermctl carries entitlements: --deep must not be used on the app sign above" >&2
+    exit 1
+  fi
 fi
 
 # ── notarize + staple the app ─────────────────────────────────────────────────
