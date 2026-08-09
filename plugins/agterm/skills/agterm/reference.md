@@ -701,7 +701,7 @@ shell (no controlling terminal — `/dev/tty` errors). See examples.md for usage
   control-native, but `zoom` mirrors a GUI action.
 - `window fullscreen <id>` — toggle NATIVE macOS full screen (a separate Space, auto-hidden menu bar),
   via `NSWindow.toggleFullScreen`. A second call exits. The window must be open. This is the control half
-  of the View ▸ Toggle Full Screen menu item (⌃⌘F, rebindable as `toggle_fullscreen`) and the green
+  of ⌃⌘F (rebindable as `toggle_fullscreen`), View ▸ Enter/Exit Full Screen, and the green
   traffic-light button — distinct from `zoom`, which only maximizes the frame in the same Space.
 - `window minimize <id> [on|off|toggle]` — minimize the window to the Dock, or restore it, via
   `NSWindow.miniaturize`/`deminiaturize`. The mode resolves against the window's current state, so `on` and
@@ -966,9 +966,10 @@ end up holding a chord an action claims. If a keybinding "does not work" while `
 compare the two lists: find the action's `chord`, then look for that chord in `menu` and check which
 item carries it.
 
-One built-in is legitimately absent from `menu`: `undo_close` (⌘Z by default) is delivered by a key
-monitor, not a menu item, so native text undo keeps working in the rename, palette and Settings fields.
-Its missing menu entry is expected and not a fault.
+Two built-ins are legitimately absent from `menu`, both delivered by a key monitor rather than a menu
+item: `undo_close` (⌘Z by default), so native text undo keeps working in the rename, palette and Settings
+fields, and `toggle_fullscreen` (⌃⌘F by default), because agterm ships no full screen menu item — macOS
+adds its own, carrying `fn+f`. Their missing menu entries are expected and not a fault.
 
 Menu chords use the same vocabulary as the file (`cmd+opt+up`, `cmd+shift+return`), so the two lists
 compare as plain strings. One exception: the globe/fn modifier prints as `fn+`, which no `keymap.conf`
