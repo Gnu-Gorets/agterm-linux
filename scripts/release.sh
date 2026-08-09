@@ -144,7 +144,10 @@ xcodebuild -project agterm.xcodeproj -scheme agterm -configuration Release \
 
 # authoritative Developer ID signing — AFTER xcodebuild so nothing clobbers it,
 # with a secure --timestamp on every Mach-O (notarization requires it). Sign the
-# nested helper first (inside-out), then re-sign + seal the app bundle.
+# nested helper first (inside-out), then re-sign + seal the app bundle. The helper is signed
+# without --entitlements on purpose, and --deep must never be added to the app sign below:
+# --deep would stamp the app's TCC entitlements onto agtermctl, a standalone CLI on the user's
+# PATH. Same constraint as the build-phase re-seal in project.yml.
 if [ "$SIGNED" = "1" ]; then
   echo "==> signing Developer ID (timestamped)"
   codesign --force --options runtime --timestamp --sign "$SIGN_ID" "$APP/Contents/MacOS/agtermctl"
