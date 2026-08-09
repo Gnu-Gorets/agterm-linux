@@ -80,6 +80,31 @@ struct ConfigPathsTests {
         #expect(parsed.diagnostics.isEmpty)
     }
 
+    // issue #405: the shipped example was `map cmd+shift+d toggle_split`, a chord `dashboard` later took,
+    // so uncommenting the starter's own suggestion silently bound nothing. A `command` example rots the
+    // same way, `validateCommands` dropping a custom shortcut a built-in has since claimed.
+    @Test func starterKeymapExamplesApplyWhenUncommented() {
+        let examples = ConfigPaths.starterKeymapConf().split(separator: "\n").compactMap { line -> String? in
+            let text = line.drop { $0 == "#" || $0.isWhitespace }
+            let verb = text.prefix { !$0.isWhitespace }
+            // `<` skips the two verb-syntax lines, which state a grammar rather than an example.
+            guard verb == "map" || verb == "command", !text.contains("<") else { return nil }
+            return String(text)
+        }
+        // an example silently dropped from the guard must fail here: two `map` lines and three `command`.
+        #expect(examples.count == 5)
+        var bound = 0
+        for example in examples {
+            let (keymap, diagnostics) = parseKeymap(example)
+            #expect(diagnostics.isEmpty, "starter example '\(example)' is skipped: \(diagnostics.map(\.message))")
+            // an unparseable command chord is absorbed as shell text without a diagnostic, so count the
+            // shortcuts that survived rather than the commands that parsed.
+            bound += keymap.builtinOverrides.count + keymap.commands.filter { !$0.shortcut.isEmpty }.count
+        }
+        // both `map` examples and the two chorded `command` ones; `Deploy` is palette-only by design.
+        #expect(bound == 4)
+    }
+
     @Test func ghosttyConfigPathIsGhosttyConfInDir() {
         let dir = URL(fileURLWithPath: "/Users/test/.config/agterm")
         #expect(ConfigPaths.ghosttyConfigPath(configDirectory: dir).path == "/Users/test/.config/agterm/ghostty.conf")
