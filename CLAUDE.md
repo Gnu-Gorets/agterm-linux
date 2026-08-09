@@ -166,7 +166,8 @@ concurrency before changing the bridge.
   Review asks only three things: it does no harm, deliberately or accidentally; it does what it claims;
   and it follows `cookbook/CONTRIBUTING.md`.
   Edge cases, minor bugs, and other small findings never block the PR: approve and merge, leaving a note
-  for the contributor.
+  for the contributor. That note is where a recipe finding ends: never file it in `docs/backlog/`, which
+  is for code the project owns, and never edit a recipe's prose unprompted.
 - agterm runs only on macOS, so POSIX portability is never a finding by itself. A shellcheck SC3xxx on a
   recipe is a CI lint gate, not a runtime defect: `/bin/sh` there is bash 3.2 and `printf %q` works.
   Never propose a bash shebang as the fix; the mac shell is zsh, and CI's `.zsh` path is `zsh -n`.
