@@ -449,6 +449,8 @@ select_theme       toggle_fullscreen  toggle_terminal_zoom
 dashboard
 ```
 
+`toggle_fullscreen` is the one action with no menu item of its own. macOS adds an "Enter Full Screen" item to the View menu whenever that menu is drawn, and nothing suppresses it, so an item of agterm's own would sit beside it as a duplicate. The binding (⌃⌘F by default) is handled directly instead, which is why the menu entry advertises the system's Globe+F rather than your chord. Both work, and rebinding `toggle_fullscreen` changes the chord as usual — it just won't show up next to that menu item.
+
 The shell line of a `command` may use these `{AGT_X}` tokens, expanded at fire time (the same values are also exported as `$AGT_X` environment variables on the spawned process):
 
 ```
@@ -472,7 +474,7 @@ Open the file in your editor with **File ▸ Edit Keymap…** or the ⌃⇧P pal
 
 After editing the file, apply it with **File ▸ Reload Keymap**, the action palette (⌃⇧P → "Reload Keymap"), or `agtermctl keymap reload`. A malformed line never discards the rest of the file — it surfaces in the diagnostics list in Settings ▸ Key Mapping (and `keymap.reload` returns the diagnostic count) while the good lines still apply.
 
-To check what is actually bound, `agtermctl keymap list` prints every built-in with the chord it resolved to, the custom commands, each diagnostic in full, and the key equivalents the menu bar is really carrying. If a binding will not fire, compare the last two: an action whose chord no menu item holds is usually a menu problem, not a keymap one. The one deliberate exception is `undo_close` (⌘Z), which is delivered by a key monitor rather than a menu item so it never appears under the menu list.
+To check what is actually bound, `agtermctl keymap list` prints every built-in with the chord it resolved to, the custom commands, each diagnostic in full, and the key equivalents the menu bar is really carrying. If a binding will not fire, compare the last two: an action whose chord no menu item holds is usually a menu problem, not a keymap one. Two deliberate exceptions never appear under the menu list, because a key monitor delivers them rather than a menu item: `undo_close` (⌘Z) and `toggle_fullscreen` (⌃⌘F).
 
 v1 limitations:
 
