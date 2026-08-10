@@ -168,6 +168,8 @@ agterm is built to run from the keyboard. Every action has a shortcut and appear
 - the **action palette** (Ctrl-Shift-P) runs any command by name (new, rename, close, split, toggle scratch, move a session, change font size, and so on);
 - the **custom-commands palette** (Ctrl-Shift-O) lists the shell commands you define in `keymap.conf`.
 
+An action the menus currently disable — Rename Session with no session open, Focus Workspace with no workspace — still appears in the action palette and still matches what you type, but is greyed out and does nothing when chosen, so the palette stays a complete index of what agterm can do rather than changing shape as state moves. Rows that would be meaningless are still omitted entirely (Delete Workspace with one workspace left, Focus Right Pane with no split).
+
 For jumping back to sessions you have been working in, a Ctrl-Tab switcher walks a most-recently-used list across every workspace, macOS app-switcher style: hold Ctrl and tap Tab to move through it, release to switch, and a single tap flips straight back to the session you were just in. The list survives a relaunch, so the switcher works right after your sessions restore. A title-bar clock button opens the same list for the mouse: a popover of the sessions you have used recently, tinted to the terminal theme, that you hover to highlight and click to switch to. Shortcuts also step between adjacent sessions, panes, and windows.
 
 The same recently-used history decides where you land when you close the session you are in: agterm returns you to the session you were most recently working in, not to whichever row happens to sit next to the one that closed. The pick stays inside the closing session's workspace, and in the flagged view stays within the flagged set, while in the tree with the workspace filter applied it stays within the marked workspaces — widening beyond the workspace only when the close leaves nothing there to return to, and beyond what is on screen only when that too is exhausted. If no recent session qualifies at all, it falls back to the adjacent row, kept inside the narrowed view while one is applied, and to the first session of another workspace when the closed session was the last one in its own.
@@ -416,9 +418,12 @@ Recipes come from other people as well as the maintainer. Every one is reviewed 
 The format is line-based with two verbs. Blank lines and lines starting with `#` are ignored:
 
 ```
-# rebind a built-in to a single chord (mods joined by +; no leader sequences for built-ins)
+# rebind a built-in to a chord (mods joined by +)
 map cmd+shift+l   toggle_split
 map ctrl+shift+k  command_palette
+
+# or to several alternatives, joined by | with no spaces around it
+map cmd+t|ctrl+a>t  toggle_scratch
 
 # define custom commands ("name" shows in the palette; chord is optional)
 command "Open in Zed"  cmd+shift+e  open -a Zed {AGT_SESSION_PWD}
@@ -427,6 +432,8 @@ command "Deploy"                    ./deploy.sh
 ```
 
 A chord is modifier words joined by `+` and a base key, e.g. `cmd+shift+e` or `ctrl+\``. The modifiers are `ctrl`, `cmd`, `opt`, and `shift`. The base key is a single character or one of `tab`, `space`, `return`, `delete`, `left`, `right`, `up`, `down`. A key you type with Shift is written as `shift+<base key>` (the base key, not the shifted symbol): `shift+/` for `?`, `shift+5` for `%`, `shift+=` for `+`, `shift+.` for `>`. A custom command's chord may also be a leader sequence — chords separated by `>`, e.g. `ctrl+a>g` (press `ctrl+a`, then `g`). A `command` with no chord is palette-only. A custom command's chord must include a modifier: a bare key like `a` is rejected with a diagnostic and the line is treated as palette-only, so a binding can't silently shadow a plain terminal key. The same diagnostic appears when the shell line simply starts with a bare key name — a single character, or one of the named keys like `up` or `tab` — and the line is kept as palette-only with its shell command intact.
+
+One binding can offer several **alternatives**, joined by `|` inside a single token with no spaces around it — `map cmd+t|ctrl+a>t toggle_scratch` fires the action from either, and a `command` takes alternatives the same way. For a built-in, the first single-chord alternative the menu can carry becomes the menu shortcut; every other alternative, on either verb, is delivered by a key monitor and so must carry a modifier on its first chord. This is also how a built-in gets a leader sequence, because a menu item holds exactly one key equivalent: `map ctrl+a>s toggle_split` binds the sequence and leaves the action with no menu shortcut at all — its shipped ⌘D is gone rather than kept, and free for another action to claim. A typo in one alternative rejects the whole line, so a mistake can't hide behind a line that half worked; an alternative that merely breaks a rule or collides with an existing binding drops on its own and its siblings keep firing. If a line ends up binding nothing at all, the action simply keeps the shortcut it shipped with.
 
 Chords are written in Latin and keep working on a non-Latin keyboard layout. A layout that cannot type ASCII — Russian, Greek, Hebrew, Arabic, Thai — resolves every chord by the physical key position, so `cmd+o` still fires on the key marked O even though it types `щ`. A layout that can type ASCII binds what it types, so an alternative Latin layout keeps its own letter positions: on Dvorak, `cmd+o` follows the O you actually type.
 
@@ -474,15 +481,15 @@ Open the file in your editor with **File ▸ Edit Keymap…** or the ⌃⇧P pal
 
 After editing the file, apply it with **File ▸ Reload Keymap**, the action palette (⌃⇧P → "Reload Keymap"), or `agtermctl keymap reload`. A malformed line never discards the rest of the file — it surfaces in the diagnostics list in Settings ▸ Key Mapping (and `keymap.reload` returns the diagnostic count) while the good lines still apply.
 
-To check what is actually bound, `agtermctl keymap list` prints every built-in with the chord it resolved to, the custom commands, each diagnostic in full, and the key equivalents the menu bar is really carrying. If a binding will not fire, compare the last two: an action whose chord no menu item holds is usually a menu problem, not a keymap one. Two deliberate exceptions never appear under the menu list, because a key monitor delivers them rather than a menu item: `undo_close` (⌘Z) and `toggle_fullscreen` (⌃⌘F).
+To check what is actually bound, `agtermctl keymap list` prints every built-in with the binds it resolved to (the menu shortcut first, then any alternatives, joined with `|`), the custom commands, each diagnostic in full, and the key equivalents the menu bar is really carrying. If a binding will not fire, compare the last two: an action whose chord no menu item holds is usually a menu problem, not a keymap one. Only the menu shortcut can appear there — an alternative never does, and neither do `undo_close` (⌘Z) and `toggle_fullscreen` (⌃⌘F), which a key monitor delivers rather than a menu item.
 
 v1 limitations:
 
-- Built-in rebinds are single-chord only; leader sequences (`ctrl+a>g`) work only for custom commands.
+- A built-in's *menu* shortcut is single-chord only: a leader sequence (`ctrl+a>g`) binds through the key monitor instead, as an alternative, and so never shows next to its menu item.
 - A `map` line may not bind a bare, modifier-less arrow (`map left previous_session`): a built-in rides an always-on menu key-equivalent, so a bare arrow would swallow the key in the terminal, the palettes, the dashboard grid, and every text field. Any modifier makes it bindable — `map cmd+shift+left previous_session` is fine. Custom commands already require a modifier on every chord.
 - The literal `+` and `>` can't be a bare key token (they are the chord-joiner and leader separators), but those keys are still bindable as `shift+=` and `shift+.`. Only `increase_font_size`'s default ⌘+ shows as a glyph rather than editable text, because its stored form doesn't round-trip through the file.
 - The Ctrl-Tab MRU session switcher and Ctrl-1/Ctrl-2 pane focus are not rebindable yet; they keep their current keys.
-- The action palette shows built-in shortcuts as macOS glyphs (⌘⇧E) and custom commands as raw kitty syntax (`cmd+shift+e`).
+- The action palette shows built-in shortcuts as macOS glyphs (⌘⇧E) and custom commands as raw kitty syntax (`cmd+shift+e`). A built-in with alternatives shows them all, space-separated, with a sequence's chords joined by `>` as in the config (⌘T ⌃A>T), in the palette and in the toolbar and sidebar tooltips alike.
 
 ## Ghostty config
 
