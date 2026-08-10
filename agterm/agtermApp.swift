@@ -537,7 +537,8 @@ struct agtermApp: App {
     /// session facts plus agterm's identity (`TERM_PROGRAM`/`TERM_PROGRAM_VERSION`). The window id comes from the
     /// open store owning the session (split/overlay/scratch inherit it), the workspace from the session's owner.
     /// `AGTERM_SOCKET` is the path `ControlServer` will bind, resolved at init so a launch-window shell
-    /// materializing before `start()` still sees it, honoring a test's `AGTERM_CONTROL_SOCKET` override. `pane`
+    /// materializing before `start()` still sees it, honoring a test's `AGTERM_CONTROL_SOCKET` override, and
+    /// replaced by an unbindable path when this instance refused it to another live one. `pane`
     /// injects `AGTERM_PANE` (`left`=main, `right`=split, `scratch`) so the hook wrapper forwards `--pane` and a
     /// background-pane status records which surface blocked; the overlay passes nil.
     @MainActor

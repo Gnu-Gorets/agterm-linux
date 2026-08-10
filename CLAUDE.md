@@ -88,13 +88,18 @@ concurrency before changing the bridge.
 - `make deploy` copies Release to `~/Applications`, whose app, PATH CLI, and installed hooks shadow Debug.
   Test fresh CLI/hooks with the Debug binary or redeploy and reinstall them. Debug uses
   `com.umputun.agterm.debug`, distinct from Release, but state/socket paths still require isolation.
-- Launching ANY second instance without `AGTERM_STATE_DIR` does not merely share state, it takes the
-  running app's control socket away for good. `ControlServer.start` unlinks the resolved path
-  unconditionally before binding, and cannot tell a live socket from one a force-quit left behind. The
-  first instance keeps its listening fd and never learns, so it stays alive and unreachable; the second
-  one's `stop()` unlinks again, leaving no path at all. Only a restart of the deployed app recovers it.
-- Diagnose that state with `lsof -p <pid> | grep agterm.sock`: an fd on a socket path that `ls` cannot
-  find means the socket was orphaned, which is a different fault from a window scene that never bound one.
+- Launching a second instance without `AGTERM_STATE_DIR` still shares state, but no longer takes the
+  running app's control socket. `ControlServer.init` takes an exclusive `flock` on `<socket>.lock` and
+  `start` refuses to bind while another live instance holds it, logging `already served by another
+  instance`. Ownership is settled at init so the launch window's first shell, whose environment is
+  snapshotted before `start` runs, cannot bake the owner's path.
+  A refused instance advertises `<socket>.unavailable` in `AGTERM_SOCKET`, so a command passing
+  `--socket "$AGTERM_SOCKET"` fails rather than reaching the owner. A BARE `agtermctl` still reaches it:
+  the CLI never reads that variable and resolves the default path. Isolate anyway — state is shared and
+  persisted session ids resolve in both instances, so an untargeted command lands on the live terminal.
+- `lsof -p <pid> | grep agterm.sock` showing an fd on a socket path `ls` cannot find means an orphaned
+  socket; a window scene that never bound one is a different fault. Reaching it now takes a build
+  predating the lock, or the socket file being deleted by hand.
 
 ## Protect the live terminal
 

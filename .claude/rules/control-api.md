@@ -75,7 +75,28 @@ paths:
 - Resolve socket from `AGTERM_CONTROL_SOCKET`, then `<AGTERM_STATE_DIR>/agterm.sock`, then Application
   Support. CLI `--socket` overrides. Explicit short paths avoid Unix `sun_path` near 104 bytes. Use 0600.
 - Each connection sets `SO_NOSIGPIPE` and a 5-second receive timeout. Close on non-EINTR read failure,
-  including EAGAIN. Start is idempotent, unlinks stale paths, and logs bind failure without blocking launch.
+  including EAGAIN. Start is idempotent and logs bind failure without blocking launch.
+- `ControlServer.init` takes an exclusive non-blocking `flock` on `<socketPath>.lock`, and start refuses
+  to bind while another process holds it. Ownership is decided at INIT, not at start: the launch window's
+  surfaces are built during the initial render pass and snapshot `AGTERM_SOCKET` into the pty environment,
+  while start runs from the scene's `.task` afterwards, so deciding there would hand the first shell the
+  owner's live socket. Start retries acquisition for the instance refused while the owner was still alive,
+  guarding on the held fd first — flock is per open file description, so re-opening a file this process
+  already locked conflicts with itself. Nothing on disk distinguishes a live socket from a
+  force-quit leftover, and unlinking a live one strands its owner: it keeps its listening fd, never
+  learns, and only a restart recovers it. Do NOT probe with `connect` instead — on Darwin a live listener
+  whose backlog is full refuses with the same `ECONNREFUSED` a socket nobody listens on returns, so one
+  stalled client parking the serial accept loop would make a running instance read as stale. `flock` is
+  also atomic against two instances launching together, and the kernel drops it on a force-quit, which is
+  the case the unlink covers. Never unlink the lock file: the next instance would lock a fresh inode and
+  exclude nobody.
+- A refused instance advertises `<socketPath>.unavailable` through `resolvedSocketPath`, so its shells and
+  `{AGT_SOCKET}` carry a path nothing serves instead of the resolved default, which would point them at
+  the other instance — the user's live terminal, where shared state makes persisted session ids resolve
+  too. Do NOT omit the variable instead: `agterm-agent-status.sh` drops `--socket` when it is absent and
+  `agtermctl` then resolves that same default, so an unset value routes agent status onto the live app.
+  `refused` clears on a later successful acquire, since `start()` re-runs per window scene and the owner
+  may have quit. Its `stop()` returns early without unlinking, leaving the owner's socket intact.
 - One newline-delimited JSON request and response uses each connection, capped at 1 MiB. Unknown commands
   return structured errors. Mutations may return `result.id`; trees use `result.tree`.
 - Human output shows IDs only for created session/workspace/window, retains them in JSON, uses
