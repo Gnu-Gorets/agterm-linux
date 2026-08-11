@@ -251,7 +251,8 @@ extension ControlServer: ControlActions {
 
     /// Drive the split on the target's OWN store, not active-only `AppActions.toggleSplit()`. `on|off|toggle`
     /// is computed against `isSplit`, so both are idempotent. Always `AppStore.toggleSplit` — a ⌘D-style
-    /// keep-alive hide/show that never tears the hidden pane's surface down (`closeSplit` is shell-exit-only).
+    /// keep-alive hide/show that never tears the hidden pane's surface down; `session.split.close` is the
+    /// verb that does.
     func splitSession(_ target: String?, window: String?, mode: String?) -> ControlResponse {
         return resolver.resolveSession(target, window: window) { store, id in
             guard let session = store.session(withID: id) else {
@@ -265,6 +266,23 @@ extension ControlServer: ControlActions {
                 store.toggleSplit(id)
             }
             actions.focusSplitPane(session, wantSplit: session.splitFocused)
+            return ControlResponse(ok: true, result: ControlResult(id: id.uuidString))
+        }
+    }
+
+    /// Tear the target's split pane down, which `session.split off` cannot: it hides and keeps the shell.
+    /// Kills whatever the pane runs, the point of it — `session.type $'exit\n'` reaches only a shell at a
+    /// prompt. Idempotent: no right pane answers ok, so a script need not read `tree` first.
+    func closeSessionSplit(_ target: String?, window: String?) -> ControlResponse {
+        return resolver.resolveSession(target, window: window) { store, id in
+            guard let session = store.session(withID: id) else {
+                return ControlResponse(ok: false, error: "no such session: \(target ?? "active")")
+            }
+            guard session.hasSplit else {
+                return ControlResponse(ok: true, result: ControlResult(id: id.uuidString))
+            }
+            store.closeSplit(id)
+            actions.focusSplitPane(session, wantSplit: false)
             return ControlResponse(ok: true, result: ControlResult(id: id.uuidString))
         }
     }

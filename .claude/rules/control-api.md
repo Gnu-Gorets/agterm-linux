@@ -107,11 +107,12 @@ paths:
 
 ## Public catalog
 
-There are 74 public commands:
+There are 75 public commands:
 
 - `tree`, `events.read`
 - `workspace.new`, `.rename`, `.delete`, `.select`, `.move`, `.focus`, `.filter`, `.collapse`, `.expand`
 - `session.new`, `.duplicate`, `.close`, `.select`, `.rename`, `.reveal`, `.move`, `.type`, `.split`,
+  `.split.close`,
   `.scratch`, `.focus`, `.resize`, `.go`, `.copy`, `.paste`, `.selectall`, `.text`, `.search`, `.status`,
   `.flag`, `.seen`, `.restore`, `.background`, `.overlay.open`, `.overlay.close`, `.overlay.resize`,
   `.overlay.result`, `.hud.open`, `.hud.update`, `.hud.close`
@@ -123,7 +124,7 @@ There are 74 public commands:
   `.fullscreen`, `.minimize`
 - `keymap.reload`, `keymap.list`, `config.reload`, `theme.set`, `theme.list`, `restore.clear`
 
-`debug.appearance` is a private 75th `Command` case used only by `AppearanceFlipUITests`.
+`debug.appearance` is a private 76th `Command` case used only by `AppearanceFlipUITests`.
 It accepts light/dark, sets `NSApp.appearance`, posts `.agtermSystemAppearanceChanged`, echoes the effective
 side, and reads `lastAppliedIsDark` when bare. Refuse it outside XCUITest; provide no CLI or skill entry.
 
@@ -148,10 +149,15 @@ side, and reads `lastAppliedIsDark` when bare. Refuse it outside XCUITest; provi
   first, then the selected session's, then `workspaces.last` — so repeated moves may target a different
   workspace; use an ID to keep one target.
 - `session.split` drives the addressed session, not active-only `AppActions.toggleSplit`. Off hides and
-  retains the shell; only shell exit tears it down. `split` reports SHOWN, so a hidden split reads false;
+  retains the shell; `session.split.close` and the split shell's own exit are what tear it down.
+  `split` reports SHOWN, so a hidden split reads false;
   `hasSplit` reports the pane existing at all and is present exactly when `splitRatio`/`splitFocused`
   can be. Callers asking "does this session have a split" read `hasSplit`, and `agtermctl tree` tags the
   hidden case `(split hidden)`.
+- `session.split.close` is the teardown verb, its own command rather than a fourth `ControlToggleMode`
+  value, which is shared with `session.scratch`/`sidebar` and cannot express close (a hidden split is
+  already `off`). Idempotent: a session with no right pane answers ok. The palette's Close Split is the
+  GUI twin, a row gated on `hasSplit` with no `BuiltinAction`.
 - `session.scratch` is a third, nonpersisted login shell with on/off/toggle. It spawns lazily, survives
   hiding, recreates after exit, and renders as a full translucent cover below overlay. It has no session
   PWD/title link but a weak watermark link. GUI surfaces are Command-J, titlebar, View, and palette.
