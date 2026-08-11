@@ -57,8 +57,9 @@ extension AppController {
         sessionPanes[s.id] = paned
         connect(paned, "notify::position", unsafeBitCast(onPanedPosition as @convention(c) (OpaquePointer?, OpaquePointer?, gpointer?) -> Void, to: GCallback.self))
         sessionStacks[s.id] = stack
-        let hadForeground = s.foregroundCommand != nil
-        let restoreInput = consumeRestoreInput(&s.foregroundCommand)
+        let pendingForeground = s.takePendingForegroundCommand(pane: .left)
+        let hadForeground = pendingForeground != nil
+        let restoreInput = restoreInput(from: pendingForeground)
         let inputs = CommandRestore.RestoreInputs(
             wasRestored: s.wasRestored,
             restoreEnabled: restoreEnabled,
@@ -211,9 +212,8 @@ extension AppController {
 
     private var restoreEnabled: Bool { linuxSettingsStore().load().restoreRunningCommand ?? false }
 
-    private func consumeRestoreInput(_ argv: inout [String]?) -> String? {
-        guard let captured = argv else { return nil }
-        argv = nil
+    private func restoreInput(from captured: [String]?) -> String? {
+        guard let captured else { return nil }
         guard restoreEnabled else { return nil }
         return CommandRestore.shellQuotedLine(captured) + "\n"
     }
@@ -297,7 +297,7 @@ extension AppController {
            }) { return }
         guard let paned = sessionPanes[s.id] else { return }
         if s.isSplit, splitSurfaces[s.id] == nil {
-            let capturedInput = consumeRestoreInput(&s.splitForegroundCommand)
+            let capturedInput = restoreInput(from: s.takePendingForegroundCommand(pane: .right))
             let restoreInput = CommandRestore.restoreInput(
                 restoreEnabled: restoreEnabled,
                 restoreOverride: s.takePendingRestoreOverride(pane: .right),

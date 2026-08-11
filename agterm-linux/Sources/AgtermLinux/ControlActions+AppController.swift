@@ -907,6 +907,7 @@ extension AppController: ControlActions {
             for session in ctl.store.workspaces.flatMap(\.sessions) {
                 session.foregroundCommand = nil
                 session.splitForegroundCommand = nil
+                session.clearPendingForegroundCommands()
             }
         }
         gLibrary.saveAllOpen()
