@@ -1,5 +1,8 @@
 import Foundation
 import Testing
+#if os(Linux)
+import Glibc
+#endif
 @testable import agtermCore
 
 /// Class suite (reference type) so `init`/`deinit` create and tear down a unique temp state
@@ -805,6 +808,11 @@ final class WindowLibraryTests {
     }
 
     @Test func aFailedStripDisarmsBothPanesInsteadOfLeavingAReplayItCouldNotRecord() throws {
+        #if os(Linux)
+        // GitHub's Swift container runs as root, which bypasses the directory mode used to force the write
+        // failure. The production app is never run as root; exercise this permission path as a normal user.
+        guard geteuid() != 0 else { return }
+        #endif
         // the other half of the launch branch: when the rewrite fails the capture must not fire at all,
         // because nothing would record that it had and it would run again on every later launch. Both
         // panes, since disarming only the main one leaves the split replaying forever.
