@@ -14,6 +14,7 @@ env:
   UPSTREAM_BRANCH: master
   UPSTREAM_SYNC_BRANCH: upstream-sync
   LINUX_SYNC_BRANCH: linux-port-sync
+  GH_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN }}
 
 jobs:
   sync:
@@ -27,19 +28,27 @@ jobs:
 
       - name: Fetch upstream
         run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Configure the UPSTREAM_SYNC_TOKEN repository secret with contents and pull requests write access."
+            exit 1
+          fi
           git remote add agterm-upstream "$UPSTREAM_REPOSITORY"
           git fetch --no-tags agterm-upstream "$UPSTREAM_BRANCH"
           git fetch origin master linux-port
 
       - name: Update upstream sync branch
         run: |
+          if [ "$(gh pr list --repo "$GITHUB_REPOSITORY" \
+            --base master --head "$UPSTREAM_SYNC_BRANCH" --state open \
+            --json number --jq 'length')" -gt 0 ]; then
+            echo "$UPSTREAM_SYNC_BRANCH has an open PR; preserving its review commits"
+            exit 0
+          fi
           git switch --force-create "$UPSTREAM_SYNC_BRANCH" origin/master
           git reset --hard "agterm-upstream/$UPSTREAM_BRANCH"
           git push --force-with-lease origin "$UPSTREAM_SYNC_BRANCH"
 
       - name: Open master sync PR
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           if git diff --quiet origin/master "$UPSTREAM_SYNC_BRANCH"; then
             echo "master is already up to date"
@@ -58,12 +67,16 @@ jobs:
 
       - name: Update Linux sync branch
         run: |
+          if [ "$(gh pr list --repo "$GITHUB_REPOSITORY" \
+            --base linux-port --head "$LINUX_SYNC_BRANCH" --state open \
+            --json number --jq 'length')" -gt 0 ]; then
+            echo "$LINUX_SYNC_BRANCH has an open PR; preserving its review commits"
+            exit 0
+          fi
           git switch --force-create "$LINUX_SYNC_BRANCH" origin/master
           git push --force-with-lease origin "$LINUX_SYNC_BRANCH"
 
       - name: Open Linux sync PR
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           if git merge-base --is-ancestor origin/master origin/linux-port; then
             echo "linux-port is already up to date"
