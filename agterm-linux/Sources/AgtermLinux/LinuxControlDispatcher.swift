@@ -30,6 +30,8 @@ struct LinuxControlDispatcher {
                 .sessionOverlayClose, .sessionOverlayResize, .sessionOverlayResult,
                 .sessionBackground, .sessionText:
             return dispatchSessionSurfaceCommand(request)
+        case .sessionHudOpen, .sessionHudUpdate, .sessionHudClose:
+            return ControlResponse(ok: false, error: "session HUDs require the Linux feature port")
         case .sessionType, .quickType, .quickText:
             return nil
         case .workspaceNew, .workspaceSelect, .workspaceRename, .workspaceDelete,
@@ -377,6 +379,9 @@ struct LinuxControlDispatcher {
             }
             return actions.setSurfaceZoom(request.target, window: request.args?.window, mode: mode)
         case .sessionOverlayOpen:
+            guard request.args?.pane == nil else {
+                return ControlResponse(ok: false, error: "pane overlays require the Linux feature port")
+            }
             guard let command = request.args?.command, !command.isEmpty else {
                 return ControlResponse(ok: false, error: "session.overlay.open requires a command")
             }
@@ -393,12 +398,21 @@ struct LinuxControlDispatcher {
                                                 follow: request.args?.follow ?? false
                                               ))
         case .sessionOverlayClose:
-            return actions.closeSessionOverlay(request.target, window: request.args?.window)
+            guard request.args?.pane == nil else {
+                return ControlResponse(ok: false, error: "pane overlays require the Linux feature port")
+            }
+            return actions.closeSessionOverlay(request.target, window: request.args?.window, pane: nil)
         case .sessionOverlayResize:
+            guard request.args?.pane == nil else {
+                return ControlResponse(ok: false, error: "pane overlays require the Linux feature port")
+            }
             return actions.resizeSessionOverlay(request.target, window: request.args?.window,
                                                 sizePercent: request.args?.sizePercent)
         case .sessionOverlayResult:
-            return actions.sessionOverlayResult(request.target, window: request.args?.window)
+            guard request.args?.pane == nil else {
+                return ControlResponse(ok: false, error: "pane overlays require the Linux feature port")
+            }
+            return actions.sessionOverlayResult(request.target, window: request.args?.window, pane: nil)
         case .sessionBackground:
             return dispatchSessionBackground(request)
         case .sessionText:

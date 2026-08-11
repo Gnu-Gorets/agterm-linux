@@ -5,6 +5,18 @@ import agtermCore
 /// Kept beside the main adapter so that already-large compatibility surface stays within the lint limit.
 @MainActor
 extension AppController {
+    func openHud(_ target: String?, window: String?, spec: HudSpec) -> ControlResponse {
+        err("session HUDs require the Linux feature port")
+    }
+
+    func updateHud(_ target: String?, window: String?, spec: HudSpec) -> ControlResponse {
+        err("session HUDs require the Linux feature port")
+    }
+
+    func closeHud(_ target: String?, window: String?) -> ControlResponse {
+        err("session HUDs require the Linux feature port")
+    }
+
     func applySessionWatermark(_ id: UUID) {
         surfaces[id]?.applyWatermarkFromSession()
         splitSurfaces[id]?.applyWatermarkFromSession()

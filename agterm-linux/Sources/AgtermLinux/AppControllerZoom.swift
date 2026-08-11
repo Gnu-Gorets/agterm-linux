@@ -34,6 +34,7 @@ extension AppController {
         case .session(let id, .split): return splitSurfaces[id]
         case .session(let id, .scratch): return scratchSurfaces[id]
         case .session(let id, .overlay): return overlaySurfaces[id]
+        case .session(_, .overlayLeft), .session(_, .overlayRight): return nil
         }
     }
 
@@ -95,6 +96,9 @@ extension AppController {
             } else {
                 gtk_stack_remove(stack, W(widget))
             }
+        case .session(_, .overlayLeft), .session(_, .overlayRight):
+            g_object_unref(RAW(widget))
+            return false
         }
         return true
     }
@@ -133,6 +137,8 @@ extension AppController {
             } else if let stack = sessionStacks[id] {
                 "overlay".withCString { _ = gtk_stack_add_named(stack, W(widget), $0) }
             }
+        case .session(_, .overlayLeft), .session(_, .overlayRight):
+            break
         }
     }
 }
