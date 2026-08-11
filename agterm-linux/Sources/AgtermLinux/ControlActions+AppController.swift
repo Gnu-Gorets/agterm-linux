@@ -839,7 +839,8 @@ extension AppController: ControlActions {
         }
     }
 
-    func closeSessionOverlay(_ target: String?, window: String?) -> ControlResponse {
+    func closeSessionOverlay(_ target: String?, window: String?, pane: OverlayPane?) -> ControlResponse {
+        guard pane == nil else { return err("pane overlays require the Linux feature port") }
         switch resolveSessionResponse(target) {
         case .failure(let response): return response
         case .success(let id):
@@ -859,7 +860,8 @@ extension AppController: ControlActions {
         }
     }
 
-    func sessionOverlayResult(_ target: String?, window: String?) -> ControlResponse {
+    func sessionOverlayResult(_ target: String?, window: String?, pane: OverlayPane?) -> ControlResponse {
+        guard pane == nil else { return err("pane overlays require the Linux feature port") }
         switch resolveSessionResponse(target) {
         case .failure(let response): return response
         case .success(let id):
@@ -905,6 +907,7 @@ extension AppController: ControlActions {
             for session in ctl.store.workspaces.flatMap(\.sessions) {
                 session.foregroundCommand = nil
                 session.splitForegroundCommand = nil
+                session.clearPendingForegroundCommands()
             }
         }
         gLibrary.saveAllOpen()

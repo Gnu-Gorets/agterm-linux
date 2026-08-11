@@ -11,6 +11,7 @@ final class GhosttySurface: TerminalSurface {
     /// The GtkGLArea widget (stored as OpaquePointer; cast at GTK call sites).
     let glArea: OpaquePointer
     private(set) var surface: ghostty_surface_t?
+    var isRealized: Bool { surface != nil }
     /// The key controller + a GtkIMContext for composed input (dead-keys / compose / CJK): key events are
     /// filtered through the IM, which commits the composed text via the `commit` signal.
     private var keyController: OpaquePointer?
