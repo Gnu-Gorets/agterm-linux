@@ -16,6 +16,16 @@ struct AppImageChildEnvironmentTests {
         #expect(environment["PATH"] == "/tmp/.mount_agterm/usr/bin:/usr/bin")
     }
 
+    @Test("preserves caller library paths when removing AppImage paths")
+    func preservesCallerLibraryPath() {
+        let environment = AppImageChildEnvironment.sanitized([
+            "APPDIR": "/tmp/.mount_agterm",
+            "LD_LIBRARY_PATH": "/tmp/.mount_agterm/usr/lib:/opt/vendor/lib:/usr/local/lib"
+        ])
+
+        #expect(environment["LD_LIBRARY_PATH"] == "/opt/vendor/lib:/usr/local/lib")
+    }
+
     @Test("preserves environment outside AppImage")
     func preservesNativeEnvironment() {
         let environment = AppImageChildEnvironment.sanitized([
