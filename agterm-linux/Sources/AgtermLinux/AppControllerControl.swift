@@ -245,10 +245,19 @@ extension AppController {
         return s.splitFocused ? (splitSurfaces[id] ?? surfaces[id]) : surfaces[id]
     }
 
+    func sessionFocusTarget(for id: UUID, wantSplit: Bool? = nil) -> GhosttySurface? {
+        guard let session = store.session(withID: id) else { return nil }
+        return session.focusTarget(wantSplit: wantSplit ?? session.splitFocused) as? GhosttySurface
+    }
+
+    func sessionFocusTarget() -> GhosttySurface? {
+        store.selectedSessionID.flatMap { sessionFocusTarget(for: $0) }
+    }
+
     func searchTargetSurface(for id: UUID) -> GhosttySurface? {
         guard let s = store.session(withID: id) else { return nil }
-        if s.overlayActive, let overlay = overlaySurfaces[id] { return overlay }
-        if s.scratchActive, let scratch = scratchSurfaces[id] { return scratch }
+        if s.scratchActive, !s.programOverlayActive, let scratch = scratchSurfaces[id] { return scratch }
+        if s.focusedOverlayPane != nil || s.fullOverlayActive { return nil }
         return focusedSurface(for: id)
     }
 

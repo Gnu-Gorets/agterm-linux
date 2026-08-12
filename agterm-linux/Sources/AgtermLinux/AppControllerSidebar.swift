@@ -7,6 +7,34 @@ extension AppController {
     static var sidebarFontProvider: OpaquePointer?
     static var interfaceFontProvider: OpaquePointer?
 
+    func scheduleWorkspaceToggle(_ data: gpointer?) {
+        guard Self.workspaceRowToggleEnabled(linuxSettingsStore().load().workspaceRowClickExpands),
+              let data, let workspaceID = workspaceDiscButtons[OpaquePointer(data)] else { return }
+        cancelPendingWorkspaceToggle()
+        pendingWorkspaceToggle = workspaceID
+        cancelPendingWorkspaceToggleTimer = MainTimer.schedule(after: 0.3) { [weak self] in
+            self?.firePendingWorkspaceToggle()
+        }
+    }
+
+    func cancelPendingWorkspaceToggle() {
+        cancelPendingWorkspaceToggleTimer?()
+        cancelPendingWorkspaceToggleTimer = nil
+        pendingWorkspaceToggle = nil
+    }
+
+    func firePendingWorkspaceToggle() {
+        cancelPendingWorkspaceToggleTimer = nil
+        guard let workspaceID = pendingWorkspaceToggle else { return }
+        pendingWorkspaceToggle = nil
+        guard Self.workspaceRowToggleEnabled(linuxSettingsStore().load().workspaceRowClickExpands) else { return }
+        let isExpanded = store.workspaces.first(where: { $0.id == workspaceID })?.isExpanded ?? true
+        store.setWorkspaceExpanded(workspaceID, expanded: !isExpanded)
+        rebuildSidebar()
+    }
+
+    static func workspaceRowToggleEnabled(_ setting: Bool?) -> Bool { setting ?? true }
+
     func newSession(in workspaceID: UUID) {
         noteUserActivity()
         guard store.addSession(toWorkspace: workspaceID, cwd: newSessionCwd()) != nil else { return }
@@ -75,16 +103,21 @@ extension AppController {
         }
     }
 
-    func interfacePanelSize(width: Double, height: Double) -> (Int32, Int32) {
+    func interfacePanelWidth(_ width: Double) -> Int32 {
         let metrics = InterfaceMetrics(fontSize: linuxSettingsStore().load().effectiveInterfaceFontSize)
         let windowWidth = Double(max(1, gtk_widget_get_width(W(window))))
-        let windowHeight = Double(max(1, gtk_widget_get_height(W(window))))
         let sidebarInset = store.sidebarVisible ? Double(max(0, gtk_widget_get_width(W(sidebarBox)))) : 0
         let fittedWidth = metrics.fittedPanelWidth(
             idealAtDefault: width, windowWidth: windowWidth, terminalAreaInset: sidebarInset)
+        return Int32(fittedWidth)
+    }
+
+    func interfacePanelSize(width: Double, height: Double) -> (Int32, Int32) {
+        let metrics = InterfaceMetrics(fontSize: linuxSettingsStore().load().effectiveInterfaceFontSize)
+        let windowHeight = Double(max(1, gtk_widget_get_height(W(window))))
         let fittedHeight = min(metrics.scaled(height), metrics.fittedPanelHeight(
             windowHeight: windowHeight, topFraction: 0))
-        return (Int32(fittedWidth), Int32(fittedHeight))
+        return (interfacePanelWidth(width), Int32(fittedHeight))
     }
 
     /// Whether a sidebar row interaction is live: an inline rename, or an open context menu.

@@ -50,6 +50,7 @@ extension AppController {
                 surface.queueRender()
             }
             controller.applyWindowThemeColors(for: activeTheme, resolvedColors: chromeColors)
+            controller.updateAllPaneDimming(windowOpacity: settings.backgroundOpacity ?? 1)
         }
         recordAppliedColorSchemeSide(side)
         return true

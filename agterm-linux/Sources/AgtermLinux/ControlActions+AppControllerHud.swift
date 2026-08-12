@@ -13,13 +13,16 @@ extension AppController {
                 return err("hud helper is not bundled in this build")
             }
             let metrics = hudPaneMetrics(for: session)
-            let file = Self.hudBodyFile(for: id)
+            guard let file = LinuxHudBodyStorage.path(for: id) else {
+                return err(OverlayHudError.writeFailed)
+            }
             guard store.openHud(id, command: command, spec: spec, file: file,
                                 size: HudLayout.panelSize(for: spec, pane: metrics)) else {
                 return err("overlay already open")
             }
             guard writeHudBody(session, pane: metrics) else {
                 store.closeHud(id)
+                reconcile(focusActive: false)
                 return err(OverlayHudError.writeFailed)
             }
             reconcile(focusActive: false)
@@ -56,9 +59,9 @@ extension AppController {
         }
     }
 
-    private func hudPaneMetrics(for session: Session) -> PaneMetrics {
-        let fontSize = surfaces[session.id]?.currentFontSize()
-            ?? session.fontSize ?? linuxSettingsStore().load().fontSize ?? DashboardLayout.ghosttyDefaultFontSize
+    func hudPaneMetrics(for session: Session) -> PaneMetrics {
+        let fontSize = Self.hudFontSize(
+            sessionFontSize: session.fontSize, settingsFontSize: linuxSettingsStore().load().fontSize)
         let context = gtk_widget_get_pango_context(W(deck))
         let description = pango_font_description_new()
         if let family = linuxSettingsStore().load().fontFamily {
@@ -78,22 +81,22 @@ extension AppController {
                            paneHeight: Double(gtk_widget_get_height(W(deck))))
     }
 
+    static func hudFontSize(sessionFontSize: Double?, settingsFontSize: Double?) -> Double {
+        sessionFontSize ?? settingsFontSize ?? DashboardLayout.ghosttyDefaultFontSize
+    }
+
     private static func hudHelperCommand() -> String? {
         guard let helper = Bundle.module.resourceURL?.appendingPathComponent("hud/hud.sh") else { return nil }
         guard FileManager.default.isReadableFile(atPath: helper.path) else { return nil }
         return "/bin/sh \(ShellEscape.path(helper.path))"
     }
 
-    private static func hudBodyFile(for sessionID: UUID) -> String {
-        (NSTemporaryDirectory() as NSString).appendingPathComponent("agterm-hud-\(sessionID.uuidString).txt")
-    }
-
-    private func writeHudBody(_ session: Session, pane: PaneMetrics) -> Bool {
+    func writeHudBody(_ session: Session, pane: PaneMetrics) -> Bool {
         guard let path = session.hudFile, let spec = session.hudSpec,
               let width = session.overlaySizePercent, let height = session.hudHeightPercent else { return false }
         let size = HudPanelSize(widthPercent: width, heightPercent: height)
         let body = HudLayout.renderedBody(for: spec, grid: HudLayout.paintGrid(for: spec, size: size, pane: pane),
                                           ownerPid: ProcessInfo.processInfo.processIdentifier)
-        return (try? Data(body.utf8).write(to: URL(fileURLWithPath: path), options: .atomic)) != nil
+        return LinuxHudBodyStorage.write(Data(body.utf8), to: path)
     }
 }

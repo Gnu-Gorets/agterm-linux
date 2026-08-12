@@ -129,6 +129,15 @@ extension AppController {
     /// Create/show/hide the ephemeral overlay terminal (runs `overlayCommand` over the session).
     private func syncOverlay(_ s: Session, allowFocus: Bool) {
         guard let stack = sessionStacks[s.id] else { return }
+        if let cached = overlaySurfaces[s.id], s.overlaySurface !== cached {
+            if let frame = floatingOverlayFrames[s.id] {
+                gtk_overlay_remove_overlay(deck, W(frame))
+                floatingOverlayFrames[s.id] = nil
+            } else {
+                gtk_stack_remove(stack, W(cached.glArea))
+            }
+            overlaySurfaces[s.id] = nil
+        }
         if s.overlayActive {
             if overlaySurfaces[s.id] == nil, let cmd = s.overlayCommand {
                 let codePath = NSTemporaryDirectory() + "agterm-ovl-\(UUID().uuidString).code"
@@ -143,22 +152,24 @@ extension AppController {
                                         env: ovlEnv, controller: self, waitAfterCommand: s.overlayWait,
                                         role: .overlay,
                                         reportsPaneState: false,
-                                        backgroundColor: s.overlayBackgroundColor)
+                                        fontSize: s.fontSize,
+                                        backgroundColor: s.overlayBackgroundColor,
+                                        usesSessionWatermark: false)
                 let sid = s.id
                 let owner = windowID
+                let recordsExitCode = !s.hudActive
+                ov.captureExitCode(from: codePath) { code in
+                    if recordsExitCode { gWindows[owner]?.store.recordOverlayExit(sid, code: code) }
+                }
                 ov.onExit = {
                     runOnMain { MainActor.assumeIsolated {
-                        if let txt = try? String(contentsOfFile: codePath, encoding: .utf8),
-                           let code = OverlayCapture.parseExitCode(txt) {
-                            gWindows[owner]?.store.recordOverlayExit(sid, code: code)
-                        }
-                        try? FileManager.default.removeItem(atPath: codePath)
                         gWindows[owner]?.closeOverlay(sid)
                     } }
                 }
                 s.overlaySurface = ov
                 overlaySurfaces[s.id] = ov
-                if let pct = s.overlaySizePercent, let overlay = deckOverlay {
+                if let pct = s.overlaySizePercent {
+                    let overlay = deck
                     guard let frame = OpaquePointer(gtk_frame_new(nil)) else { return }
                     gtk_widget_add_css_class(W(frame), "card")
                     gtk_widget_add_css_class(W(frame), "agterm-quick")
@@ -176,8 +187,8 @@ extension AppController {
                 ov.realizeWidgetIfNeeded()
             }
             if floatingOverlayFrames[s.id] != nil {
-                if let frame = floatingOverlayFrames[s.id], let overlay = deckOverlay,
-                   let percent = s.overlaySizePercent {
+                if let frame = floatingOverlayFrames[s.id], let percent = s.overlaySizePercent {
+                    let overlay = deck
                     updateFloatingOverlayFrame(s, frame: frame, overlay: overlay, fallbackPercent: percent)
                 }
                 if allowFocus, !s.hudActive, s.id == store.selectedSessionID {
@@ -188,7 +199,8 @@ extension AppController {
                 if allowFocus, !s.hudActive, s.id == store.selectedSessionID { overlaySurfaces[s.id]?.grabFocus() }
             }
         } else if let ov = overlaySurfaces[s.id], s.overlaySurface == nil {
-            if let frame = floatingOverlayFrames[s.id], let overlay = deckOverlay {
+            if let frame = floatingOverlayFrames[s.id] {
+                let overlay = deck
                 gtk_overlay_remove_overlay(overlay, W(frame))
                 floatingOverlayFrames[s.id] = nil
             } else {
@@ -230,15 +242,51 @@ extension AppController {
         gtk_widget_set_margin_end(W(frame), horizontal == GTK_ALIGN_END ? horizontalMargin : 0)
         gtk_widget_set_margin_top(W(frame), vertical == GTK_ALIGN_START ? verticalMargin : 0)
         gtk_widget_set_margin_bottom(W(frame), vertical == GTK_ALIGN_END ? verticalMargin : 0)
-        gtk_widget_set_can_target(W(frame), session.hudActive ? 0 : 1)
+        let targetable = Self.floatingOverlayTargetable(isHud: session.hudActive)
+        gtk_widget_set_can_target(W(frame), targetable ? 1 : 0)
+        gtk_widget_set_focusable(W(frame), 0)
+        if let surface = overlaySurfaces[session.id] {
+            gtk_widget_set_can_target(W(surface.glArea), targetable ? 1 : 0)
+            gtk_widget_set_focusable(
+                W(surface.glArea), Self.floatingOverlayFocusable(isHud: session.hudActive) ? 1 : 0)
+        }
+    }
+
+    static func floatingOverlayTargetable(isHud: Bool) -> Bool { !isHud }
+    static func floatingOverlayFocusable(isHud: Bool) -> Bool { !isHud }
+
+    func installHudGeometryTracking() {
+        let callback = unsafeBitCast(onDeckAllocationChanged as @convention(c)
+            (OpaquePointer?, OpaquePointer?, gpointer?) -> Void, to: GCallback.self)
+        connect(deck, "notify::width", callback)
+        connect(deck, "notify::height", callback)
+    }
+
+    static func hudGeometryNeedsRefresh(
+        previous: (Int32, Int32)?, width: Int32, height: Int32
+    ) -> Bool {
+        width > 0 && height > 0 && (previous?.0 != width || previous?.1 != height)
+    }
+
+    func refreshHudGeometryForDeckAllocation() {
+        let width = gtk_widget_get_width(W(deck)), height = gtk_widget_get_height(W(deck))
+        guard Self.hudGeometryNeedsRefresh(
+            previous: lastHudGeometryDeckSize, width: width, height: height) else { return }
+        lastHudGeometryDeckSize = (width, height)
+        for (id, frame) in floatingOverlayFrames {
+            guard let session = store.session(withID: id), session.hudActive,
+                  let percent = session.overlaySizePercent else { continue }
+            updateFloatingOverlayFrame(session, frame: frame, overlay: deck, fallbackPercent: percent)
+        }
     }
 
     static func singleQuoted(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
 
     /// The overlay's command exited (or a control close): tear it down + reconcile.
     func closeOverlay(_ id: UUID) {
+        let hud = store.session(withID: id)?.hudActive == true
         store.closeOverlay(id)
-        reconcile()
+        reconcile(focusActive: !hud)
     }
 
     /// Capture each pane's live foreground command into the session model so a restart can re-run it.
@@ -426,11 +474,17 @@ extension AppController {
     func resetSplitRatio(_ gesture: OpaquePointer?, x: Double) {
         guard let gesture, let panedWidget = gtk_event_controller_get_widget(gesture) else { return }
         let paned = OpaquePointer(panedWidget)
-        guard abs(x - Double(gtk_paned_get_position(paned))) <= 10,
-              let (sid, _) = sessionPanes.first(where: { $0.value == paned }),
-              let session = store.session(withID: sid) else { return }
+        guard let (sid, _) = sessionPanes.first(where: { $0.value == paned }),
+              let session = store.session(withID: sid),
+              Self.splitDividerHit(
+                  x: x, dividerPosition: Double(gtk_paned_get_position(paned)), splitVisible: session.isSplit)
+        else { return }
         session.splitRatio = AppStore.splitRatioDefault
         applySplitRatio(to: session)
+    }
+
+    static func splitDividerHit(x: Double, dividerPosition: Double, splitVisible: Bool) -> Bool {
+        splitVisible && abs(x - dividerPosition) <= 10
     }
 
     private func restoreSplitRatio(_ s: Session) {
@@ -480,16 +534,20 @@ extension AppController {
         splitRatioRestore.cancel(sessionID: id)
         scratchSurfaces[id]?.teardown()
         scratchSurfaces[id] = nil
-        if let frame = floatingOverlayFrames[id], let overlay = deckOverlay {
-            gtk_overlay_remove_overlay(overlay, W(frame))
+        if let frame = floatingOverlayFrames[id] {
+            gtk_overlay_remove_overlay(deck, W(frame))
             floatingOverlayFrames[id] = nil
         }
         overlaySurfaces[id]?.teardown()
         overlaySurfaces[id] = nil
         leftOverlaySurfaces[id]?.teardown()
         leftOverlaySurfaces[id] = nil
+        leftOverlayWashes[id] = nil
+        leftOverlayWashProviders[id] = nil
         rightOverlaySurfaces[id]?.teardown()
         rightOverlaySurfaces[id] = nil
+        rightOverlayWashes[id] = nil
+        rightOverlayWashProviders[id] = nil
         splitSurfaces[id]?.teardown()
         splitSurfaces[id] = nil
         surfaces[id]?.teardown()
@@ -545,10 +603,12 @@ extension AppController {
         updateFloatingOverlayVisibility(activeID: active?.id)
         updateCoverDimming()
         if focus, let active {
-            if active.overlayActive {
+            if active.programOverlayActive {
                 overlaySurfaces[active.id]?.grabFocus()
             } else if active.scratchActive {
                 scratchSurfaces[active.id]?.grabFocus()
+            } else if let pane = active.focusedOverlayPane {
+                paneOverlaySurface(active.id, pane: pane)?.grabFocus()
             } else if active.splitFocused, let split = splitSurfaces[active.id] {
                 split.grabFocus()
             } else {
@@ -664,27 +724,88 @@ extension AppController {
         if id == store.selectedSessionID { updateTitle() }
     }
 
-    private func updatePaneDim(_ s: Session) {
+    static func paneSurfaceOpacities(
+        isSplit: Bool, splitFocused: Bool, dimmed: Double, backdropActive: Bool
+    ) -> (left: Double, right: Double) {
+        guard !backdropActive else { return (1, 1) }
+        return (isSplit && splitFocused ? dimmed : 1.0,
+                isSplit && !splitFocused ? dimmed : 1.0)
+    }
+
+    static func paneOverlayWashOpacity(
+        isSplit: Bool, splitFocused: Bool, pane: OverlayPane,
+        scaledMuteOpacity: Double, backdropActive: Bool
+    ) -> Double {
+        guard isSplit, !backdropActive else { return 0 }
+        let inactive = pane == .left ? splitFocused : !splitFocused
+        return inactive ? scaledMuteOpacity : 0
+    }
+
+    static func scaledMuteOpacity(_ muteOpacity: Double, renderedWindowOpacity: Double) -> Double {
+        min(1, max(0, muteOpacity)) * min(1, max(0, renderedWindowOpacity))
+    }
+
+    static func paneOverlayWashColor(fixedBackground: String?, themeBackground: String?) -> String {
+        fixedBackground ?? themeBackground ?? "#000000"
+    }
+
+    func renderedWindowOpacity(_ override: Double? = nil) -> Double {
+        let value = override ?? pendingBackgroundOpacity ?? linuxSettingsStore().load().backgroundOpacity ?? 1
+        return min(1, max(0, value))
+    }
+
+    func updatePaneDim(_ s: Session, windowOpacity: Double? = nil) {
         let strength = linuxSettingsStore().load().inactivePaneMuteStrength ?? AppSettings.defaultInactivePaneMuteStrength
-        let dimmed = 1.0 - AppSettings.muteOpacity(strength: strength)
-        if let main = surfaces[s.id]?.glArea {
-            gtk_widget_set_opacity(W(main), s.isSplit && s.splitFocused ? dimmed : 1.0)
+        let rawMuteOpacity = AppSettings.muteOpacity(strength: strength)
+        let windowOpacity = renderedWindowOpacity(windowOpacity)
+        let muteOpacity = Self.scaledMuteOpacity(rawMuteOpacity, renderedWindowOpacity: windowOpacity)
+        let dimmed = 1.0 - muteOpacity
+        let floatingProgram = s.programOverlayActive && s.overlaySizePercent != nil
+        let backdropActive = s.id == store.selectedSessionID && (quickVisible || floatingProgram)
+        let opacities = Self.paneSurfaceOpacities(
+            isSplit: s.isSplit, splitFocused: s.splitFocused,
+            dimmed: dimmed, backdropActive: backdropActive)
+        if let main = surfaces[s.id] { gtk_widget_set_opacity(W(main.glArea), opacities.left) }
+        if let split = splitSurfaces[s.id] { gtk_widget_set_opacity(W(split.glArea), opacities.right) }
+        if let wash = leftOverlayWashes[s.id] {
+            updatePaneOverlayWashColor(s, pane: .left)
+            gtk_widget_set_opacity(W(wash), Self.paneOverlayWashOpacity(
+                isSplit: s.isSplit, splitFocused: s.splitFocused, pane: .left,
+                scaledMuteOpacity: muteOpacity, backdropActive: backdropActive))
         }
-        if let split = splitSurfaces[s.id]?.glArea {
-            gtk_widget_set_opacity(W(split), s.isSplit && !s.splitFocused ? dimmed : 1.0)
+        if let wash = rightOverlayWashes[s.id] {
+            updatePaneOverlayWashColor(s, pane: .right)
+            gtk_widget_set_opacity(W(wash), Self.paneOverlayWashOpacity(
+                isSplit: s.isSplit, splitFocused: s.splitFocused, pane: .right,
+                scaledMuteOpacity: muteOpacity, backdropActive: backdropActive))
+        }
+    }
+
+    private func updatePaneOverlayWashColor(_ session: Session, pane: OverlayPane) {
+        guard let provider = paneOverlayWashProvider(session.id, pane: pane) else { return }
+        let color = Self.paneOverlayWashColor(
+            fixedBackground: session.paneOverlay(pane)?.backgroundColor,
+            themeBackground: GhosttyApp.shared.currentThemeBackgroundHex)
+        "* { background-color: \(color); }".withCString {
+            gtk_css_provider_load_from_string(cast(provider), $0)
         }
     }
 
     /// Floating program cards and the quick terminal wash out the content behind them. HUDs stay passive
     /// and do not add a wash, matching the upstream overlay distinction.
-    func updateCoverDimming() {
+    func updateCoverDimming(windowOpacity: Double? = nil) {
         let strength = linuxSettingsStore().load().inactivePaneMuteStrength
             ?? AppSettings.defaultInactivePaneMuteStrength
-        let dimmed = 1.0 - AppSettings.muteOpacity(strength: strength)
+        let muteOpacity = Self.scaledMuteOpacity(
+            AppSettings.muteOpacity(strength: strength),
+            renderedWindowOpacity: renderedWindowOpacity(windowOpacity))
+        let dimmed = 1.0 - muteOpacity
         gtk_widget_set_opacity(W(sidebarBox), quickVisible ? dimmed : 1.0)
         if let dashboardHost = dashboardRuntime.host {
             gtk_widget_set_opacity(W(dashboardHost), quickVisible ? dimmed : 1.0)
         }
+        let floatingOpacity = Self.floatingFrameOpacity(quickVisible: quickVisible, dimmed: dimmed)
+        for frame in floatingOverlayFrames.values { gtk_widget_set_opacity(W(frame), floatingOpacity) }
         guard let active = store.activeSession, let stack = sessionStacks[active.id], !dashboard.isOpen else {
             return
         }
@@ -692,10 +813,14 @@ extension AppController {
         gtk_widget_set_opacity(W(stack), quickVisible || floatingProgram ? dimmed : 1.0)
     }
 
-    func updateAllPaneDimming() {
+    static func floatingFrameOpacity(quickVisible: Bool, dimmed: Double) -> Double {
+        quickVisible ? dimmed : 1
+    }
+
+    func updateAllPaneDimming(windowOpacity: Double? = nil) {
         for workspace in store.workspaces {
-            for session in workspace.sessions { updatePaneDim(session) }
+            for session in workspace.sessions { updatePaneDim(session, windowOpacity: windowOpacity) }
         }
-        updateCoverDimming()
+        updateCoverDimming(windowOpacity: windowOpacity)
     }
 }

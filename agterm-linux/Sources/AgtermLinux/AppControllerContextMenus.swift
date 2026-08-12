@@ -188,9 +188,9 @@ extension AppController {
     }
 
     func contextWorkspaceCopyName() {
-        guard let id = contextMenuWorkspace,
-              let name = store.workspaces.first(where: { $0.id == id })?.name else { return }
+        guard let id = contextMenuWorkspace else { return }
         dismissContextMenu()
+        guard let name = store.workspaceName(id) else { return }
         name.withCString { gdk_clipboard_set_text(gtk_widget_get_clipboard(W(window)), $0) }
     }
 

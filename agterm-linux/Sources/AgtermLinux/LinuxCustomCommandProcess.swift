@@ -17,7 +17,12 @@ enum LinuxCommandPath {
     private static let systemDefault = "/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
 
     static var bundledCLIDirectory: String? {
-        guard let executable = CommandLine.arguments.first, !executable.isEmpty else { return nil }
+        let executable = try? FileManager.default.destinationOfSymbolicLink(atPath: "/proc/self/exe")
+        return resolvedExecutableDirectory(executable)
+    }
+
+    static func resolvedExecutableDirectory(_ executable: String?) -> String? {
+        guard let executable, executable.hasPrefix("/") else { return nil }
         return URL(fileURLWithPath: executable).standardizedFileURL.deletingLastPathComponent().path
     }
 

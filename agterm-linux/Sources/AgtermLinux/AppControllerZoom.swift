@@ -1,8 +1,33 @@
 import CGtk
+import Foundation
 import agtermCore
 
 @MainActor
 extension AppController {
+    static func zoomTargetToRehostAfterPrimaryPanePromotion(
+        _ target: TerminalZoomTarget, sessionID: UUID
+    ) -> TerminalZoomTarget? {
+        switch target {
+        case .session(let id, .primary) where id == sessionID: .session(sessionID, .primary)
+        case .session(let id, .split) where id == sessionID: .session(sessionID, .primary)
+        case .session(let id, .overlayLeft) where id == sessionID: .session(sessionID, .overlayLeft)
+        case .session(let id, .overlayRight) where id == sessionID: .session(sessionID, .overlayLeft)
+        default: nil
+        }
+    }
+
+    func suspendTerminalZoomForPrimaryPanePromotion(_ sessionID: UUID) -> TerminalZoomTarget? {
+        guard let target = terminalZoom.target,
+              let promoted = Self.zoomTargetToRehostAfterPrimaryPanePromotion(
+                target, sessionID: sessionID) else { return nil }
+        setTerminalZoom(.off, target: target)
+        return promoted
+    }
+
+    func resumeTerminalZoomAfterPrimaryPanePromotion(_ target: TerminalZoomTarget?) {
+        if let target { setTerminalZoom(.on, target: target) }
+    }
+
     func clearInvalidTerminalZoom() {
         guard let target = terminalZoom.target,
               !TerminalZoomController.isTargetValid(target, in: store, quickTerminalVisible: quickVisible) else {
@@ -24,6 +49,7 @@ extension AppController {
         let zoomed = terminalZoom.target != nil
         gtk_widget_set_visible(W(splitView), zoomed ? 0 : 1)
         if let host = zoomHost { gtk_widget_set_visible(W(host), zoomed ? 1 : 0) }
+        refreshPaneOverlayCoverage()
         if !zoomed { showActive() }
     }
 
@@ -145,6 +171,17 @@ extension AppController {
             if let host = primaryPaneHosts[id] { gtk_overlay_add_overlay(host, W(widget)) }
         case .session(let id, .overlayRight):
             if let host = splitPaneHosts[id] { gtk_overlay_add_overlay(host, W(widget)) }
+        }
+        if let (sessionID, pane) = Self.paneOverlayTarget(target) {
+            raisePaneOverlayWash(sessionID, pane: pane)
+        }
+    }
+
+    static func paneOverlayTarget(_ target: TerminalZoomTarget) -> (UUID, OverlayPane)? {
+        switch target {
+        case .session(let id, .overlayLeft): (id, .left)
+        case .session(let id, .overlayRight): (id, .right)
+        default: nil
         }
     }
 }

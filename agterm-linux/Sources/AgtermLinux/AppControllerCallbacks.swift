@@ -247,13 +247,6 @@ let onWorkspaceRowClick: @MainActor @convention(c) (OpaquePointer?, Int32, Doubl
     }
 }
 
-let onWorkspaceToggleTimeout: @MainActor @convention(c) (gpointer?) -> gboolean = { data in
-    guard let data else { return 0 }
-    return MainActor.assumeIsolated {
-        Unmanaged<AppController>.fromOpaque(data).takeUnretainedValue().firePendingWorkspaceToggle()
-    }
-}
-
 let onRowDragPrepare: @MainActor @convention(c) (OpaquePointer?, Double, Double, gpointer?) -> OpaquePointer? = { source, _, _, _ in
     let uuid: String? = MainActor.assumeIsolated {
         guard let w = gtk_event_controller_get_widget(source) else { return nil }
@@ -454,6 +447,11 @@ let onPanedPosition: @MainActor @convention(c) (OpaquePointer?, OpaquePointer?, 
 let onPanedDoubleClick: @MainActor @convention(c) (OpaquePointer?, Int32, Double, Double, gpointer?) -> Void = { gesture, presses, x, _, _ in
     guard presses == 2 else { return }
     MainActor.assumeIsolated { controllerForEventController(gesture)?.resetSplitRatio(gesture, x: x) }
+}
+
+let onDeckAllocationChanged:
+    @MainActor @convention(c) (OpaquePointer?, OpaquePointer?, gpointer?) -> Void = { deck, _, _ in
+    MainActor.assumeIsolated { controllerForWidget(deck)?.refreshHudGeometryForDeckAllocation() }
 }
 
 let restorePanedRatioTick: @MainActor @convention(c) (gpointer?) -> gboolean = { data in

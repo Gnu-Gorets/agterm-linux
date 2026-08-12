@@ -44,6 +44,14 @@ struct LinuxCustomCommandProcessTests {
         #expect(!path.contains("homebrew"))
     }
 
+    @Test("bundled CLI directory requires the resolved absolute executable path")
+    func bundledCLIPath() {
+        #expect(LinuxCommandPath.resolvedExecutableDirectory("agterm-linux") == nil)
+        #expect(LinuxCommandPath.resolvedExecutableDirectory("/opt/agterm/bin/agterm-linux.bin")
+                == "/opt/agterm/bin")
+        #expect(LinuxCommandPath.bundledCLIDirectory?.hasPrefix("/") == true)
+    }
+
     @Test("empty cwd is omitted")
     func emptyCwd() {
         let command = CustomCommand(name: "noop", command: "true", shortcut: "")

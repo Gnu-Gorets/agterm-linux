@@ -416,7 +416,7 @@ extension AppController: ControlActions {
                 store.toggleSplit(id)
             }
             reconcile()
-            focusedSurface(for: id)?.grabFocus()
+            sessionFocusTarget(for: id)?.grabFocus()
             return ok(id)
         }
     }
@@ -449,7 +449,7 @@ extension AppController: ControlActions {
             syncSplit(session)
             rebuildSidebar()
             updateTitle()
-            (toSplit ? splitSurfaces[id] : surfaces[id])?.grabFocus()
+            sessionFocusTarget(for: id, wantSplit: toSplit)?.grabFocus()
             return ok(id)
         }
     }
@@ -736,7 +736,7 @@ extension AppController: ControlActions {
             switch options.pane {
             case nil, "left": break
             case "right" where !session.hasSplit: return err("session has no split pane")
-            case "scratch" where !session.scratchActive: return err("session has no scratch terminal")
+            case "scratch" where session.scratchSurface == nil: return err("session has no scratch terminal")
             case "right", "scratch": break
             case .some(let pane): return err("invalid pane: \(pane)")
             }
@@ -870,9 +870,10 @@ extension AppController: ControlActions {
         switch resolveSessionResponse(target) {
         case .failure(let response): return response
         case .success(let id):
+            let hud = pane == nil && store.session(withID: id)?.hudActive == true
             let closed = pane.map { store.closePaneOverlay(id, pane: $0) } ?? store.closeOverlay(id)
             guard closed else { return err("no overlay") }
-            reconcile()
+            reconcile(focusActive: !hud)
             return ok(id)
         }
     }
@@ -881,8 +882,16 @@ extension AppController: ControlActions {
         switch resolveSessionResponse(target) {
         case .failure(let response): return response
         case .success(let id):
+            guard let session = store.session(withID: id) else { return err("no such session") }
+            let hud = session.hudActive
+            if hud, sizePercent == nil { return err(OverlayHudError.fullResize) }
+            let previousSize = session.overlaySizePercent
             guard store.resizeOverlay(id, sizePercent: sizePercent) else { return err("no overlay") }
-            reconcile()
+            if hud, !writeHudBody(session, pane: hudPaneMetrics(for: session)) {
+                store.resizeOverlay(id, sizePercent: previousSize)
+                return err(OverlayHudError.writeFailed)
+            }
+            reconcile(focusActive: !hud)
             return ok(id)
         }
     }
@@ -921,7 +930,7 @@ extension AppController: ControlActions {
         case .success(let id):
             let surface: GhosttySurface?
             switch options.pane {
-            case nil: surface = searchTargetSurface(for: id)
+            case nil: surface = store.session(withID: id)?.onScreenSurface as? GhosttySurface
             case "left": surface = surfaces[id]
             case "right": surface = splitSurfaces[id]
             case "scratch": surface = scratchSurfaces[id]
