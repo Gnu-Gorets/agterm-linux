@@ -14,9 +14,8 @@ extension AppController {
         return duplicate
     }
 
-    func showRowContextMenu(listBox: OpaquePointer, x: Double, y: Double) {
-        guard let rowPtr = gtk_list_box_get_row_at_y(listBox, Int32(y)),
-              let sid = rowSession[OpaquePointer(rowPtr)] else { return }
+    func showRowContextMenu(row: OpaquePointer, x: Double, y: Double) {
+        guard let sid = rowSession[row] else { return }
         noteUserActivity()
         if !store.sidebarSelectionIDs.contains(sid) {
             store.selectSession(sid, sidebarSelection: [sid])
@@ -31,7 +30,7 @@ extension AppController {
         guard let popover = op(gtk_popover_new()) else { return }
         attachControllerContext(to: popover, windowID: windowID)
         contextMenuPopover = popover
-        gtk_widget_set_parent(W(popover), W(listBox))
+        gtk_widget_set_parent(W(popover), W(row))
         var rect = GdkRectangle(x: Int32(x), y: Int32(y), width: 1, height: 1)
         gtk_popover_set_pointing_to(POPOVER(popover), &rect)
         gtk_popover_set_position(POPOVER(popover), GTK_POS_RIGHT)

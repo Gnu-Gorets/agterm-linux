@@ -1120,6 +1120,19 @@ def verify_context_menu(env):
                 pass
         assert flag, "session context menu did not open"
         assert process.poll() is None, "session context menu terminated the app"
+        press_escape(process.pid)
+        primary_window = wait_for(lambda: next(iter(window_list(env)), None), "primary window did not register")
+        primary_id = primary_window["id"]
+        primary_session = window_tree(env, primary_id)["workspaces"][0]["sessions"][0]["id"]
+        control_json(env, "session", "split", "on", "--target", primary_session, "--json")
+        wait_for(
+            lambda: window_tree(env, primary_id)["workspaces"][0]["sessions"][0].get("hasSplit"),
+            "session split did not become active",
+        )
+        right_click(lambda: next(iter(collect(app, role="list item")), None), process.pid)
+        wait_for(lambda: actionable(app, "Close Session"), "split session context menu did not open")
+        assert process.poll() is None, "split session context menu terminated the app"
+        press_escape(process.pid)
         created = control_json(env, "window", "new", "context-background", "--json")["result"]["id"]
         assert process.poll() is None, "backgrounding a window with a context menu terminated the app"
         control_json(env, "window", "close", created, "--json")

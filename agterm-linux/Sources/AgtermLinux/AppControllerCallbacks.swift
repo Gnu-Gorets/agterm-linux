@@ -220,10 +220,10 @@ let onSessionRowClick: @MainActor @convention(c) (OpaquePointer?, Int32, Double,
     }
 }
 
-let onRowRightClick: @MainActor @convention(c) (OpaquePointer?, Int32, Double, Double, gpointer?) -> Void = { _, _, x, y, data in
+let onSessionRowContextClick: @MainActor @convention(c) (OpaquePointer?, Int32, Double, Double, gpointer?) -> Void = { _, _, x, y, data in
     guard let data else { return }
     MainActor.assumeIsolated {
-        controllerForWidget(OpaquePointer(data))?.showRowContextMenu(listBox: OpaquePointer(data), x: x, y: y)
+        controllerForWidget(OpaquePointer(data))?.showRowContextMenu(row: OpaquePointer(data), x: x, y: y)
     }
 }
 

@@ -258,10 +258,6 @@ extension AppController {
         gtk_widget_add_css_class(W(lb), "navigation-sidebar")
         if workspace != nil { gtk_widget_set_margin_start(W(lb), 14) }
         gtk_list_box_set_selection_mode(lb, GTK_SELECTION_MULTIPLE)
-        let rightClick = gtk_gesture_click_new()
-        gtk_gesture_single_set_button(rightClick, 3)
-        connect(rightClick, "pressed", unsafeBitCast(onRowRightClick as @convention(c) (OpaquePointer?, Int32, Double, Double, gpointer?) -> Void, to: GCallback.self), RAW(lb))
-        gtk_widget_add_controller(W(lb), rightClick)
         workspaceListBoxes.append(lb)
 
         for s in sessions {
@@ -329,6 +325,10 @@ extension AppController {
         gtk_event_controller_set_propagation_phase(selectClick, GTK_PHASE_CAPTURE)
         connect(selectClick, "pressed", unsafeBitCast(onSessionRowClick, to: GCallback.self), RAW(row))
         gtk_widget_add_controller(W(row), selectClick)
+        let rightClick = gtk_gesture_click_new()
+        gtk_gesture_single_set_button(rightClick, 3)
+        connect(rightClick, "pressed", unsafeBitCast(onSessionRowContextClick, to: GCallback.self), RAW(row))
+        gtk_widget_add_controller(W(row), rightClick)
         if !flaggedView {
             let drag = gtk_drag_source_new()
             gtk_drag_source_set_actions(drag, GDK_ACTION_MOVE)
