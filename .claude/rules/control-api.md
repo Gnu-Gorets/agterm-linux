@@ -148,8 +148,10 @@ side, and reads `lastAppliedIsDark` when bare. Refuse it outside XCUITest; provi
   between-row surface. `active` resolves through `currentWorkspaceID` — a foreground-created workspace
   first, then the selected session's, then `workspaces.last` — so repeated moves may target a different
   workspace; use an ID to keep one target.
-- `session.split` drives the addressed session, not active-only `AppActions.toggleSplit`. Off hides and
-  retains the shell; `session.split.close` and the split shell's own exit are what tear it down.
+- `session.split` drives the addressed session, not active-only `AppActions.toggleSplit`. `--axis
+  vertical|horizontal` selects left/right or top/bottom; omitting it preserves an existing split's axis
+  and defaults a new split to left/right. Off hides and retains the shell; `session.split.close` and the
+  split shell's own exit are what tear it down.
   `split` reports SHOWN, so a hidden split reads false;
   `hasSplit` reports the pane existing at all and is present exactly when `splitRatio`/`splitFocused`
   can be. Callers asking "does this session have a split" read `hasSplit`, and `agtermctl tree` tags the
@@ -161,12 +163,12 @@ side, and reads `lastAppliedIsDark` when bare. Refuse it outside XCUITest; provi
 - `session.scratch` is a third, nonpersisted login shell with on/off/toggle. It spawns lazily, survives
   hiding, recreates after exit, and renders as a full translucent cover below overlay. It has no session
   PWD/title link but a weak watermark link. GUI surfaces are Command-J, titlebar, View, and palette.
-- `session.focus --pane left|right|other` requires an existing split and works shown or hidden.
-  Read `splitFocused`.
-- `session.resize` accepts exactly one absolute ratio or relative grow-left/grow-right delta, defaulting
-  an unset ratio to 0.5. Require a split, clamp through store limits, persist, then post the object-scoped
-  live-divider notification. Hidden split stores for next show. Return clamped ratio as `%.3f`; read
-  `splitRatio`.
+- `session.focus primary|split|left|right|top|bottom|other` requires an existing split and works shown or
+  hidden. The pane is positional; read `splitFocused`.
+- `session.resize` accepts exactly one absolute ratio or one relative
+  `--grow-left|right|primary|split|top|bottom` delta, defaulting an unset ratio to 0.5. Require a split,
+  clamp through store limits, persist, then post the object-scoped live-divider notification. Hidden split
+  stores for next show. Return clamped ratio as `%.3f`; read `splitRatio`.
 - `session.go --to next|prev|first|last|next-attention|prev-attention` operates on current selection in
   the placement store, wraps within filtered scope, and returns selected ID. It has no target.
 - `notify` requires body, defaults title and session, skips OSC focus suppression, increments unseen, and
@@ -197,7 +199,9 @@ side, and reads `lastAppliedIsDark` when bare. Refuse it outside XCUITest; provi
 
 ## Surface input, output, and search
 
-- `session.type --pane left|right|scratch` defaults to main for compatibility, not focused/on-screen.
+- `session.type --pane` accepts `primary|left|top`, `split|right|bottom`, or `scratch`; omission defaults
+  to primary for compatibility, not focused/on-screen. Read-back and the stable invalid-value error use
+  canonical `left|right|scratch` names.
   Hidden live scratch is addressable; missing panes error. Main alone bounded-polls (12 × 30ms) a newly
   unrealized session, with or without `select`, so `session.new --no-select` plus an immediate type does
   not race the mount+layout gap (#349). The probe precedes every sleep, so a realized session pays nothing
@@ -390,8 +394,8 @@ side, and reads `lastAppliedIsDark` when bare. Refuse it outside XCUITest; provi
   no IDs/MRU/font; open needs IDs or MRU; fixed size must be finite positive.
 - A split expands to primary and split `DashboardMember`s, unless the id carries a `:left`/`:right` suffix
   (#331) selecting one pane. Host-free `DashboardTarget` owns that grammar: split on the FIRST colon,
-  accept only `left`/`right` case-insensitively, reject everything else including `primary`/`split`,
-  `scratch`/`overlay`, and a pasted `surface:<id>:<pane>`. The dispatcher rejects bad grammar outright; a
+  accept `primary`/`left`/`top` and `split`/`right`/`bottom` case-insensitively while readback stays
+  `left`/`right`; reject `scratch`/`overlay` and a pasted `surface:<id>:<pane>`. The dispatcher rejects bad grammar outright; a
   well-formed ref naming no pane (`:right` without a split) is a soft miss joining `unresolved`.
 - Resolve targets in order and deduplicate by session+pane, then cap panes app-side at
   `DashboardLayout.maxCells` 9. Append dropped-pane text to unresolved text with `;`. Guard emptiness on the
@@ -402,7 +406,7 @@ side, and reads `lastAppliedIsDark` when bare. Refuse it outside XCUITest; provi
   `promoteSplitMember` rewrites that session's `.split` cell to `.primary` from `agtermApp.handlePaneExit`.
   Reconcile cannot do this: `closeSplit` and `closePrimaryPane` leave identical `hasSplit == false` state,
   and only the exit path knows which happened.
-- Dashboard is per-window and view-only; GUI Command-Shift-D/menu/palette toggles MRU auto-size.
+- Dashboard is per-window and view-only; GUI Command-Shift-G/menu/palette toggles MRU auto-size.
   Arrows navigate ragged `ceil(sqrt(n))` grid, Enter closes then selects/focuses exact pane, Esc closes.
   It is reciprocal with zoom. Read live `dashboardMembers`, highlighted member, applied font size, and
   `auto|fixed|untouched` mode. See [[libghostty]] for reparent, input gates, and transient font.
@@ -491,7 +495,7 @@ side, and reads `lastAppliedIsDark` when bare. Refuse it outside XCUITest; provi
 ## Tree and window read-back
 
 - Session nodes include foreground/split foreground argv, background spec, overlay size, pane overlays,
-  split ratio, split focus, status fields, flag, unseen, restore pins, surfaces, and `realized`.
+  split axis, split ratio, split focus, status fields, flag, unseen, restore pins, surfaces, and `realized`.
 - `realized` reports the MAIN pane's `TerminalSurface.isRealized`, populated host-free in
   `AppStore.controlTree` (no app closure — `isRealized` is on the protocol) and false for an empty slot, so
   only a server predating the field omits it. It exists because `session.new` answers `ok` for a model
