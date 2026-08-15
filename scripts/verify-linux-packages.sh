@@ -15,10 +15,13 @@ PACKAGE_VERSION="${VERSION/-/~}"
 OUT="${2:-dist-linux}"
 [[ "$OUT" = /* ]] || OUT="$ROOT/$OUT"
 
-TAR="$OUT/agterm-linux-v${VERSION}-x86_64.tar.gz"
-DEB="$OUT/agterm-linux-v${VERSION}-x86_64.deb"
-RPM="$OUT/agterm-linux-v${VERSION}-x86_64.rpm"
-APPIMAGE="$OUT/agterm-v${VERSION}-x86_64.AppImage"
+# shellcheck source=../linux/arch.sh
+source "$ROOT/linux/arch.sh"
+
+TAR="$OUT/agterm-linux-v${VERSION}-${HOST_ARCH}.tar.gz"
+DEB="$OUT/agterm-linux-v${VERSION}-${HOST_ARCH}.deb"
+RPM="$OUT/agterm-linux-v${VERSION}-${HOST_ARCH}.rpm"
+APPIMAGE="$OUT/agterm-v${VERSION}-${HOST_ARCH}.AppImage"
 CHECKSUMS="$OUT/agterm-linux-v${VERSION}-SHA256SUMS"
 
 for artifact in "$TAR" "$DEB" "$RPM" "$APPIMAGE" "$CHECKSUMS"; do
@@ -83,7 +86,7 @@ tar -xzf "$TAR" -C "$WORK/tar"
 verify_payload "$WORK/tar/agterm-linux"
 
 [[ "$(dpkg-deb -f "$DEB" Package)" == 'agterm-linux' ]]
-[[ "$(dpkg-deb -f "$DEB" Architecture)" == 'amd64' ]]
+[[ "$(dpkg-deb -f "$DEB" Architecture)" == "$PACKAGE_ARCH" ]]
 [[ "$(dpkg-deb -f "$DEB" Version)" == "$PACKAGE_VERSION-1" ]]
 dpkg-deb -x "$DEB" "$WORK/deb"
 verify_payload "$WORK/deb/opt/agterm-linux"
@@ -91,7 +94,7 @@ verify_payload "$WORK/deb/opt/agterm-linux"
 [[ "$(readlink "$WORK/deb/usr/bin/agtermctl")" == '/opt/agterm-linux/bin/agtermctl' ]]
 
 [[ "$(rpm -qp --queryformat '%{NAME}' "$RPM")" == 'agterm-linux' ]]
-[[ "$(rpm -qp --queryformat '%{ARCH}' "$RPM")" == 'x86_64' ]]
+[[ "$(rpm -qp --queryformat '%{ARCH}' "$RPM")" == "$HOST_ARCH" ]]
 [[ "$(rpm -qp --queryformat '%{VERSION}-%{RELEASE}' "$RPM")" == "$PACKAGE_VERSION-1" ]]
 (
   cd "$WORK/rpm"

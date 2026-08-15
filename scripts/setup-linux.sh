@@ -11,6 +11,8 @@ VERIFY="$ROOT/scripts/verify-linux-resources.sh"
 GHOSTTY_REPO="https://github.com/ghostty-org/ghostty"
 # shellcheck source=../linux/ghostty-resources.env
 source "$ROOT/linux/ghostty-resources.env"
+# shellcheck source=../linux/arch.sh
+source "$ROOT/linux/arch.sh"
 
 cache_is_complete() {
   [[ -s "$VENDOR/lib/libghostty.so" && -s "$VENDOR/include/ghostty.h"
@@ -56,7 +58,7 @@ echo "building libghostty and generated terminfo source..."
 # Zig defaults to Debug, whose terminal integrity checks make sustained PTY output unusably slow.
 (
   cd "$BUILD_DIR"
-  "$ZIG" build -Doptimize=ReleaseFast -Dapp-runtime=none -Dtarget=x86_64-linux-gnu.2.39 \
+  "$ZIG" build -Doptimize=ReleaseFast -Dapp-runtime=none -Dtarget="$ZIG_TARGET" \
     -Demit-themes=false -Demit-terminfo=true
 )
 
