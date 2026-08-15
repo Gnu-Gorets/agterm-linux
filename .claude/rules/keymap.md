@@ -15,6 +15,16 @@ paths:
 - `<configDir>/keymap.conf` (default `~/.config/agterm`) rebinds built-in menu shortcuts and defines
   custom shell commands, which appear in the action palette as `custom`. One parsed `Keymap` drives the
   menu, custom-command monitor, and palette; host-free logic lives in `agtermCore`.
+- `global-hotkey <chord>` is the third verb: ONE chord, modifier required, no `|` alternatives and no
+  leader sequence (`RegisterEventHotKey` expresses neither), last line wins. It is registered with the OS
+  by `GlobalHotkey`, never with `KeybindMatcher`, so it is deliberately OUTSIDE the conflict model below —
+  it may share a chord with a menu item — but the OS hotkey WINS and CONSUMES the key, agterm frontmost
+  included, so the menu binding then never fires. Say that rather than "whichever app is in front decides",
+  which is the precise inversion. `parseGlobalHotkeyLine` diagnoses a base key no physical position produces,
+  since the verb has no read-back anywhere and a silent drop at registration would be the user's only signal.
+  `keyCode(forChordKey:)` resolves it
+  by physical position, inverting `namedKey`/`latinKey` rather than adding a third table, so it survives a
+  layout switch. It summons the quick terminal; see [[windows]] for the panel.
 - `parseKeymap` never throws. `map <chord> <action>` takes one whitespace-delimited chord token.
   `command "<name>" [chord] <shell...>` treats the token after the quoted name as a shortcut only when
   `parseKeybinds` accepts it with a modifier; a bare key is diagnosed and the command stays palette-only.

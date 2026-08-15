@@ -55,6 +55,102 @@ struct KeymapTests {
         #expect(keymap.commands.isEmpty)
     }
 
+    // MARK: global-hotkey — the OS-registered chord that summons the quick terminal
+
+    @Test func parseGlobalHotkeyHappyPath() {
+        let (keymap, diagnostics) = parseKeymap("global-hotkey ctrl+opt+space")
+        #expect(diagnostics.isEmpty)
+        #expect(keymap.globalHotkey == Chord(mods: [.control, .option], key: "space"))
+        #expect(keymap.builtinOverrides.isEmpty)
+        #expect(keymap.commands.isEmpty)
+    }
+
+    @Test func absentGlobalHotkeyIsNil() {
+        let (keymap, diagnostics) = parseKeymap("map cmd+shift+e toggle_split")
+        #expect(diagnostics.isEmpty)
+        #expect(keymap.globalHotkey == nil)
+    }
+
+    @Test func lastGlobalHotkeyLineWins() {
+        let (keymap, diagnostics) = parseKeymap("""
+        global-hotkey ctrl+opt+space
+        global-hotkey cmd+shift+j
+        """)
+        #expect(diagnostics.isEmpty)
+        #expect(keymap.globalHotkey == Chord(mods: [.command, .shift], key: "j"))
+    }
+
+    /// A system-wide binding with no modifier would take that key from every other application.
+    @Test func bareGlobalHotkeyChordIsRejected() {
+        let (keymap, diagnostics) = parseKeymap("global-hotkey j")
+        #expect(keymap.globalHotkey == nil)
+        #expect(diagnostics.count == 1)
+        #expect(diagnostics[0].line == 1)
+        #expect(diagnostics[0].message.contains("must include a modifier"))
+    }
+
+    /// `RegisterEventHotKey` takes one chord, so a leader sequence has nothing to register.
+    @Test func globalHotkeySequenceIsRejected() {
+        let (keymap, diagnostics) = parseKeymap("global-hotkey ctrl+a>j")
+        #expect(keymap.globalHotkey == nil)
+        #expect(diagnostics.count == 1)
+        #expect(diagnostics[0].message.contains("invalid global-hotkey chord"))
+    }
+
+    /// The OS registers a physical key position, so a base key no ANSI position produces cannot be bound.
+    /// It has no read-back anywhere, so the diagnostic is the user's only signal.
+    @Test func globalHotkeyRejectsAChordWithNoKeyPosition() {
+        for token in ["ctrl+opt+é", "ctrl+opt+!", "cmd+ю"] {
+            let (keymap, diagnostics) = parseKeymap("global-hotkey \(token)")
+            #expect(keymap.globalHotkey == nil, "\(token) should not bind")
+            #expect(diagnostics.count == 1)
+            #expect(diagnostics[0].message.contains("names no key position"))
+        }
+    }
+
+    @Test func globalHotkeyAcceptsEveryBindableNamedKey() {
+        for key in bindableNamedKeys {
+            let (keymap, diagnostics) = parseKeymap("global-hotkey ctrl+opt+\(key)")
+            #expect(diagnostics.isEmpty, "\(key) should parse clean")
+            #expect(keymap.globalHotkey == Chord(mods: [.control, .option], key: key))
+        }
+    }
+
+    @Test func globalHotkeyRejectsMissingAndExtraTokens() {
+        let (missing, missingDiagnostics) = parseKeymap("global-hotkey")
+        #expect(missing.globalHotkey == nil)
+        #expect(missingDiagnostics.count == 1)
+        #expect(missingDiagnostics[0].message.contains("needs a chord"))
+
+        let (extra, extraDiagnostics) = parseKeymap("global-hotkey ctrl+opt+space quick_terminal")
+        #expect(extra.globalHotkey == nil)
+        #expect(extraDiagnostics.count == 1)
+        #expect(extraDiagnostics[0].message.contains("takes one chord"))
+    }
+
+    /// The chord is registered with the OS, never with `KeybindMatcher`, so it is deliberately outside the
+    /// conflict model: sharing a chord with a menu item costs neither of them its binding.
+    @Test func globalHotkeyDoesNotCollideWithABuiltinMenuChord() {
+        let (keymap, diagnostics) = parseKeymap("""
+        map cmd+shift+j toggle_split
+        global-hotkey cmd+shift+j
+        """)
+        #expect(diagnostics.isEmpty)
+        #expect(keymap.globalHotkey == Chord(mods: [.command, .shift], key: "j"))
+        #expect(keymap.builtinOverrides == [.toggleSplit: Chord(mods: [.command, .shift], key: "j")])
+    }
+
+    @Test func aBadGlobalHotkeyLineDoesNotDiscardTheRestOfTheFile() {
+        let (keymap, diagnostics) = parseKeymap("""
+        global-hotkey j
+        map cmd+shift+e toggle_split
+        """)
+        #expect(keymap.globalHotkey == nil)
+        #expect(keymap.builtinOverrides == [.toggleSplit: Chord(mods: [.command, .shift], key: "e")])
+        #expect(diagnostics.count == 1)
+        #expect(diagnostics[0].line == 1)
+    }
+
     // MARK: glyphHint — the shortcut shown in the palette and toolbar tooltips
 
     @Test func glyphHintRendersDefaultChordAsGlyphs() {
