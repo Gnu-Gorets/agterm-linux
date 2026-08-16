@@ -94,7 +94,7 @@ AGTERM_TEST_UNAME=x86_64 PATH="$WORK:/usr/bin:/bin" "$SETUP_ROOT/scripts/setup-l
 install -m755 "$WORK/libghostty-aarch64.so" \
   "$SETUP_ROOT/agterm-linux/vendor/ghostty/lib/libghostty.so"
 setup_output=""
-if setup_output="$(AGTERM_TEST_UNAME=x86_64 PATH="$WORK:/usr/bin:/bin" \
+if setup_output="$(AGTERM_TEST_UNAME=x86_64 PATH="$WORK:$PATH" \
     "$SETUP_ROOT/scripts/setup-linux.sh" 2>&1)"; then
   echo "setup-linux.sh unexpectedly reused a stale aarch64 cache on x86_64" >&2
   exit 1
