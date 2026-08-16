@@ -9,6 +9,7 @@ if (( $# < 1 || $# > 2 )); then
 fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+VERIFY_ARCH="$ROOT/scripts/verify-linux-architecture.sh"
 VERSION="${1#v}"
 # nFPM's semver schema maps prerelease separators to '~' so prereleases sort before stable versions.
 PACKAGE_VERSION="${VERSION/-/~}"
@@ -69,7 +70,7 @@ verify_payload() {
   [[ "$(<"$payload/share/agterm/VERSION")" == "$VERSION" ]]
   test -f "$payload/share/applications/io.github.melonamin.agterm.desktop"
   desktop-file-validate "$payload/share/applications/io.github.melonamin.agterm.desktop"
-  file "$payload/bin/agterm-linux.bin" | grep -q 'x86-64'
+  "$VERIFY_ARCH" "$payload/bin/agterm-linux.bin"
   for binary in agterm-linux.bin agtermctl.bin; do
     LD_LIBRARY_PATH="$payload/lib" ldd "$payload/bin/$binary" > "$WORK/$binary.ldd"
     if grep -q 'not found' "$WORK/$binary.ldd"; then
@@ -110,7 +111,7 @@ verify_payload "$WORK/rpm/opt/agterm-linux"
 [[ "$(readlink "$WORK/rpm/usr/bin/agterm-linux")" == '/opt/agterm-linux/bin/agterm-linux' ]]
 [[ "$(readlink "$WORK/rpm/usr/bin/agtermctl")" == '/opt/agterm-linux/bin/agtermctl' ]]
 
-file "$APPIMAGE" | grep -q 'ELF 64-bit'
+"$VERIFY_ARCH" "$APPIMAGE"
 (
   cd "$WORK/appimage"
   "$APPIMAGE" --appimage-extract >/dev/null
@@ -120,6 +121,7 @@ test -x "$APPROOT/AppRun"
 test -x "$APPROOT/usr/bin/agterm-linux.bin"
 test -x "$APPROOT/usr/bin/agtermctl"
 test -x "$APPROOT/usr/bin/agtermctl.bin"
+"$VERIFY_ARCH" "$APPROOT/usr/bin/agterm-linux.bin"
 test -r "$APPROOT/usr/bin/agterm-linux_AgtermLinux.resources/hud/hud.sh"
 test -x "$APPROOT/usr/share/agterm/agent-status/agterm-agent-status.sh"
 test -x "$APPROOT/usr/share/agterm/agent-status/agterm-codex-status.sh"

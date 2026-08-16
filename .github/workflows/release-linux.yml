@@ -151,6 +151,9 @@ jobs:
       - name: Test published-release verifier
         run: scripts/test-published-linux-release.sh
 
+      - name: Test Linux architecture verification
+        run: scripts/test-linux-architecture.sh
+
       - name: Lint Swift sources
         run: swiftlint lint --strict --quiet
 
