@@ -75,7 +75,7 @@ extension AppController {
         let text = store.sidebarMode == .flagged
             ? LinuxSidebarPolicy.flaggedRowLabel(for: session, in: store)
             : session.displayName
-        text.withCString { gtk_label_set_text(cast(widget), $0) }
+        text.withCString { gtk_label_set_text(widget, $0) }
     }
 
     func applySidebarFontSize() {
