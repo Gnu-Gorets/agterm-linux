@@ -727,7 +727,7 @@ final class AppController {
 
     func closeSplitPane(_ id: UUID) {
         store.closeSplitPane(id)
-        reconcile(rebuildSidebar: false)
+        reconcile()
         sessionFocusTarget(for: id, wantSplit: false)?.grabFocus()
     }
 
