@@ -68,6 +68,16 @@ extension AppController {
         }
     }
 
+    func updateSessionName(_ id: UUID) {
+        guard renaming?.id != id,
+              let session = store.session(withID: id),
+              let widget = sessionNameWidgets[id] else { return }
+        let text = store.sidebarMode == .flagged
+            ? LinuxSidebarPolicy.flaggedRowLabel(for: session, in: store)
+            : session.displayName
+        text.withCString { gtk_label_set_text(cast(widget), $0) }
+    }
+
     func applySidebarFontSize() {
         guard let display = gdk_display_get_default() else { return }
         let settings = linuxSettingsStore().load()
@@ -148,6 +158,7 @@ extension AppController {
         }
         rowSession.removeAll()
         nameLabels.removeAll()
+        sessionNameWidgets.removeAll()
         workspaceDiscButtons.removeAll()
         workspaceListBoxes.removeAll()
         updateWorkspaceFilterButton()
@@ -289,6 +300,7 @@ extension AppController {
         let label = breadcrumb
             ? op(gtk_label_new(LinuxSidebarPolicy.flaggedRowLabel(for: s, in: store)))
             : makeNameWidget(id: s.id, text: s.displayName, isWorkspace: false)
+        sessionNameWidgets[s.id] = label
         gtk_widget_set_hexpand(W(label), 1)
         gtk_widget_set_margin_top(W(label), 4)
         gtk_widget_set_margin_bottom(W(label), 4)

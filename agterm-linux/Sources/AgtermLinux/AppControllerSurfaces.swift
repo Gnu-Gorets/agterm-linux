@@ -719,8 +719,10 @@ extension AppController {
     func surfaceDidFocus(_ id: UUID, isSplit: Bool) {
         guard store.session(withID: id)?.hasSplit == true else { return }
         store.setPaneFocus(isSplit, forSession: id)
-        if let s = store.session(withID: id) { updatePaneDim(s) }
-        rebuildSidebar()
+        if let s = store.session(withID: id) {
+            updatePaneDim(s)
+            updateSessionName(id)
+        }
         if id == store.selectedSessionID { updateTitle() }
     }
 
