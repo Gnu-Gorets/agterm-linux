@@ -14,7 +14,7 @@ extension AppController {
     /// every reconcile, not only the trailing one a soft close arms. Reaping a held session would free its
     /// ghostty surfaces (killing the shells) while `undoPendingClose` still offers to bring it back, and
     /// the undo would then silently spawn a brand-new login shell in place of the user's running one.
-    func reconcile(focusActive: Bool = true) {
+    func reconcile(focusActive: Bool = true, rebuildSidebar: Bool = true) {
         let dashboardRestore = prepareDashboardForReconcile()
         clearInvalidTerminalZoom()
         for ws in store.workspaces {
@@ -30,7 +30,7 @@ extension AppController {
         var live = Set(store.workspaces.flatMap { $0.sessions.map(\.id) })
         live.formUnion(store.pendingHeldSessionIDs())
         for id in Array(surfaces.keys) where !live.contains(id) { removeSession(id) }
-        rebuildSidebar()
+        if rebuildSidebar { self.rebuildSidebar() }
         showActive(focus: focusActive)
         updateTitle()
         updateAttentionButton()
@@ -722,8 +722,10 @@ extension AppController {
     func surfaceDidFocus(_ id: UUID, isSplit: Bool) {
         guard store.session(withID: id)?.hasSplit == true else { return }
         store.setPaneFocus(isSplit, forSession: id)
-        if let s = store.session(withID: id) { updatePaneDim(s) }
-        rebuildSidebar()
+        if let s = store.session(withID: id) {
+            updatePaneDim(s)
+            updateSessionName(id)
+        }
         if id == store.selectedSessionID { updateTitle() }
     }
 

@@ -68,6 +68,16 @@ extension AppController {
         }
     }
 
+    func updateSessionName(_ id: UUID) {
+        guard renaming?.id != id,
+              let session = store.session(withID: id),
+              let widget = sessionNameWidgets[id] else { return }
+        let text = store.sidebarMode == .flagged
+            ? LinuxSidebarPolicy.flaggedRowLabel(for: session, in: store)
+            : session.displayName
+        text.withCString { gtk_label_set_text(widget, $0) }
+    }
+
     func applySidebarFontSize() {
         guard let display = gdk_display_get_default() else { return }
         let settings = linuxSettingsStore().load()
@@ -151,6 +161,7 @@ extension AppController {
         }
         rowSession.removeAll()
         nameLabels.removeAll()
+        sessionNameWidgets.removeAll()
         workspaceDiscButtons.removeAll()
         workspaceListBoxes.removeAll()
         updateWorkspaceFilterButton()
@@ -262,10 +273,6 @@ extension AppController {
         gtk_widget_add_css_class(W(lb), "navigation-sidebar")
         if workspace != nil { gtk_widget_set_margin_start(W(lb), 14) }
         gtk_list_box_set_selection_mode(lb, GTK_SELECTION_MULTIPLE)
-        let rightClick = gtk_gesture_click_new()
-        gtk_gesture_single_set_button(rightClick, 3)
-        connect(rightClick, "pressed", unsafeBitCast(onRowRightClick as @convention(c) (OpaquePointer?, Int32, Double, Double, gpointer?) -> Void, to: GCallback.self), RAW(lb))
-        gtk_widget_add_controller(W(lb), rightClick)
         workspaceListBoxes.append(lb)
 
         for s in sessions {
@@ -297,6 +304,7 @@ extension AppController {
         let label = breadcrumb
             ? op(gtk_label_new(LinuxSidebarPolicy.flaggedRowLabel(for: s, in: store)))
             : makeNameWidget(id: s.id, text: s.displayName, isWorkspace: false)
+        sessionNameWidgets[s.id] = label
         gtk_widget_set_hexpand(W(label), 1)
         gtk_widget_set_margin_top(W(label), 4)
         gtk_widget_set_margin_bottom(W(label), 4)
@@ -333,6 +341,11 @@ extension AppController {
         gtk_event_controller_set_propagation_phase(selectClick, GTK_PHASE_CAPTURE)
         connect(selectClick, "pressed", unsafeBitCast(onSessionRowClick, to: GCallback.self), RAW(row))
         gtk_widget_add_controller(W(row), selectClick)
+        let rightClick = gtk_gesture_click_new()
+        gtk_gesture_single_set_button(rightClick, 3)
+        gtk_event_controller_set_propagation_phase(rightClick, GTK_PHASE_CAPTURE)
+        connect(rightClick, "pressed", unsafeBitCast(onSessionRowContextClick, to: GCallback.self), RAW(row))
+        gtk_widget_add_controller(W(row), rightClick)
         if !flaggedView {
             let drag = gtk_drag_source_new()
             gtk_drag_source_set_actions(drag, GDK_ACTION_MOVE)

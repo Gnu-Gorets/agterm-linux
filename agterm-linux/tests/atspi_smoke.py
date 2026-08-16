@@ -1127,6 +1127,19 @@ def verify_context_menu(env):
                 pass
         assert flag, "session context menu did not open"
         assert process.poll() is None, "session context menu terminated the app"
+        press_escape(process.pid)
+        primary_window = wait_for(lambda: next(iter(window_list(env)), None), "primary window did not register")
+        primary_id = primary_window["id"]
+        primary_session = window_tree(env, primary_id)["workspaces"][0]["sessions"][0]["id"]
+        control_json(env, "session", "split", "on", "--target", primary_session, "--json")
+        wait_for(
+            lambda: window_tree(env, primary_id)["workspaces"][0]["sessions"][0].get("hasSplit"),
+            "session split did not become active",
+        )
+        right_click(lambda: next(iter(collect(app, role="list item")), None), process.pid)
+        wait_for(lambda: actionable(app, "Close Session"), "split session context menu did not open")
+        assert process.poll() is None, "split session context menu terminated the app"
+        press_escape(process.pid)
         created = control_json(env, "window", "new", "context-background", "--json")["result"]["id"]
         assert process.poll() is None, "backgrounding a window with a context menu terminated the app"
         control_json(env, "window", "close", created, "--json")
@@ -1137,6 +1150,70 @@ def verify_context_menu(env):
         )
         control_json(env, "tree", "--json")
         print("OK: session context menu survives a sidebar rebuild")
+    except AssertionError:
+        describe_tree(app)
+        raise
+    finally:
+        stop(process)
+
+
+def verify_split_exit_sidebar(env):
+    process, app = launch(env)
+    try:
+        primary_window = wait_for(
+            lambda: next(iter(window_list(env)), None),
+            "primary window did not register",
+        )
+        window_id = primary_window["id"]
+        session_id = window_tree(env, window_id)["workspaces"][0]["sessions"][0]["id"]
+        control_json(
+            env, "session", "split", "on", "--target", session_id,
+            "--window", window_id, "--json",
+        )
+        wait_for(
+            lambda: window_tree(env, window_id)["workspaces"][0]["sessions"][0].get("hasSplit"),
+            "session split did not become active",
+        )
+        time.sleep(0.5)
+        control_json(
+            env, "session", "type", "printf '\\033]2;split-exit-left\\007'; sleep 30\n",
+            "--target", session_id, "--pane", "left", "--window", window_id, "--json",
+        )
+        control_json(
+            env, "session", "type", "printf '\\033]2;split-exit-right\\007'; sleep 5; exit\n",
+            "--target", session_id, "--pane", "right", "--window", window_id, "--json",
+        )
+        control_json(
+            env, "session", "status", "blocked", "--target", session_id,
+            "--pane", "right", "--window", window_id, "--json",
+        )
+
+        def session_state():
+            return window_tree(env, window_id)["workspaces"][0]["sessions"][0]
+
+        wait_for(
+            lambda: session_state().get("name") == "split-exit-right"
+            and session_state().get("status") == "blocked",
+            "right-pane title/status did not reach the model",
+        )
+        wait_for(
+            lambda: sidebar_row_settled(app, "split-exit-right", images=1, labels=2),
+            "right-pane title/status did not reach the sidebar row",
+        )
+        wait_for(
+            lambda: not session_state().get("hasSplit")
+            and session_state().get("name") == "split-exit-left"
+            and session_state().get("status", "idle") == "idle",
+            "split exit did not restore the primary-pane model presentation",
+        )
+        row = wait_for(
+            lambda: sidebar_row_settled(app, "split-exit-left", images=1, labels=1),
+            "split exit left a stale sidebar name/status presentation",
+        )
+        labels = [item.get_name() or "" for item in descendants(row, role="label")]
+        assert labels == ["split-exit-left"], f"split exit left stale sidebar labels: {labels}"
+        assert process.poll() is None, "split exit terminated the app"
+        print("OK: split exit refreshes the sidebar name and status")
     except AssertionError:
         describe_tree(app)
         raise
@@ -2666,7 +2743,7 @@ def main():
         failures = []
         for child_scenario in (
             "normal", "upstream-controls", "dashboard-modal", "context-menu",
-            "window-ownership", "preferences-pages",
+            "split-exit", "window-ownership", "preferences-pages",
             "notification-reveal", "notification-focus", "session-pickers",
             "custom-command-failures", "surface-lifetimes", "sidebar-row-height",
             "sidebar-narrow-clipping",
@@ -2712,6 +2789,8 @@ def main():
             verify_dashboard_modal(env)
         elif scenario == "context-menu":
             verify_context_menu(env)
+        elif scenario == "split-exit":
+            verify_split_exit_sidebar(env)
         elif scenario == "window-ownership":
             verify_window_callback_ownership(env)
         elif scenario == "notification-reveal":
