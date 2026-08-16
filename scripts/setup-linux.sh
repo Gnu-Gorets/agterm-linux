@@ -7,15 +7,15 @@ PATCH="$ROOT/linux/patches/ghostty-embedded-opengl.patch"
 INPUT_HANDOFF_PATCH="$ROOT/linux/patches/ghostty-embedded-input-handoff.patch"
 RESOURCE_PATCH="$ROOT/linux/patches/ghostty-lib-resources.patch"
 VENDOR="$ROOT/agterm-linux/vendor/ghostty"
-VERIFY="$ROOT/scripts/verify-linux-resources.sh"
+VERIFY_CACHE="$ROOT/scripts/verify-linux-vendor-cache.sh"
 GHOSTTY_REPO="https://github.com/ghostty-org/ghostty"
 # shellcheck source=../linux/ghostty-resources.env
 source "$ROOT/linux/ghostty-resources.env"
+# shellcheck source=../linux/arch.sh
+source "$ROOT/linux/arch.sh"
 
 cache_is_complete() {
-  [[ -s "$VENDOR/lib/libghostty.so" && -s "$VENDOR/include/ghostty.h"
-    && -s "$VENDOR/include/ghostty/vt.h" ]] \
-    && "$VERIFY" "$VENDOR/share" >/dev/null 2>&1
+  "$VERIFY_CACHE" "$VENDOR" >/dev/null 2>&1
 }
 
 if cache_is_complete; then
@@ -23,7 +23,7 @@ if cache_is_complete; then
   exit 0
 fi
 
-for command in git curl tar sha256sum tic infocmp; do
+for command in git curl tar sha256sum tic infocmp file; do
   command -v "$command" >/dev/null || { echo "$command is required to vendor libghostty" >&2; exit 1; }
 done
 ZIG="$(command -v zig || true)"
@@ -56,7 +56,7 @@ echo "building libghostty and generated terminfo source..."
 # Zig defaults to Debug, whose terminal integrity checks make sustained PTY output unusably slow.
 (
   cd "$BUILD_DIR"
-  "$ZIG" build -Doptimize=ReleaseFast -Dapp-runtime=none -Dtarget=x86_64-linux-gnu.2.39 \
+  "$ZIG" build -Doptimize=ReleaseFast -Dapp-runtime=none -Dtarget="$ZIG_TARGET" \
     -Demit-themes=false -Demit-terminfo=true
 )
 
@@ -77,7 +77,7 @@ TERMINFO_SOURCE="$BUILD_DIR/zig-out/share/terminfo/ghostty.terminfo"
 cp "$TERMINFO_SOURCE" "$BUILD_DIR/src/terminfo/ghostty.terminfo"
 tic -x -o "$STAGE/share/terminfo" "$BUILD_DIR/src/terminfo/ghostty.terminfo"
 
-"$VERIFY" "$STAGE/share"
+"$VERIFY_CACHE" "$STAGE"
 rm -rf "$VENDOR"
 mkdir -p "$(dirname "$VENDOR")"
 mv "$STAGE" "$VENDOR"

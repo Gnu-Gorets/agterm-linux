@@ -140,7 +140,7 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends \
             libgtk-4-dev libadwaita-1-dev libepoxy-dev pkg-config git curl ca-certificates xz-utils ncurses-bin \
-            ripgrep zsh at-spi2-core dbus-x11 gir1.2-atspi-2.0 openbox python3-gi xdotool xvfb xauth \
+            ripgrep zsh file at-spi2-core dbus-x11 gir1.2-atspi-2.0 openbox python3-gi xdotool xvfb xauth \
             libatk-bridge2.0-0 libgl1-mesa-dri libegl-mesa0 mesa-utils
           curl -fsSLo /tmp/zig.tar.xz \
             https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz
@@ -155,24 +155,29 @@ jobs:
         run: |
           scripts/check-linux-core-boundary.sh "$UPSTREAM_BASE_TAG"
           scripts/check-linux-cli-drift.sh
+      - name: Test Linux architecture verification
+        run: scripts/test-linux-architecture.sh
+      - name: Resolve Linux architecture
+        id: linux-architecture
+        shell: bash
+        run: |
+          source linux/arch.sh
+          echo "host=$HOST_ARCH" >> "$GITHUB_OUTPUT"
       - name: Cache vendored libghostty (keyed on the pinned rev + the patch)
         id: ghostty-cache
         uses: actions/cache@v6
         with:
           path: agterm-linux/vendor/ghostty
-          key: libghostty-${{ hashFiles('scripts/setup-linux.sh', 'scripts/verify-linux-resources.sh', 'linux/ghostty-resources.env', 'linux/patches/ghostty-embedded-opengl.patch', 'linux/patches/ghostty-embedded-input-handoff.patch', 'linux/patches/ghostty-lib-resources.patch') }}
+          key: libghostty-${{ steps.linux-architecture.outputs.host }}-${{ hashFiles('scripts/setup-linux.sh', 'scripts/verify-linux-vendor-cache.sh', 'scripts/verify-linux-architecture.sh', 'scripts/verify-linux-resources.sh', 'linux/arch.sh', 'linux/ghostty-resources.env', 'linux/patches/ghostty-embedded-opengl.patch', 'linux/patches/ghostty-embedded-input-handoff.patch', 'linux/patches/ghostty-lib-resources.patch') }}
       - name: Verify restored libghostty cache
         if: steps.ghostty-cache.outputs.cache-hit == 'true'
-        run: |
-          test -s agterm-linux/vendor/ghostty/lib/libghostty.so
-          test -s agterm-linux/vendor/ghostty/include/ghostty.h
-          scripts/verify-linux-resources.sh agterm-linux/vendor/ghostty/share
+        run: scripts/verify-linux-vendor-cache.sh agterm-linux/vendor/ghostty
       - name: Test deterministic Ghostty resources
         run: scripts/test-linux-resources.sh
       - name: Build libghostty (skips if the cache restored it)
         run: scripts/setup-linux.sh
-      - name: Verify built libghostty resources
-        run: scripts/verify-linux-resources.sh agterm-linux/vendor/ghostty/share
+      - name: Verify built libghostty cache
+        run: scripts/verify-linux-vendor-cache.sh agterm-linux/vendor/ghostty
       - name: swift test (agterm-linux)
         working-directory: agterm-linux
         run: swift test
