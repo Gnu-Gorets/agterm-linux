@@ -28,6 +28,10 @@ paths:
 - A separate `cookbook: ["cookbook/**"]` filter gates the Linux `cookbook` job. Recipe-only changes run
   no macOS jobs. Keep `.github/workflows/ci.yml` in both filters: the inline cookbook checks must run when
   changed; its Swift membership also runs macOS jobs.
+- The `upstream-sync` filter runs `scripts/test-sync-upstream-workflow.sh` in the changes job whenever the
+  sync workflow, its test, or `ci.yml` changes. The test extracts the workflow's actual shell blocks and
+  exercises branch creation, open-PR preservation, Linux continuation, and conflict-resolution tips in
+  disposable local repositories.
 - The cookbook job builds nothing. It compares the `cookbook/README.md` table and recipe directories in
   both directions; requires kebab-case directories, a `README.md` with all six exact
   (`grep -qxF`) headings, and shebangs for `.sh`/`.zsh`/`.py`; runs `shellcheck` on `.sh`; parses `.zsh`

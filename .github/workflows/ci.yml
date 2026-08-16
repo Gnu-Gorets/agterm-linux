@@ -52,6 +52,14 @@ jobs:
             cookbook:
               - "cookbook/**"
               - ".github/workflows/ci.yml"
+            upstream-sync:
+              - ".github/workflows/sync-upstream.yml"
+              - "scripts/test-sync-upstream-workflow.sh"
+              - ".github/workflows/ci.yml"
+
+      - name: Test upstream sync workflow
+        if: steps.filter.outputs.upstream-sync == 'true'
+        run: scripts/test-sync-upstream-workflow.sh
 
   test-linux:
     name: Unit tests (Linux)

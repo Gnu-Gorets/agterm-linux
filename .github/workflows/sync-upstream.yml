@@ -50,7 +50,7 @@ jobs:
 
       - name: Open master sync PR
         run: |
-          if git diff --quiet origin/master "$UPSTREAM_SYNC_BRANCH"; then
+          if git diff --quiet origin/master "origin/$UPSTREAM_SYNC_BRANCH"; then
             echo "master is already up to date"
             exit 0
           fi
