@@ -415,7 +415,7 @@ extension AppController: ControlActions {
             if parsed.desiredValue(current: session.isSplit) != session.isSplit {
                 store.toggleSplit(id)
             }
-            reconcile()
+            reconcile(rebuildSidebar: false)
             sessionFocusTarget(for: id)?.grabFocus()
             return ok(id)
         }

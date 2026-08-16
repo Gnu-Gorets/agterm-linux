@@ -719,14 +719,14 @@ final class AppController {
             return
         }
         store.toggleSplit(id)
-        reconcile()
+        reconcile(rebuildSidebar: false)
         updateToggleIcons()
         sessionFocusTarget(for: id)?.grabFocus()
     }
 
     func closeSplitPane(_ id: UUID) {
         store.closeSplitPane(id)
-        reconcile()
+        reconcile(rebuildSidebar: false)
         sessionFocusTarget(for: id, wantSplit: false)?.grabFocus()
     }
 
