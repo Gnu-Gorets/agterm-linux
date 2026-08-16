@@ -218,7 +218,8 @@ cd agterm-linux && swift build
 
 `scripts/setup-linux.sh` builds the pinned libghostty revision and stages its exact theme dependency,
 shell integration, and compiled `xterm-ghostty` terminfo.
-It verifies the complete resource set before replacing the vendored cache; release staging rejects a partial cache.
+It reuses a vendored cache only when its library matches the current architecture and its resource set is complete;
+release staging rejects a partial cache.
 At runtime Linux advertises `TERM=xterm-ghostty` only when both shell integration and the sibling terminfo database
 resolve, and safely uses `TERM=xterm-256color` when they do not.
 
