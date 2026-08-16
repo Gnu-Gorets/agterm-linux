@@ -1129,8 +1129,23 @@ def verify_context_menu(env):
             lambda: window_tree(env, primary_id)["workspaces"][0]["sessions"][0].get("hasSplit"),
             "session split did not become active",
         )
-        right_click(lambda: next(iter(collect(app, role="list item")), None), process.pid)
-        wait_for(lambda: actionable(app, "Close Session"), "split session context menu did not open")
+        wait_for(
+            lambda: len(collect(app, role="list item")) == len(rows),
+            "sidebar rows did not rebuild after split",
+        )
+        split_menu = None
+        for _ in range(3):
+            right_click(lambda: next(iter(collect(app, role="list item")), None), process.pid)
+            try:
+                split_menu = wait_for(
+                    lambda: actionable(app, "Close Session"),
+                    "split session context menu did not open",
+                    timeout=1,
+                )
+                break
+            except AssertionError:
+                press_escape(process.pid)
+        assert split_menu, "split session context menu did not open"
         assert process.poll() is None, "split session context menu terminated the app"
         press_escape(process.pid)
         created = control_json(env, "window", "new", "context-background", "--json")["result"]["id"]
