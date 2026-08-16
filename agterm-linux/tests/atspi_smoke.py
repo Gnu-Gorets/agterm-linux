@@ -15,7 +15,8 @@ import time
 import gi
 
 gi.require_version("Atspi", "2.0")
-from gi.repository import Atspi  # noqa: E402
+gi.require_version("Gtk", "4.0")
+from gi.repository import Atspi, Gtk  # noqa: E402
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -1421,6 +1422,139 @@ def verify_notification_reveal(env):
         stop(process)
 
 
+def gdk_supported_keys(variable, env):
+    """Ask this runner's GTK for the exact key table consumed by its complement parser."""
+    probe_env = dict(env)
+    probe_env[variable] = "help"
+    probe = subprocess.run(
+        [
+            sys.executable, "-c",
+            "import gi; gi.require_version('Gtk', '4.0'); "
+            "from gi.repository import Gtk; Gtk.init()",
+        ],
+        env=probe_env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    heading = f"Supported {variable} values:"
+    lines = probe.stderr.splitlines()
+    try:
+        start = lines.index(heading) + 1
+    except ValueError as error:
+        raise AssertionError(f"GTK did not report its {variable} key table: {probe.stderr}") from error
+    keys = []
+    for line in lines[start:]:
+        if not line.startswith("  "):
+            if keys:
+                break
+            continue
+        key = line.split()[0]
+        if key == "all":
+            break
+        if key != "help":
+            keys.append(key)
+    assert keys, f"GTK reported an empty {variable} key table"
+    return tuple(keys)
+
+
+def gdk_inversion_fixture(env):
+    """An `all` value whose effective GTK flags are exactly the policy-required pair.
+
+    Every ordinary key is listed after `all`, so GDK's complement parser subtracts it. The input also
+    deliberately lists the required pair; LinuxGdkPolicy must remove those exclusions before GTK parses
+    the value. This lets the real app exercise inversion without turning on every unrelated debug flag.
+    """
+    if Gtk.get_major_version() > 4 or Gtk.get_minor_version() >= 16:
+        variable = "GDK_DISABLE"
+        required = ("gles-api", "vulkan")
+    else:
+        variable = "GDK_DEBUG"
+        required = ("gl-disable-gles", "vulkan-disable")
+    keys = gdk_supported_keys(variable, env)
+    assert set(required).issubset(keys), f"GTK's {variable} table is missing {required}"
+    original = ",".join(("all", *keys))
+    normalized = ",".join(("all", *(key for key in keys if key not in required)))
+    return variable, required, original, normalized
+
+
+def verify_child_gdk_environment(env, expected_assignment=None):
+    """A spawned shell must see the PRE-LAUNCH GDK environment, not agterm's own overrides.
+
+    agterm sets GDK_DISABLE/GDK_DEBUG on itself before GTK initializes; the restore merged in
+    GhosttySurface.init is the only thing keeping every child -- and any GTK app it launches -- from
+    inheriting agterm's renderer constraints. Reverting that one line leaves every unit test green, so
+    the wiring is pinned here instead.
+
+    The normal scenario scrubs both variables before launch. The inversion scenario deliberately supplies
+    an `all` fixture that excludes the required flags; the app must normalize its own value while restoring
+    that original fixture byte-for-byte to the shell. In either case the expected readback comes directly
+    from the environment captured before launch, rather than from the app's post-policy process environment.
+    """
+    readback = os.path.join(env["AGTERM_STATE_DIR"], "gdk-child-env.txt")
+    command = (
+        'printf "gdk[%s][%s]end\\n" "$GDK_DISABLE" "$GDK_DEBUG" > '
+        f'"{readback}"\n'
+    )
+    process, app = launch(env)
+    try:
+        tree = control_json(env, "tree", "--json")["result"]["tree"]
+        session_id = tree["workspaces"][0]["sessions"][0]["id"]
+        window_id = next(item["id"] for item in window_list(env) if item["open"])
+
+        def captured():
+            if not os.path.exists(readback):
+                return None
+            with open(readback, encoding="utf-8", errors="replace") as source:
+                text = source.read()
+            return text if "end" in text else None
+
+        # Typing before the login shell reaches its prompt loses the line for good, and the prompt can be
+        # slow under software GL, so re-type until the file appears rather than betting on one sleep.
+        # wait_for() cannot express this: it polls a predicate, it cannot re-send the input between polls.
+        # The budget matches wait_for's own 12 s default, spent as 12 attempts one second apart.
+        retype_attempts, retype_interval = 12, 1.0
+        text = None
+        for _ in range(retype_attempts):
+            control_json(
+                env, "session", "type", command, "--target", session_id,
+                "--window", window_id, "--json",
+            )
+            time.sleep(retype_interval)
+            text = captured()
+            if text:
+                break
+        assert text, "the session shell never wrote its GDK environment back"
+        expected = f"gdk[{env.get('GDK_DISABLE', '')}][{env.get('GDK_DEBUG', '')}]end"
+        assert expected in text, (
+            "spawned shell did not see the exact pre-launch GDK environment: "
+            f"expected {expected!r}, got {text.strip()!r}"
+        )
+        if expected_assignment:
+            stderr_path = env["AGTERM_UI_APP_STDERR"]
+
+            def assignment_was_emitted():
+                try:
+                    with open(stderr_path, encoding="utf-8", errors="replace") as source:
+                        return expected_assignment in source.read()
+                except OSError:
+                    return False
+
+            wait_for(
+                assignment_was_emitted,
+                f"app did not emit normalized GDK assignment: {expected_assignment}",
+            )
+        assert process.poll() is None, "the child-environment check terminated the application"
+        print("OK: spawned shells see the pre-launch GDK environment, not agterm's normalized overrides")
+    except AssertionError:
+        describe_tree(app)
+        raise
+    finally:
+        stop(process)
+
+
 def verify_notification_focus_policy(env):
     with open(os.path.join(env["AGTERM_STATE_DIR"], "settings.json"), "w", encoding="utf-8") as target:
         json.dump({"notificationsEnabled": False}, target)
@@ -2819,7 +2953,8 @@ def main():
         for child_scenario in (
             "normal", "upstream-controls", "dashboard-modal", "context-menu",
             "split-exit", "window-ownership", "preferences-pages",
-            "notification-reveal", "notification-focus", "session-pickers",
+            "notification-reveal", "notification-focus", "session-pickers", "child-gdk-env",
+            "child-gdk-env-inverted",
             "custom-command-failures", "surface-lifetimes", "surface-failures",
             "sidebar-row-height",
             "sidebar-narrow-clipping",
@@ -2852,6 +2987,18 @@ def main():
         AGTERM_APP_ID=f"io.github.melonamin.agterm.atspi.{scenario.replace('-', '_')}",
         PATH="/usr/bin:/bin",
     )
+    # Keep ordinary scenarios free of ambient renderer overrides. The dedicated inversion scenario installs
+    # a deterministic `all` fixture after this scrub and proves both the app's normalization and child restore.
+    for gdk_variable in ("GDK_DISABLE", "GDK_DEBUG"):
+        env.pop(gdk_variable, None)
+    inverted_assignment = None
+    if scenario == "child-gdk-env-inverted":
+        variable, required, original, normalized = gdk_inversion_fixture(env)
+        env[variable] = original
+        normalized_tokens = set(normalized.lower().split(","))
+        assert "all" in normalized_tokens
+        assert not normalized_tokens.intersection(required)
+        inverted_assignment = f"agterm: setting {variable}={normalized}"
     if scenario in ("preferences-pages", "auto-follow"):
         # Page inspection and auto-follow need an already-mapped modal while another process owns focus.
         env["AGTERM_ATSPI_OPEN_PREFERENCES"] = "general"
@@ -2873,6 +3020,10 @@ def main():
             verify_notification_reveal(env)
         elif scenario == "notification-focus":
             verify_notification_focus_policy(env)
+        elif scenario == "child-gdk-env":
+            verify_child_gdk_environment(env)
+        elif scenario == "child-gdk-env-inverted":
+            verify_child_gdk_environment(env, inverted_assignment)
         elif scenario == "notification-banner":
             verify_notification_banner_round_trip(env)
         elif scenario == "custom-command-failures":
