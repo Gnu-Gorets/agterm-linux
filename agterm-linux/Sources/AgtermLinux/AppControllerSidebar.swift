@@ -327,6 +327,7 @@ extension AppController {
         gtk_widget_add_controller(W(row), selectClick)
         let rightClick = gtk_gesture_click_new()
         gtk_gesture_single_set_button(rightClick, 3)
+        gtk_event_controller_set_propagation_phase(rightClick, GTK_PHASE_CAPTURE)
         connect(rightClick, "pressed", unsafeBitCast(onSessionRowContextClick, to: GCallback.self), RAW(row))
         gtk_widget_add_controller(W(row), rightClick)
         if !flaggedView {
