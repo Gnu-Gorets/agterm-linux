@@ -277,7 +277,10 @@ omitted when expanded).
 - `type <text> [--stdin] [--select] [--pane left|right|scratch]` — inject keystrokes (real typing, Enter
   included) into the main pane, the split pane with `--pane right`, or the scratch terminal (even hidden)
   with `--pane scratch`. Pass `--target "$AGTERM_SESSION_ID"` to type into YOUR session, not the user's
-  active one (see Addressing).
+  active one (see Addressing). Like `session text`, every `--pane` addresses the surface UNDER a covering
+  overlay — by design, so a pane stays drivable whatever is drawn over it — meaning text typed while one is
+  open runs in the hidden shell and is invisible until it closes. There is no write twin of
+  `session overlay text`: an overlay runs the caller's own program, so nothing types into one.
 - `copy` — print the session's selected text (does NOT touch the system clipboard).
 - `paste` — paste the system clipboard into the session (the socket analogue of ⌘V; read it back with
   `session text`).

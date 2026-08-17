@@ -399,7 +399,12 @@ error keeps those names for compatibility.
   (errors with `session has no split pane` when the session has no split), `--pane scratch` into the
   session's scratch terminal even while it is hidden (`session has no scratch terminal` when none opened);
   like `session text`, no `other` value. `--select` realizes the MAIN pane only — a split pane must
-  already exist.
+  already exist. Also like `session text`, there is no overlay value: every `--pane` types into the surface
+  UNDER a covering overlay, so the keystrokes reach the hidden shell and run there unseen until the overlay
+  closes — the call still answers `ok`. That is deliberate: the panes stay drivable whatever is drawn over
+  them, so an overlay never has to be closed to keep automation running. It has no read-back twin either —
+  `session overlay text` exists because an overlay's output is otherwise unobservable, while its program is
+  the caller's own, so there is no way and no need to type into one.
 - `session copy [--target] [--window W]` — returns `result.text` with the session's current selection.
   Does NOT touch the system clipboard (pipe the returned text into another `session type`). No/empty
   selection → `no selection` error. Selection is readable on any realized session regardless of focus, but

@@ -223,6 +223,14 @@ side, and reads `lastAppliedIsDark` when bare. Refuse it outside XCUITest; provi
   unrealized session, with or without `select`, so `session.new --no-select` plus an immediate type does
   not race the mount+layout gap (#349). The probe precedes every sleep, so a realized session pays nothing
   and `select` moves selection only when the surface was not ready. `right`/`scratch` still fail fast.
+- `injectText` resolves only `surface`/`splitSurface`/`scratchSurface`, so like `session.text` every `--pane`
+  addresses the pane UNDER a covering overlay: the keystrokes run in the hidden shell, unseen until it closes,
+  while the call answers ok. This is the intended behavior, not a gap — the panes are the session's durable
+  input surfaces and stay drivable whatever is drawn over them, so a cover never has to be torn down to keep
+  automation running. Reads are the asymmetric half by design: `overlay.copy`/`overlay.text` exist because an
+  overlay's output is otherwise unobservable, while its program is the caller's own and needs no second way in.
+  Do not add a write twin, and do not make a covered `session.type` fail — a caller would lose the pane it
+  still legitimately addresses.
 - `session.type` ok means the keystrokes were queued to the pty, not that the shell read or ran them (#350).
   Nothing is lost in between: libghostty's write mailbox blocks instead of dropping, messages queued before
   the io thread starts are drained once the subprocess is up, and no code path flushes pending tty input.

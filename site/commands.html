@@ -1023,6 +1023,15 @@
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #f2b45c; white-space: nowrap">$'make test\n'</span> or pipe a real
                 newline via <span style="font-family: &quot;JetBrains Mono&quot;, monospace">--stdin</span>.
               </p>
+              <p style="font-size: 13.5px; line-height: 1.6; color: #949ba4; margin: 8px 0 0">
+                Every <span style="font-family: &quot;JetBrains Mono&quot;, monospace">--pane</span> types into the surface UNDERNEATH a covering
+                overlay, exactly as <span style="font-family: &quot;JetBrains Mono&quot;, monospace">session text</span> reads it — by design, so a
+                pane stays drivable whatever is drawn over it. The call answers
+                <span style="font-family: &quot;JetBrains Mono&quot;, monospace">ok</span> and the keystrokes reach the hidden shell, where they run
+                unseen until the overlay closes. There is no write counterpart to
+                <span style="font-family: &quot;JetBrains Mono&quot;, monospace; white-space: nowrap">session overlay text</span>: an overlay runs the
+                caller's own program, so nothing types into one.
+              </p>
             </div>
 
             <div style="background: #22272b; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 11px; padding: 18px 20px; margin-bottom: 12px">
