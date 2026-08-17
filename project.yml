@@ -224,6 +224,8 @@ schemes:
       config: Debug
     test:
       config: Debug
+      # recording blocks ~25s per method before setUp; screenshots costs 0.13s and still captures failures
+      preferredScreenCaptureFormat: screenshots
       targets:
         - agtermUITests
     archive:

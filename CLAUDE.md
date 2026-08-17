@@ -67,8 +67,8 @@ C-boundary concurrency before changing the bridge.
 - Every change must build, pass `swift test`, `make test-app`, and `make lint`.
 - Run each gate ONCE, at the end, and scope everything else to what changed: a new or changed test runs
   via `-only-testing:<Target>/<Class>/<test>`. Never re-run a whole XCUITest suite to verify a narrow
-  change; `agtermUITests/ControlAPIUITests` alone is about 7 minutes and tells you nothing the targeted
-  run did not.
+  change; `agtermUITests/ControlAPIUITests` alone is 82 methods and about 7.5 minutes, and tells you
+  nothing the targeted run did not.
 - For maintainer work, ask before splitting a touched long file and do not raise limits reflexively.
   Contributors need not refactor preexisting length; mention it without blocking or suggesting a limit bump.
 
