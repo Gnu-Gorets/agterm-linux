@@ -147,6 +147,19 @@ further prompt, and a dismissed prompt is never re-offered (`osascript` keeps re
 to send Apple events"). The user changes the answer in System Settings ▸ Privacy & Security under the
 matching service, e.g. Automation ▸ agterm. This is macOS policy, not an agterm bug: do not file it.
 
+### "a command cannot read ~/Downloads, ~/Desktop or ~/Documents"
+
+macOS protects those folders, plus removable and network volumes, on its own: a separate mechanism from the
+services above, gated by no entitlement, and agterm is not sandboxed. The per-folder usage-description
+strings are optional and agterm ships none, so the prompt carries macOS's own wording. The answer is
+recorded against the app macOS holds responsible, so another terminal listing the folder proves nothing
+about agterm. The user grants it in System Settings ▸ Privacy & Security ▸ Files & Folders ▸ agterm, or
+gives agterm Full Disk Access, which covers all of them at once. A dismissed prompt is never re-offered.
+`/bin/ls -la <folder>`, against the failing folder itself, usually tells the two causes apart: `Operation
+not permitted` for the privacy denial, `Permission denied` for ordinary permission bits, and some `ls`
+replacements print the same wording for both. Needing the grant is macOS policy, not an agterm bug: do not
+file it.
+
 ### "The agent-status glyph does not update"
 
 Install the hooks from Help ▸ Install Agent Status Hooks…. For shell-integrated agents, start a fresh shell
