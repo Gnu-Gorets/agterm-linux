@@ -42,21 +42,26 @@ public enum ConfigPaths {
         # reload`) to apply. Blank lines and lines starting with `#` are ignored. A line that is
         # rejected or skipped is reported in Settings ▸ Key Mapping and by `agtermctl keymap list`.
         #
-        # Two verbs:
+        # Three verbs:
         #
         #   map <chord> <action>
-        #       Rebind a built-in action to a single chord (no leader sequences for built-ins).
-        #       Chords use kitty syntax: mods joined by `+`, e.g. `cmd+shift+l`, `ctrl+\\``.
-        #       Mods: ctrl, cmd, opt, shift. A Shift-typed symbol is shift+<base key>
-        #       (shift+/ for ?, shift+= for +, shift+5 for %). Example:
+        #       Rebind a built-in action. Chords use kitty syntax: mods joined by `+`, e.g.
+        #       `cmd+shift+l`, `ctrl+\\``. Mods: ctrl, cmd, opt, shift. A Shift-typed symbol is
+        #       shift+<base key> (shift+/ for ?, shift+= for +, shift+5 for %). Several
+        #       alternatives may be joined by `|` with no spaces around it; the first single-chord
+        #       alternative becomes the menu shortcut and the rest fire through a key monitor, so
+        #       they need a modifier on their first chord. A line offering no single chord leaves
+        #       the action with no menu shortcut at all. Examples:
         #
-        #           map cmd+shift+l  toggle_split
+        #           map cmd+shift+l     toggle_split
+        #           map cmd+t|ctrl+a>t  toggle_scratch
         #
         #   command "<name>" [chord] <shell...>
         #       Define a custom command, shown in the action palette marked `custom`. The quoted
-        #       name may contain spaces. An optional chord (single chord OR a leader like `ctrl+a>g`)
-        #       binds it to a key; the chord MUST include a modifier (a bare key is rejected and the
-        #       line becomes palette-only). Omit the chord for a palette-only command. The rest of the
+        #       name may contain spaces. An optional chord (single chord OR a leader like `ctrl+a>g`,
+        #       or several of either joined by `|`) binds it to a key; every alternative MUST include
+        #       a modifier on its first chord — one that does not is dropped, and a line left with
+        #       none becomes palette-only. Omit the chord for a palette-only command. The rest of the
         #       line is run via `/bin/sh -c`, detached with no terminal — so it suits fire-and-forget
         #       launches (GUI apps, scripts), NOT a bare interactive or full-screen TUI program, which
         #       has no TTY and exits at once. Launch a TUI over a session through an overlay terminal,
@@ -71,6 +76,18 @@ public enum ConfigPaths {
         #           command "Open in Zed"  cmd+shift+e  open -a Zed "$AGT_SESSION_PWD"
         #           command "Lazygit"      ctrl+a>g     agtermctl session overlay open 'zsh -lc lazygit' --socket "$AGT_SOCKET"
         #           command "Deploy"                    ./deploy.sh
+        #
+        #   global-hotkey <chord>
+        #       Bind ONE system-wide chord that summons the quick terminal while any application is
+        #       frontmost — the only binding here that fires when agterm does not have the keyboard.
+        #       Exactly one chord: no `|` alternatives, no leader sequence, and it must carry a
+        #       modifier. A second global-hotkey line replaces the first. macOS registers it by
+        #       physical key position, so it keeps working on a non-Latin layout. Because the system
+        #       owns it rather than agterm, it takes no part in the collision rules above. Note the
+        #       precedence: the system hotkey WINS, agterm frontmost included, so a chord shared with a
+        #       menu action fires this and the menu binding never sees it. Example:
+        #
+        #           global-hotkey ctrl+opt+space
         #
         # Built-in actions (raw name → shipped default chord):
         #
@@ -88,6 +105,7 @@ public enum ConfigPaths {
         #
         # Uncomment and edit a line below to start.
         # map cmd+shift+l toggle_split
+        # global-hotkey ctrl+opt+space
 
         """
     }

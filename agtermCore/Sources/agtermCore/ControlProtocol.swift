@@ -7,6 +7,7 @@ public enum Command: String, Codable, Sendable {
     case workspaceRename = "workspace.rename"
     case workspaceDelete = "workspace.delete"
     case workspaceSelect = "workspace.select"
+    case workspaceGo = "workspace.go"
     case sessionNew = "session.new"
     case sessionDuplicate = "session.duplicate"
     case sessionClose = "session.close"
@@ -27,10 +28,12 @@ public enum Command: String, Codable, Sendable {
     case sessionRestore = "session.restore"
     case sessionBackground = "session.background"
     case sessionSplit = "session.split"
+    case sessionSplitClose = "session.split.close"
     case sessionScratch = "session.scratch"
     case sessionFocus = "session.focus"
     case sessionResize = "session.resize"
     case surfaceZoom = "surface.zoom"
+    case surfaceCursor = "surface.cursor"
     case dashboard
     case sessionCopy = "session.copy"
     case sessionPaste = "session.paste"
@@ -41,6 +44,8 @@ public enum Command: String, Codable, Sendable {
     case sessionOverlayClose = "session.overlay.close"
     case sessionOverlayResize = "session.overlay.resize"
     case sessionOverlayResult = "session.overlay.result"
+    case sessionOverlayCopy = "session.overlay.copy"
+    case sessionOverlayText = "session.overlay.text"
     case sessionHudOpen = "session.hud.open"
     case sessionHudUpdate = "session.hud.update"
     case sessionHudClose = "session.hud.close"
@@ -126,6 +131,9 @@ public struct ControlArgs: Codable, Sendable, Equatable {
     /// `session.background` (`image|text|color|clear`), and `session.restore` (`set|none|clear` — pin
     /// `command`, pin nothing, or drop the pin).
     public var mode: String?
+    /// Optional divider direction for `session.split`: `vertical` (left/right) or `horizontal` (top/bottom).
+    /// Omitted preserves the original axis-agnostic show/hide behavior.
+    public var axis: String?
     /// The image file path for `session.background` mode `image` (PNG or JPEG).
     public var path: String?
     /// The `#rrggbb` color for `session.background`: the mode-`text` tint (nil = terminal foreground) or the
@@ -164,7 +172,8 @@ public struct ControlArgs: Codable, Sendable, Equatable {
     /// `left`/main, parsed to `StatusPane`); and `session.restore` pins (same `StatusPane` spelling, omitted
     /// = `left`/main, `scratch` rejected app-side).
     ///
-    /// `session.overlay.open`/`.close`/`.result` scope to ONE pane with it, parsed to `OverlayPane`, which
+    /// The `session.overlay.*` family (`.open`/`.close`/`.result`/`.copy`/`.text`) scopes to ONE pane with
+    /// it, parsed to `OverlayPane`, which
     /// takes the `TerminalZoomSurface` spellings minus `scratch` (`left`/`primary`, `right`/`split`);
     /// `scratch` is rejected, there being no scratch pane to cover, and the rejection names only
     /// `left or right` as guidance. Omitted keeps the session-wide overlay, so every existing caller is
@@ -178,20 +187,21 @@ public struct ControlArgs: Codable, Sendable, Equatable {
     /// `session.restore` diverges: an unresolvable token with NO explicit `pane` errors there rather than
     /// silently using `left`, since a wrong restore pin persists. See `Session.paneRole(forToken:)`, #199.
     public var paneID: String?
-    /// Absolute left-pane split fraction (0...1) for `session.resize`, clamped server-side to
+    /// Absolute primary-pane split fraction (0...1) for `session.resize`, clamped server-side to
     /// `AppStore.splitRatioMin...splitRatioMax`. Mutually exclusive with `ratioDelta`.
     public var ratio: Double?
-    /// Signed relative split-divider nudge for `session.resize`: a positive fraction grows the LEFT
-    /// pane, negative grows the right (the CLI's `--grow-left`/`--grow-right`). Applied to the session's
+    /// Signed relative split-divider nudge for `session.resize`: a positive fraction grows the PRIMARY
+    /// pane, negative grows the split pane. Applied to the session's
     /// current fraction (0.5 when never moved). Mutually exclusive with `ratio`.
     public var ratioDelta: Double?
     /// For `session.text` / `quick.text`: read the full screen + scrollback instead of just the visible screen.
     public var all: Bool?
     /// For `session.text` / `quick.text`: keep only the last N lines of the full buffer.
     public var lines: Int?
-    /// Direction for `session.go` (`next`|`prev`|`previous`|`first`|`last`), for the reorder form of
-    /// `session.move` / `workspace.move` (`up`|`down`|`top`|`bottom`), and for `session.search`
-    /// (`next`|`prev`|`close`).
+    /// Direction for `session.go` (`next`|`prev`|`previous`|`first`|`last`), for `workspace.go`
+    /// (`next`|`prev`|`previous` — a workspace has no attention state and no ends to jump to), for the
+    /// reorder form of `session.move` / `workspace.move` (`up`|`down`|`top`|`bottom`), and for
+    /// `session.search` (`next`|`prev`|`close`).
     public var to: String?
     /// Anchor session (id / unique prefix / `active`) to place a session right AFTER, for the placement form
     /// of `session.new`/`session.move`. The anchor carries its own workspace (resolved across the whole
@@ -297,7 +307,7 @@ public struct ControlArgs: Codable, Sendable, Equatable {
                 workspace: String? = nil, workspaceName: String? = nil,
                 createWorkspace: Bool? = nil, collapsed: Bool? = nil, minimized: Bool? = nil,
                 noSelect: Bool? = nil,
-                text: String? = nil, select: Bool? = nil, mode: String? = nil,
+                text: String? = nil, select: Bool? = nil, mode: String? = nil, axis: String? = nil,
                 command: String? = nil, wait: Bool? = nil, sizePercent: Int? = nil, full: Bool? = nil,
                 follow: Bool? = nil, message: String? = nil, detail: String? = nil, spinner: String? = nil,
                 items: [ControlPickItem]? = nil, prompt: String? = nil,
@@ -326,6 +336,7 @@ public struct ControlArgs: Codable, Sendable, Equatable {
         self.text = text
         self.select = select
         self.mode = mode
+        self.axis = axis
         self.command = command
         self.wait = wait
         self.sizePercent = sizePercent
@@ -487,7 +498,9 @@ public struct ControlSessionNode: Codable, Sendable, Equatable {
     /// second-guessing `split`. The sidebar icon, the dashboard's second cell and Focus Left/Right Pane all
     /// follow this, not `split`.
     public let hasSplit: Bool?
-    /// The left-pane fraction (0.05...0.95) of a session that HAS a split (shown or hidden); nil with no
+    /// Divider direction for a live split (`vertical`=left/right, `horizontal`=top/bottom); nil without one.
+    public let splitAxis: String?
+    /// The primary-pane fraction (0.05...0.95) of a session that HAS a split (shown or hidden); nil with no
     /// split OR when the ratio was never explicitly set (via `session.resize` or a divider drag), the divider
     /// then sitting at the default 0.5. The read side of `session.resize`, otherwise echoed only on that call.
     public let splitRatio: Double?
@@ -564,9 +577,22 @@ public struct ControlSessionNode: Codable, Sendable, Equatable {
     /// Addressable terminal surfaces owned by this session; nil/omitted against a server predating
     /// `surface.zoom`. Hidden-but-alive surfaces are included, so a client can zoom them without unhiding.
     public let surfaces: [ControlSurfaceNode]?
+    /// Whether the MAIN pane's terminal exists — the libghostty surface created and its program spawned —
+    /// as opposed to the session merely being in the model. False means `session.type`/`session.text` will
+    /// report `session not realized` and a `--command` has not run yet. nil/omitted only against a server
+    /// predating the field; this one always reports it.
+    ///
+    /// `session.new` answers `ok` for a model insert, which is honest but says nothing about the terminal:
+    /// libghostty refuses to create a surface while the display is asleep, so a session a scheduled job
+    /// creates overnight sits unrealized until the displays wake (#416). This is the field that tells them
+    /// apart. It reports the main pane because that is what `--command` spawns on and what the input/read
+    /// commands address by default; per-pane liveness is `fontSize`/`splitFontSize`/`scratchFontSize`,
+    /// each omitted when its pane is unrealized.
+    public let realized: Bool?
 
     public init(id: String, name: String, cwd: String, title: String? = nil, active: Bool, split: Bool,
-                hasSplit: Bool? = nil, splitRatio: Double? = nil, splitFocused: Bool? = nil,
+                hasSplit: Bool? = nil, splitAxis: String? = nil,
+                splitRatio: Double? = nil, splitFocused: Bool? = nil,
                 overlay: Bool = false, overlaySizePercent: Int? = nil, paneOverlays: [String]? = nil,
                 hud: ControlHudNode? = nil, scratch: Bool = false, flagged: Bool = false,
                 commandWait: Bool? = nil,
@@ -576,7 +602,7 @@ public struct ControlSessionNode: Codable, Sendable, Equatable {
                 statusShape: String? = nil,
                 background: BackgroundWatermark? = nil, unseen: Int? = nil,
                 fontSize: Double? = nil, splitFontSize: Double? = nil, scratchFontSize: Double? = nil,
-                surfaces: [ControlSurfaceNode]? = nil) {
+                surfaces: [ControlSurfaceNode]? = nil, realized: Bool? = nil) {
         self.id = id
         self.name = name
         self.cwd = cwd
@@ -584,6 +610,7 @@ public struct ControlSessionNode: Codable, Sendable, Equatable {
         self.active = active
         self.split = split
         self.hasSplit = hasSplit
+        self.splitAxis = splitAxis
         self.splitRatio = splitRatio
         self.splitFocused = splitFocused
         self.overlay = overlay
@@ -608,6 +635,7 @@ public struct ControlSessionNode: Codable, Sendable, Equatable {
         self.splitFontSize = splitFontSize
         self.scratchFontSize = scratchFontSize
         self.surfaces = surfaces
+        self.realized = realized
     }
 }
 
@@ -618,7 +646,9 @@ public struct ControlWorkspaceNode: Codable, Sendable, Equatable {
     public let active: Bool
     /// Whether this workspace is a MEMBER of the sidebar's focus set; nil/omitted when not. Reported
     /// INDEPENDENTLY of whether the filter is applied (that flag is the tree top-level `workspaceFilter`), so
-    /// a marked-but-not-filtering set reads back. Distinct from `active` (the SELECTED workspace). The read
+    /// a marked-but-not-filtering set reads back. Distinct from `active` (the CURRENT workspace — what
+    /// `--target active` resolves to, which an empty or foreground-created destination makes current while
+    /// the selected session stays behind in another one). The read
     /// side of the write-only `workspace.focus`/`workspace.filter`.
     ///
     /// A workspace ROW is VISIBLE iff `tree.sidebarVisible && tree.sidebarMode == "tree" &&
@@ -815,7 +845,7 @@ public struct ControlResult: Codable, Sendable, Equatable {
     public var theme: String?
     /// The available bundled theme names for `theme.list`.
     public var themes: [String]?
-    /// The applied left-pane split fraction echoed by `session.resize`, after clamping / a relative nudge.
+    /// The applied primary-pane split fraction echoed by `session.resize`, after clamping / a relative nudge.
     public var ratio: Double?
     /// The light/dark syncing state for `theme.set`/`theme.list`, from the stored theme: `sync` = whether it
     /// is ghostty's dual `light:,dark:` form (the terminal tracks the macOS appearance), `light`/`dark` its
@@ -829,6 +859,8 @@ public struct ControlResult: Codable, Sendable, Equatable {
     public var keymap: ControlKeymap?
     /// The current or terminal picker outcome for `pick.result`.
     public var pick: ControlPickResult?
+    /// The addressed surface's cursor position for `surface.cursor`.
+    public var cursor: ControlCursor?
 
     public init(id: String? = nil, tree: ControlTree? = nil, text: String? = nil,
                 windows: [ControlWindowNode]? = nil, exitCode: Int? = nil, count: Int? = nil,
@@ -836,7 +868,7 @@ public struct ControlResult: Codable, Sendable, Equatable {
                 theme: String? = nil, themes: [String]? = nil, ratio: Double? = nil,
                 sync: Bool? = nil, light: String? = nil, dark: String? = nil,
                 events: ControlEventBatch? = nil, keymap: ControlKeymap? = nil,
-                pick: ControlPickResult? = nil) {
+                pick: ControlPickResult? = nil, cursor: ControlCursor? = nil) {
         self.id = id
         self.tree = tree
         self.text = text
@@ -853,6 +885,24 @@ public struct ControlResult: Codable, Sendable, Equatable {
         self.events = events
         self.keymap = keymap
         self.pick = pick
+        self.cursor = cursor
+    }
+}
+
+/// `surface.cursor`'s payload, nested so a `row` could join it additively rather than by a rename.
+///
+/// There is no row: `tl_px_y` is the text BASELINE against an IME point at the cell bottom, leaving a term
+/// no probe separates from the row, and `adjust-font-baseline = 30` was measured reporting row 5 for a caret
+/// on row 4. `GhosttySurfaceView.readCursorColumn` owns why the horizontal twin is exact.
+///
+/// A column is a signal, not an assertion about content: past the prompt it proves the line is not empty,
+/// AT the prompt it proves nothing, the caret having possibly moved back over text.
+public struct ControlCursor: Codable, Sendable, Equatable {
+    /// Zero-based, counted from the left edge of the grid.
+    public let column: Int
+
+    public init(column: Int) {
+        self.column = column
     }
 }
 
@@ -875,6 +925,10 @@ public enum OverlayHudError {
     public static let fullResize = "a hud is always floating: pass --size-percent, not --full"
     /// `session.hud.update`/`.close` against a slot that holds no HUD — empty, or running a caller's program.
     public static let noHud = "no hud"
+    /// `session.overlay.copy`/`.text` against a HUD. The panel paints agterm's own message, so reading it
+    /// would hand a caller back the text it wrote rather than a program's output, and the slot being
+    /// occupied is not enough to tell the two apart.
+    public static let noRead = "no overlay to read: the slot holds a hud"
     /// The body file the helper reads could not be written, so the panel would paint nothing or stale text.
     public static let writeFailed = "could not write the hud message"
 }
@@ -885,7 +939,7 @@ public enum OverlayHudError {
 public enum PaneOverlayError {
     public static let alreadyOpen = "pane overlay already open"
     public static let paneNotVisible = "pane not visible"
-    /// Names the canonical spellings only; `OverlayPane.init?(controlName:)` also takes `primary`/`split`.
+    /// Names the canonical spellings only; `OverlayPane.init?(controlName:)` also takes role/axis aliases.
     public static let invalidPane = "session.overlay: --pane must be left or right"
     public static let sizePercentConflict = "session.overlay.open: --pane is mutually exclusive with --size-percent"
     public static let resizeUnsupported = "session.overlay.resize: --pane is not supported (pane overlays are always full)"

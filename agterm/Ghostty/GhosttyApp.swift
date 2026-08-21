@@ -143,8 +143,8 @@ final class GhosttyApp {
         config = cfg
         // boot: no surface yet, so the NSApp read is the only side source and nothing rendered can disagree.
         resolveThemeColors(from: cfg, inputs: configInputs, isDark: Self.currentIsDark())
-        // demand-driven, no poll timer (like Ghostty.app/conterm): ticks come from libghostty wakeups
-        // (coalesced in GhosttyCallbacks.wakeup), surfaces draw on GHOSTTY_ACTION_RENDER — idle costs nothing.
+        // no poll timer (like Ghostty.app/conterm): ticks come from libghostty wakeups, coalesced in
+        // GhosttyCallbacks.wakeup, and the renderer thread paints on its own — idle costs nothing.
     }
 
     func tick() {
@@ -628,6 +628,13 @@ extension Notification.Name {
     /// accessibility environment values.
     static let agtermAccessibilityDisplayOptionsChanged =
         Notification.Name("agterm.accessibilityDisplayOptionsChanged")
+
+    /// Posted by `SystemWakeObserver` when the displays wake. `ghostty_surface_new` returns NULL while the
+    /// display is asleep, so a session created in that window realizes no surface — the `--command` never runs
+    /// and every later call reports `session not realized` (#416). Nothing re-attempts on a schedule, because
+    /// the deck's retries all ride SwiftUI layout, which does not run for an off-display window. UNREALIZED
+    /// surfaces re-attempt creation here; a realized one is left alone.
+    static let agtermScreensDidWake = Notification.Name("agterm.screensDidWake")
 
     /// Posted when a window becomes frontmost (async, via the window's didBecomeKey), so the control server can
     /// refresh its cached `window.list` — its `active` flag would otherwise stay stale until the next command.
