@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing release tag, for example linux-v0.33.1"
+        description: "Existing release tag, for example linux-v0.32.0"
         required: true
         type: string
 
@@ -21,26 +21,24 @@ permissions:
   attestations: write
 
 env:
-  UPSTREAM_BASE_TAG: "v0.41.1"
-  UPSTREAM_BASE_COMMIT: "911345a87df1aa32c8617ce0445b0be8975abb49"
+  UPSTREAM_BASE_TAG: "v0.40.0"
+  UPSTREAM_BASE_COMMIT: "c63e5158e637662ded7ba3a12eac4881b24caef1"
   SWIFTLINT_VERSION: "0.65.0"
   SWIFTLINT_SHA256: "79306a34e5c7cc55a220cd108cbb861dcad5f10138dcdf261e2624ae8b0a486b"
   LINUX_SOURCEKIT_LIB_PATH: "/usr/lib/libsourcekitdInProc.so"
   ZIG_SHA256: "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
   NFPM_VERSION: "2.47.0"
   NFPM_SHA256: "0660ca602b2d2d2ae4781a06c692b3eeb9d437ffea05b831d76e41f4a3188783"
+  LINUXDEPLOY_SHA256: "36a2d7e274d12e1050d0e9ecfe11d339ed54720b2bec464c286d53f8b07f5c62"
+  LINUXDEPLOY_GTK_COMMIT: "7a3fbc31a9e5075073ff8790f26effbac5f84453"
+  LINUXDEPLOY_GTK_SHA256: "b0f4cbc684a0103a9651f0955b635eaea0096b3a66c0f5a2c2aa337960375171"
+  APPIMAGE_RUNTIME_SHA256: "1cc49bcf1e2ccd593c379adb17c9f85a36d619088296504de95b1d06215aebbf"
+  LDAI_RUNTIME_FILE: "/usr/local/share/appimage/runtime-x86_64"
 
 jobs:
   release-linux:
     name: Build Linux x86_64 release
     runs-on: ubuntu-24.04
-    outputs:
-      tag: ${{ steps.release.outputs.tag }}
-      aur_publish: ${{ steps.release.outputs.aur_publish }}
-      version: ${{ steps.release.outputs.version }}
-      package_version: ${{ steps.release.outputs.package_version }}
-      commit: ${{ steps.release.outputs.commit }}
-      source_date_epoch: ${{ steps.release.outputs.source_date_epoch }}
     timeout-minutes: 45
     container: swift:6.3.2-noble
     defaults:
@@ -85,12 +83,6 @@ jobs:
             echo "package_version=$PACKAGE_VERSION"
             echo "commit=$COMMIT"
             echo "source_date_epoch=$(git show -s --format=%ct "$COMMIT")"
-            # Arch pkgver forbids prerelease hyphens; +linux.N revisions remain eligible.
-            if [[ "$PACKAGE_VERSION" == *-* ]]; then
-              echo "aur_publish=false"
-            else
-              echo "aur_publish=true"
-            fi
           } >> "$GITHUB_OUTPUT"
 
       - name: Install Linux build and test dependencies
@@ -101,7 +93,7 @@ jobs:
             librsvg2-dev librsvg2-common webp-pixbuf-loader libgirepository1.0-dev gobject-introspection \
             git curl jq ca-certificates xz-utils unzip zsh fish gcc file imagemagick ripgrep \
             rpm cpio desktop-file-utils patchelf ncurses-bin \
-            at-spi2-core dbus-x11 gir1.2-atspi-2.0 openbox python3-gi xdotool xvfb xauth x11-xkb-utils ibus ibus-gtk4 \
+            at-spi2-core dbus-x11 gir1.2-atspi-2.0 openbox python3-gi xdotool xvfb xauth ibus ibus-gtk4 \
             libatk-bridge2.0-0 libgl1-mesa-dri libegl-mesa0 mesa-utils
           curl -fsSLo /tmp/swiftlint.zip \
             "https://github.com/realm/SwiftLint/releases/download/${SWIFTLINT_VERSION}/swiftlint_linux_amd64.zip"
@@ -115,11 +107,6 @@ jobs:
           echo "${ZIG_SHA256}  /tmp/zig.tar.xz" | sha256sum --check
           tar -xJf /tmp/zig.tar.xz -C /opt
           echo "/opt/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
-          curl -fsSLo /tmp/zig17.tar.xz \
-            https://ziglang.org/download/0.17.0/zig-x86_64-linux-0.17.0.tar.xz
-          echo "1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026  /tmp/zig17.tar.xz" | sha256sum --check
-          tar -xJf /tmp/zig17.tar.xz -C /opt
-          echo "GHOSTTY_ZIG=/opt/zig-x86_64-linux-0.17.0/zig" >> "$GITHUB_ENV"
 
       - name: Install Linux packaging tools
         run: |
@@ -128,7 +115,24 @@ jobs:
           echo "${NFPM_SHA256}  /tmp/nfpm.tar.gz" | sha256sum --check
           tar -xzf /tmp/nfpm.tar.gz -C /usr/local/bin nfpm
 
+          curl -fsSLo /usr/local/bin/linuxdeploy-x86_64.AppImage \
+            https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          echo "${LINUXDEPLOY_SHA256}  /usr/local/bin/linuxdeploy-x86_64.AppImage" | sha256sum --check
+          chmod 0755 /usr/local/bin/linuxdeploy-x86_64.AppImage
+
+          curl -fsSLo /usr/local/bin/linuxdeploy-plugin-gtk.sh \
+            "https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/${LINUXDEPLOY_GTK_COMMIT}/linuxdeploy-plugin-gtk.sh"
+          echo "${LINUXDEPLOY_GTK_SHA256}  /usr/local/bin/linuxdeploy-plugin-gtk.sh" | sha256sum --check
+          chmod 0755 /usr/local/bin/linuxdeploy-plugin-gtk.sh
+
+          mkdir -p "$(dirname "$LDAI_RUNTIME_FILE")"
+          curl -fsSLo "$LDAI_RUNTIME_FILE" \
+            https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64
+          echo "${APPIMAGE_RUNTIME_SHA256}  ${LDAI_RUNTIME_FILE}" | sha256sum --check
+          chmod 0755 "$LDAI_RUNTIME_FILE"
+
           nfpm --version
+          linuxdeploy-x86_64.AppImage --appimage-extract-and-run --version
 
       # The Swift container is root, but persistence failure tests intentionally depend on normal-user
       # POSIX write permissions. Run them at the same privilege level as the desktop application.
@@ -230,6 +234,11 @@ jobs:
       - name: Verify Linux release formats
         run: scripts/verify-linux-packages.sh "${{ steps.release.outputs.package_version }}" dist-linux
 
+      - name: Generate artifact attestations
+        uses: actions/attest@v4
+        with:
+          subject-path: dist-linux/*
+
       - name: Write release notes
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -239,85 +248,13 @@ jobs:
           "${{ steps.release.outputs.commit }}"
           release-notes.md
 
-      - name: Transfer verified packages and release notes
-        uses: actions/upload-artifact@v6
-        with:
-          name: linux-release-build
-          path: |
-            dist-linux/*
-            release-notes.md
-          if-no-files-found: error
-          retention-days: 3
-
-  publish-linux:
-    name: Validate Arch and publish Linux release
-    needs: release-linux
-    runs-on: ubuntu-24.04
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ needs.release-linux.outputs.commit }}
-
-      - uses: actions/download-artifact@v7
-        with:
-          name: linux-release-build
-          path: .
-
-      - name: Build, install, and exercise the Arch release package
-        if: needs.release-linux.outputs.aur_publish == 'true'
-        env:
-          PACKAGE_VERSION: ${{ needs.release-linux.outputs.package_version }}
-          SOURCE_DATE_EPOCH: ${{ needs.release-linux.outputs.source_date_epoch }}
-        run: scripts/test-aur-package.sh "$PACKAGE_VERSION" dist-linux
-
-      - name: Upload Arch diagnostics on failure
-        if: failure()
-        uses: actions/upload-artifact@v6
-        with:
-          name: linux-release-arch-diagnostics
-          path: artifacts/aur
-          if-no-files-found: warn
-
-      - name: Check final release checksums
-        working-directory: dist-linux
-        env:
-          PACKAGE_VERSION: ${{ needs.release-linux.outputs.package_version }}
-        run: sha256sum --check --strict "agterm-linux-v${PACKAGE_VERSION}-SHA256SUMS"
-
-      - name: Generate artifact attestations
-        uses: actions/attest@v4
-        with:
-          subject-path: dist-linux/*
-
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ needs.release-linux.outputs.tag }}
-          target_commitish: ${{ needs.release-linux.outputs.commit }}
+          tag_name: ${{ steps.release.outputs.tag }}
+          target_commitish: ${{ steps.release.outputs.commit }}
           files: dist-linux/*
           fail_on_unmatched_files: true
-          name: agterm-linux ${{ needs.release-linux.outputs.version }}
+          name: agterm-linux ${{ steps.release.outputs.version }}
           body_path: release-notes.md
           make_latest: true
-
-      - name: Verify public release assets and provenance
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.release-linux.outputs.tag }}
-          ARCH_PACKAGE: ${{ needs.release-linux.outputs.aur_publish }}
-        run: |
-          args=("$RELEASE_TAG")
-          if [[ "$ARCH_PACKAGE" == true ]]; then args+=(--require-arch); fi
-          scripts/verify-published-linux-release.sh "${args[@]}"
-
-  publish-aur:
-    needs: [release-linux, publish-linux]
-    if: needs.release-linux.outputs.aur_publish == 'true'
-    permissions:
-      contents: read
-    uses: ./.github/workflows/publish-aur.yml
-    with:
-      tag: ${{ needs.release-linux.outputs.tag }}
-    secrets:
-      AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}

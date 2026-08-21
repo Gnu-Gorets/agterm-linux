@@ -11,8 +11,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  UPSTREAM_BASE_TAG: "v0.41.1"
-  UPSTREAM_BASE_COMMIT: "911345a87df1aa32c8617ce0445b0be8975abb49"
+  UPSTREAM_BASE_TAG: "v0.40.0"
+  UPSTREAM_BASE_COMMIT: "c63e5158e637662ded7ba3a12eac4881b24caef1"
   SWIFTLINT_VERSION: "0.65.0"
   SWIFTLINT_SHA256: "79306a34e5c7cc55a220cd108cbb861dcad5f10138dcdf261e2624ae8b0a486b"
   LINUX_SOURCEKIT_LIB_PATH: "/usr/lib/libsourcekitdInProc.so"
@@ -26,7 +26,6 @@ jobs:
     outputs:
       swift: ${{ steps.filter.outputs.swift }}
       cookbook: ${{ steps.filter.outputs.cookbook }}
-      aur: ${{ steps.filter.outputs.aur }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
@@ -54,44 +53,6 @@ jobs:
             cookbook:
               - "cookbook/**"
               - ".github/workflows/ci.yml"
-            aur:
-              - "packaging/aur/**"
-              - "scripts/*aur*"
-              - "scripts/verify-linux-packages.sh"
-              - "scripts/verify-published-linux-release.sh"
-              - "scripts/test-linux-ui.sh"
-              - "agterm-linux/tests/gl_teardown_exit_test.py"
-              - ".github/workflows/publish-aur.yml"
-              - ".github/workflows/release-linux.yml"
-              - ".github/workflows/ci.yml"
-
-  test-aur-package:
-    name: Validate AUR package in Arch
-    needs: changes
-    if: needs.changes.outputs.aur == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v7
-      - name: Build, install, and exercise the release in clean Arch
-        run: scripts/test-aur-package.sh
-      - name: Build and test the direct-release Arch artifact from local sources
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          version="$(sed -n 's/^pkgver=//p' packaging/aur/PKGBUILD)"
-          gh release download "linux-v$version" --repo melonamin/agterm-linux \
-            --pattern "agterm-linux-v${version}-*" --dir dist-linux
-          scripts/test-aur-package.sh "$version" dist-linux
-      - name: Upload Arch diagnostics on failure
-        if: failure()
-        uses: actions/upload-artifact@v6
-        with:
-          name: aur-ui-diagnostics
-          path: artifacts/aur
-          if-no-files-found: warn
 
   test-linux:
     name: Unit tests (Linux)
@@ -173,11 +134,9 @@ jobs:
     needs: [changes, test-linux, lint-linux]
     if: needs.changes.outputs.swift == 'true'
     runs-on: ubuntu-24.04
-    # A cold Ghostty/Swift build takes about 24 minutes before the 72-scenario UI suite.
-    # Keep headroom for both on a hosted runner, including runtime-cache misses.
-    timeout-minutes: 75
-    # The official Swift image carries the toolchain; apt adds GTK4, libadwaita and GL deps,
-    # and the independently pinned Zig versions build libghostty and zmx.
+    timeout-minutes: 45
+    # Compile-check the GTK port. The official Swift image carries the toolchain; apt adds GTK4,
+    # libadwaita, GL deps, and zig builds libghostty.
     container: swift:6.3.2-noble
     steps:
       - uses: actions/checkout@v7
@@ -198,11 +157,6 @@ jobs:
           echo "${ZIG_SHA256}  /tmp/zig.tar.xz" | sha256sum --check
           tar -xJf /tmp/zig.tar.xz -C /opt
           echo "/opt/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
-          curl -fsSLo /tmp/zig17.tar.xz \
-            https://ziglang.org/download/0.17.0/zig-x86_64-linux-0.17.0.tar.xz
-          echo "1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026  /tmp/zig17.tar.xz" | sha256sum --check
-          tar -xJf /tmp/zig17.tar.xz -C /opt
-          echo "GHOSTTY_ZIG=/opt/zig-x86_64-linux-0.17.0/zig" >> "$GITHUB_ENV"
       - name: Materialize and verify upstream boundary tag
         run: |
           git tag --force "$UPSTREAM_BASE_TAG" "$UPSTREAM_BASE_COMMIT"
@@ -306,9 +260,6 @@ jobs:
                 echo "::error::$name README is missing the '$h' heading"; fail=1
               fi
             done
-            if ! grep -qE '^Author: \[@[A-Za-z0-9-]+\]\(https://github\.com/[A-Za-z0-9-]+\)' "$d/README.md"; then
-              echo "::error::$name README has no 'Author: [@login](https://github.com/login)' line"; fail=1
-            fi
           done
 
           # every script carries a shebang
