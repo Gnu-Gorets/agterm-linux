@@ -1,0 +1,45 @@
+name: sync fork
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-fork-linux-port
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out fork
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Rebase linux-port on upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          git remote add upstream https://github.com/melonamin/agterm-linux.git
+          git fetch --no-tags upstream linux-port
+
+          fork_workflows=$(mktemp -d)
+          trap 'rm -rf "$fork_workflows"' EXIT
+          cp .github/workflows/ci.yml "$fork_workflows/ci.yml"
+          cp .github/workflows/release-linux.yml "$fork_workflows/release-linux.yml"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git rebase upstream/linux-port
+
+          cp "$fork_workflows/ci.yml" .github/workflows/ci.yml
+          cp "$fork_workflows/release-linux.yml" .github/workflows/release-linux.yml
+          git add .github/workflows/ci.yml .github/workflows/release-linux.yml
+          git commit --amend --no-edit
+          git push --force-with-lease origin HEAD:linux-port
