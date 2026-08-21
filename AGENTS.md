@@ -35,6 +35,7 @@ The Linux goal is to carry that model to GTK4/libadwaita without creating a sepa
 - macOS builds, releases, and support belong to upstream agterm, not this fork.
 - If a change is intended for upstream agterm, do it on a dedicated upstream-PR branch.
   Keep that branch free of Linux-port-only changes so opening a PR to upstream stays simple.
+- Keep fork-maintenance commits, especially `sync-fork`, on `linux-port`; exclude them when rebasing branches for upstream PRs.
 - `CHANGELOG.md` is release-only; do not touch it for ordinary feature work.
 
 ## Code ownership boundaries
