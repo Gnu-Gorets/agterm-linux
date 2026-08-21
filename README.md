@@ -41,7 +41,7 @@ Code layout:
 
 ### Linux feature parity and platform differences
 
-The `linux-port` branch carries the upstream v0.22.0 terminal model and control protocol, including
+The `linux-port` branch carries the upstream v0.24.0 terminal model and control protocol, including
 split/scratch/overlay terminals, Quick terminal input and read-back, terminal zoom, fullscreen,
 recently closed sessions with grouped undo, light/dark themes, configurable toolbar and sidebar text,
 recent-session and attention popovers, agent status in the multi-session dashboard, stable pane status
@@ -54,6 +54,9 @@ Preferences opens with Ctrl+, while Integrations, Keyboard Shortcuts, and About 
 Linux uses desktop conventions: key labels are Ctrl/Shift rather than Command/Option, native chrome is
 provided by libadwaita, and local `file://` links open their containing folder in the default file manager.
 Its desktop, notification, and Flatpak application ID is `io.github.melonamin.agterm`, owned by this Linux fork.
+Quick Terminal remains an in-window surface with an app-local shortcut on Linux.
+The shared `global-hotkey` keymap verb is parsed for configuration compatibility but is only registered
+system-wide by the macOS host; Linux does not install compositor-specific global shortcut integration.
 Ctrl+Shift+M toggles the most-recently-used dashboard because Ctrl+Shift+D remains the split shortcut.
 The content header exposes the same dashboard toggle as a grid button, grouped beside Quick Terminal.
 Dashboard and terminal-zoom views use stripped native headers: `Dashboard` or the active session title is
@@ -216,7 +219,7 @@ Requirements:
 - Swift 6.3.2.
 - GTK4, libadwaita, libepoxy, pkg-config, git, curl, ca-certificates, and xz.
 - zsh, required by the shared `agtermCore` tests.
-- Zig 0.15.2 for the vendored libghostty build.
+- Zig 0.16.0 for the vendored libghostty build.
 
 ```sh
 scripts/setup-linux.sh

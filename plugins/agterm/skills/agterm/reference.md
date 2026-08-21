@@ -1097,19 +1097,23 @@ Key Mapping). Three verbs, line-based; blank lines and `#` comments ignored:
   marked `custom`. The quoted name may contain spaces. The post-name token is the chord only if it
   parses AND carries a modifier (a bare modifier-less key is rejected). A custom chord may be a leader
   sequence (chords joined by `>`, e.g. `ctrl+a>g`). No chord → palette-only.
-- `global-hotkey <chord>` — bind ONE system-wide chord that summons the quick terminal while any
+- `global-hotkey <chord>` — on macOS, bind ONE system-wide chord that summons the quick terminal while any
   application is frontmost. Unset unless the line is present. Exactly one chord: no alternatives, no
   leader sequence, and it must carry a modifier. A second line replaces the first. macOS registers it
   by physical key position, so it survives a layout switch. It is registered with the OS rather than
   agterm's own monitor, so it takes NO part in the collision rules below — it may share a chord with a
   menu item, and whichever application is frontmost decides who gets the key.
 
+On Linux, the verb is accepted for shared configuration compatibility but is not registered with the
+desktop or compositor.
+Quick Terminal remains in-window and its ordinary `quick_terminal` map is app-local.
+
 Either verb's chord token may hold **alternatives** joined by `|`, with no spaces around it (everything
 after the first token is the shell line): `map cmd+t|ctrl+space>s toggle_split` fires the action from
 either. A built-in's first single-chord alternative the menu can carry becomes its menu shortcut (one that
 names a reserved chord or a bare arrow is diagnosed and dropped, and the next single chord takes the slot);
 every other alternative, and every alternative of a `command`, is delivered by a key monitor and so must
-carry a modifier on its first chord. `global-hotkey` is outside all of this: the OS owns it, and it WINS —
+carry a modifier on its first chord. On macOS, `global-hotkey` is outside all of this: the OS owns it, and it WINS —
 agterm frontmost included — so a chord it shares with a menu action fires the panel and the menu binding
 never sees it. A `map` line with no single-chord alternative
 (`map ctrl+a>s toggle_split`) leaves the action with NO menu shortcut — its shipped default is gone, not

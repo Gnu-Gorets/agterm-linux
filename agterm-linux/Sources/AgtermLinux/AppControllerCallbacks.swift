@@ -473,9 +473,9 @@ let onPanedPosition: @MainActor @convention(c) (OpaquePointer?, OpaquePointer?, 
     MainActor.assumeIsolated { controllerForWidget(paned)?.capturePanedRatio(paned) }
 }
 
-let onPanedDoubleClick: @MainActor @convention(c) (OpaquePointer?, Int32, Double, Double, gpointer?) -> Void = { gesture, presses, x, _, _ in
+let onPanedDoubleClick: @MainActor @convention(c) (OpaquePointer?, Int32, Double, Double, gpointer?) -> Void = { gesture, presses, x, y, _ in
     guard presses == 2 else { return }
-    MainActor.assumeIsolated { controllerForEventController(gesture)?.resetSplitRatio(gesture, x: x) }
+    MainActor.assumeIsolated { controllerForEventController(gesture)?.resetSplitRatio(gesture, x: x, y: y) }
 }
 
 let onDeckAllocationChanged:

@@ -240,6 +240,13 @@ extension AppController: ControlActions {
         }
     }
 
+    func goWorkspace(window: String?, direction: WorkspaceNavigation) -> ControlResponse {
+        guard let step = navigateWorkspace(direction, userInitiated: false) else {
+            return err("no other workspace to navigate to")
+        }
+        return ok(step.workspaceID)
+    }
+
     func renameWorkspace(_ target: String?, window: String?, name: String) -> ControlResponse {
         switch resolveWorkspaceResponse(target) {
         case .failure(let response): return response
@@ -407,17 +414,38 @@ extension AppController: ControlActions {
     }
 
     func splitSession(_ target: String?, window: String?, mode: String?) -> ControlResponse {
+        splitSession(target, window: window, mode: mode, axis: nil)
+    }
+
+    func splitSession(_ target: String?, window: String?, mode: String?, axis: SplitAxis?) -> ControlResponse {
         switch resolveSessionResponse(target) {
         case .failure(let response): return response
         case .success(let id):
-            guard let session = store.session(withID: id) else { return err("no such session") }
+            guard store.session(withID: id) != nil else { return err("no such session") }
             guard let parsed = ControlToggleMode.parse(mode) else { return err("invalid split mode: \(mode ?? "toggle")") }
-            if parsed.desiredValue(current: session.isSplit) != session.isSplit {
-                store.toggleSplit(id)
+            switch parsed {
+            case .on: store.setSplitVisibility(id, shown: true, axis: axis)
+            case .off: store.setSplitVisibility(id, shown: false)
+            case .toggle: store.toggleSplit(id, axis: axis)
             }
             reconcile(rebuildSidebar: false)
             if store.selectedSessionID == id {
                 sessionFocusTarget(for: id)?.grabFocus(supersedingPopoverCapture: true)
+            }
+            return ok(id)
+        }
+    }
+
+    func closeSessionSplit(_ target: String?, window: String?) -> ControlResponse {
+        switch resolveSessionResponse(target) {
+        case .failure(let response): return response
+        case .success(let id):
+            guard let session = store.session(withID: id) else { return err("no such session") }
+            guard session.hasSplit else { return ok(id) }
+            store.closeSplit(id)
+            reconcile()
+            if store.selectedSessionID == id {
+                sessionFocusTarget(for: id, wantSplit: false)?.grabFocus(supersedingPopoverCapture: true)
             }
             return ok(id)
         }
@@ -472,8 +500,12 @@ extension AppController: ControlActions {
             }
             _ = store.applySplitRatio(ratio, forSession: id)
             if let paned = sessionPanes[id] {
-                let width = max(1, gtk_widget_get_width(W(paned)))
-                gtk_paned_set_position(paned, Int32(Double(width) * (session.splitRatio ?? AppStore.splitRatioDefault)))
+                let extent = session.splitAxis == .topBottom
+                    ? gtk_widget_get_height(W(paned)) : gtk_widget_get_width(W(paned))
+                gtk_paned_set_position(
+                    paned,
+                    Int32(Double(max(1, extent)) * (session.splitRatio ?? AppStore.splitRatioDefault))
+                )
             }
             return ok(id)
         }
@@ -485,7 +517,7 @@ extension AppController: ControlActions {
         if raw == "active" {
             if mode == .off, terminalZoom.target == nil { return ok() }
             resolved = terminalZoom.target
-                ?? TerminalZoomController.resolveTarget(store: store, quickTerminalVisible: quickVisible)
+                ?? (quickVisible ? .quick : TerminalZoomController.resolveTarget(store: store))
         } else if raw == "quick" {
             resolved = .quick
         } else if let surfaceID = TerminalSurfaceID(rawValue: raw) {
@@ -495,8 +527,7 @@ extension AppController: ControlActions {
         }
         if mode == .off, resolved == nil { return ok() }
         guard let resolved else { return err("no active surface") }
-        if mode != .off,
-           !TerminalZoomController.isTargetValid(resolved, in: store, quickTerminalVisible: quickVisible) {
+        if mode != .off, !linuxZoomTargetIsValid(resolved) {
             return err("surface not available: \(resolved.controlID)")
         }
         setTerminalZoom(mode, target: resolved)
@@ -574,7 +605,7 @@ extension AppController: ControlActions {
 
     func listKeymap() -> ControlResponse {
         let path = ConfigPaths.keymapPath(configDirectory: configDirectory()).path
-        let projected = ControlKeymap.project(keymap: keymap, diagnostics: keymapDiagnostics, path: path)
+        let projected = projectLinuxKeymap(keymap, diagnostics: keymapDiagnostics, path: path)
         return ControlResponse(ok: true, result: ControlResult(keymap: projected))
     }
 

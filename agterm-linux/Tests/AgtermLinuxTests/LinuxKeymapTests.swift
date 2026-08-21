@@ -118,6 +118,38 @@ struct LinuxKeymapTests {
         #expect(LinuxChromeTooltip.text("Custom Commands", .customCommandPalette) == "Custom Commands")
     }
 
+    @Test("Linux validation drops only conflicting command alternatives")
+    func commandAlternativesAreFilteredIndividually() throws {
+        let loaded = try loadKeymap("command \"Demo\" ctrl+shift+d|ctrl+shift+e true\n")
+
+        #expect(loaded.keymap.commands.first?.shortcut == "ctrl+shift+e")
+        #expect(loaded.diagnostics.contains { $0.message.contains("Demo") })
+    }
+
+    @Test("keymap.list projects Linux defaults and retained alternatives")
+    func controlProjectionUsesLinuxBindings() throws {
+        let loaded = try loadKeymap("map ctrl+space>s toggle_split\n")
+        let projected = projectLinuxKeymap(
+            loaded.keymap,
+            diagnostics: loaded.diagnostics,
+            path: "/tmp/keymap.conf"
+        )
+        let split = projected.actions.first { $0.action == BuiltinAction.toggleSplit.rawValue }
+
+        #expect(split?.chord == nil)
+        #expect(split?.alternates == ["ctrl+space>s"])
+        #expect(split?.overridden == true)
+        #expect(projected.menu == nil)
+    }
+
+    @Test("global-hotkey remains parseable for shared configuration compatibility")
+    func globalHotkeyIsRetainedWithoutLinuxRegistration() throws {
+        let loaded = try loadKeymap("global-hotkey ctrl+opt+space\n")
+
+        #expect(loaded.keymap.globalHotkey == Chord(mods: [.control, .option], key: "space"))
+        #expect(loaded.diagnostics.isEmpty)
+    }
+
     /// The keymap `verify_custom_command_failures` seeds, plus the two lines the fan-out check appends.
     private var atspiFanoutKeymap: String {
         """

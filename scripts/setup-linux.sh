@@ -26,12 +26,15 @@ fi
 for command in git curl tar sha256sum tic infocmp file; do
   command -v "$command" >/dev/null || { echo "$command is required to vendor libghostty" >&2; exit 1; }
 done
-ZIG="$(command -v zig || true)"
-if [[ -z "$ZIG" ]] && command -v mise >/dev/null; then
-  ZIG="$(mise where zig@0.15.2 2>/dev/null || true)/bin/zig"
+ZIG=""
+if command -v mise >/dev/null; then
+  ZIG="$(mise where zig@0.16.0 2>/dev/null || true)/bin/zig"
 fi
-[[ -x "$ZIG" ]] || { echo "zig 0.15.2 is required to build libghostty" >&2; exit 1; }
-[[ "$($ZIG version)" == "0.15.2" ]] || { echo "setup-linux.sh requires zig 0.15.2" >&2; exit 1; }
+if [[ ! -x "$ZIG" ]]; then
+  ZIG="$(command -v zig || true)"
+fi
+[[ -x "$ZIG" ]] || { echo "zig 0.16.0 is required to build libghostty" >&2; exit 1; }
+[[ "$($ZIG version)" == "0.16.0" ]] || { echo "setup-linux.sh requires zig 0.16.0" >&2; exit 1; }
 
 BUILD_DIR="$(mktemp -d)"
 STAGE="$(mktemp -d)"

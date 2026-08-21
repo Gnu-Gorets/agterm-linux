@@ -43,7 +43,7 @@ extension AppController {
     func sessionEnv(for s: Session, pane: StatusPane? = nil) -> [String: String] {
         SurfaceEnvironment.session(sessionID: s.id, windowID: windowID,
                                    workspaceID: store.workspace(forSession: s.id)?.id,
-                                   socketPath: gControlServer.boundSocketPath ?? ControlServer.defaultSocketPath(),
+                                   socketPath: gControlServer.resolvedSocketPath,
                                    programVersion: LinuxAppMetadata.version, pane: pane,
                                    paneToken: pane == nil ? nil : UUID().uuidString)
     }
@@ -384,7 +384,7 @@ extension AppController {
                                      windowID: windowID.uuidString,
                                      windowName: gLibrary.windows.first(where: { $0.id == windowID })?.name ?? "",
                                      pane: pane, selection: selectionSurface?.readSelection() ?? "",
-                                     socket: gControlServer.boundSocketPath ?? "")
+                                     socket: gControlServer.resolvedSocketPath)
         let controllerOrigin = customCommandOrigin
         let launcher = controllerOrigin.launcher
         LinuxCustomCommandProcess.launch(command: cmd, context: context, launcher: launcher) { [weak self] failure in
@@ -474,6 +474,12 @@ extension AppController {
         let primaryWidget = W(primary)
         let splitWidget = W(splitHost)
         let layout = SplitPaneLayout(isSplit: s.isSplit, splitFocused: s.splitFocused)
+        let orientation = s.splitAxis == .topBottom ? GTK_ORIENTATION_VERTICAL : GTK_ORIENTATION_HORIZONTAL
+        if gtk_orientable_get_orientation(paned) != orientation {
+            splitAxisTransitions.insert(s.id)
+            gtk_orientable_set_orientation(paned, orientation)
+            splitAxisTransitions.remove(s.id)
+        }
         // Keep both GtkGLAreas in stable paned slots for the split's entire lifetime. Unparenting a
         // GtkGLArea unrealizes it and invalidates the GL context that libghostty's surface was created
         // against; reattaching the same widget then leaves its terminal buffer alive but the pane blank.
@@ -493,24 +499,26 @@ extension AppController {
 
     func capturePanedRatio(_ paned: OpaquePointer?) {
         guard let paned, let (sid, _) = sessionPanes.first(where: { $0.value == paned }),
-              !splitRatioRestore.isSuppressed(sid) else { return }
-        let width = gtk_widget_get_width(W(paned))
-        guard width > 0 else { return }
-        let ratio = Double(gtk_paned_get_position(paned)) / Double(width)
-        guard ratio > AppStore.splitRatioMin, ratio < AppStore.splitRatioMax,
-              let s = store.session(withID: sid) else { return }
-        if let cur = s.splitRatio, abs(cur - ratio) < 0.004 { return }
-        s.splitRatio = ratio
+              !splitRatioRestore.isSuppressed(sid), !splitAxisTransitions.contains(sid) else { return }
+        guard let session = store.session(withID: sid) else { return }
+        let extent = session.splitAxis == .topBottom
+            ? gtk_widget_get_height(W(paned)) : gtk_widget_get_width(W(paned))
+        guard extent > 0 else { return }
+        let ratio = Double(gtk_paned_get_position(paned)) / Double(extent)
+        guard ratio > AppStore.splitRatioMin, ratio < AppStore.splitRatioMax else { return }
+        if let cur = session.splitRatio, abs(cur - ratio) < 0.004 { return }
+        session.splitRatio = ratio
         layoutSaveDebouncer.schedule(after: 0.4) { [weak self] in self?.store.save() }
     }
 
-    func resetSplitRatio(_ gesture: OpaquePointer?, x: Double) {
+    func resetSplitRatio(_ gesture: OpaquePointer?, x: Double, y: Double) {
         guard let gesture, let panedWidget = gtk_event_controller_get_widget(gesture) else { return }
         let paned = OpaquePointer(panedWidget)
         guard let (sid, _) = sessionPanes.first(where: { $0.value == paned }),
               let session = store.session(withID: sid),
               Self.splitDividerHit(
-                  x: x, dividerPosition: Double(gtk_paned_get_position(paned)), splitVisible: session.isSplit)
+                  x: session.splitAxis == .topBottom ? y : x,
+                  dividerPosition: Double(gtk_paned_get_position(paned)), splitVisible: session.isSplit)
         else { return }
         session.splitRatio = AppStore.splitRatioDefault
         applySplitRatio(to: session)
@@ -549,9 +557,11 @@ extension AppController {
             splitRatioRestore.complete(sessionID: sessionID, generation: generation)
             return 0
         }
-        let width = gtk_widget_get_width(W(paned))
-        guard width > 0 else { return 1 }
-        gtk_paned_set_position(paned, Int32(ratio * Double(width)))
+        guard let session = store.session(withID: sessionID) else { return 1 }
+        let extent = session.splitAxis == .topBottom
+            ? gtk_widget_get_height(W(paned)) : gtk_widget_get_width(W(paned))
+        guard extent > 0 else { return 1 }
+        gtk_paned_set_position(paned, Int32(ratio * Double(extent)))
         splitRatioRestore.complete(sessionID: sessionID, generation: generation)
         return 0
     }

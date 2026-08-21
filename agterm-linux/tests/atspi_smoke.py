@@ -1201,6 +1201,7 @@ def verify_upstream_control_parity(env):
     try:
         window_id = next(item["id"] for item in window_list(env) if item["open"])
         initial_tree = window_tree(env, window_id)
+        initial_workspace = initial_tree["workspaces"][0]["id"]
         initial_session = initial_tree["workspaces"][0]["sessions"][0]["id"]
 
         # v0.22 Linux control adapters: prove the shared pane/HUD model reaches a realized GTK host and
@@ -1218,14 +1219,54 @@ def verify_upstream_control_parity(env):
             )
 
         assert parity_session().get("hasSplit"), "tree did not report the realized split"
+        horizontal = raw_control_json(env, {
+            "cmd": "session.split", "target": initial_session,
+            "args": {"mode": "on", "axis": "horizontal", "window": window_id},
+        })
+        assert horizontal["ok"], f"horizontal split transpose failed: {horizontal}"
+        wait_for(lambda: parity_session().get("splitAxis") == "horizontal",
+                 "tree did not report the horizontal split axis")
+        vertical = raw_control_json(env, {
+            "cmd": "session.split", "target": initial_session,
+            "args": {"mode": "on", "axis": "vertical", "window": window_id},
+        })
+        assert vertical["ok"], f"vertical split transpose failed: {vertical}"
+        wait_for(lambda: parity_session().get("splitAxis") == "vertical",
+                 "tree did not report the vertical split axis")
+
+        split_surface = f"surface:{initial_session}:right"
+        cursor = raw_control_json(env, {
+            "cmd": "surface.cursor", "target": split_surface,
+            "args": {"window": window_id},
+        })
+        assert cursor["ok"] and cursor["result"].get("id") == split_surface, (
+            f"surface.cursor did not resolve the split surface: {cursor}"
+        )
+        assert isinstance(cursor["result"].get("cursor", {}).get("column"), int), (
+            f"surface.cursor did not return an integer column: {cursor}"
+        )
         pane_open = raw_control_json(env, {
             "cmd": "session.overlay.open", "target": initial_session,
-            "args": {"command": "sleep 5", "pane": "right", "window": window_id},
+            "args": {"command": "printf v024-overlay; sleep 5", "pane": "right", "window": window_id},
         })
         assert pane_open["ok"], f"right-pane overlay open failed: {pane_open}"
         wait_for(
             lambda: parity_session().get("paneOverlays") == ["right"],
             "tree did not report the right-pane overlay",
+        )
+        overlay_text = raw_control_json(env, {
+            "cmd": "session.overlay.text", "target": initial_session,
+            "args": {"pane": "bottom", "all": True, "window": window_id},
+        })
+        assert overlay_text["ok"] and "v024-overlay" in overlay_text["result"].get("text", ""), (
+            f"session.overlay.text did not read the overlay surface: {overlay_text}"
+        )
+        overlay_copy = raw_control_json(env, {
+            "cmd": "session.overlay.copy", "target": initial_session,
+            "args": {"pane": "split", "window": window_id},
+        })
+        assert not overlay_copy["ok"] and overlay_copy.get("error") == "no selection", (
+            f"session.overlay.copy did not reach the realized overlay: {overlay_copy}"
         )
         pane_close = raw_control_json(env, {
             "cmd": "session.overlay.close", "target": initial_session,
@@ -1302,6 +1343,18 @@ def verify_upstream_control_parity(env):
             )
 
         assert workspace_node().get("collapsed"), "workspace.new --collapsed did not persist model state"
+        previous = raw_control_json(env, {
+            "cmd": "workspace.go", "args": {"to": "prev", "window": window_id},
+        })
+        assert previous["ok"] and previous["result"].get("id") == initial_workspace, (
+            f"workspace.go prev did not select the previous workspace: {previous}"
+        )
+        following = raw_control_json(env, {
+            "cmd": "workspace.go", "args": {"to": "next", "window": window_id},
+        })
+        assert following["ok"] and following["result"].get("id") == workspace_id, (
+            f"workspace.go next did not restore the new workspace: {following}"
+        )
         control_json(
             env, "workspace", "expand", "--target", workspace_id,
             "--window", window_id, "--json",
@@ -1346,6 +1399,13 @@ def verify_upstream_control_parity(env):
             item.get("kind") == "session.created" and item.get("session") == held_id
             for item in page["result"]["events"]["items"]
         ), "events.read did not return the Linux-created session event"
+        split_close = raw_control_json(env, {
+            "cmd": "session.split.close", "target": initial_session,
+            "args": {"window": window_id},
+        })
+        assert split_close["ok"], f"session.split.close failed: {split_close}"
+        wait_for(lambda: not parity_session().get("hasSplit"),
+                 "session.split.close left the split shell alive")
         stop(process)
         process = None
 
@@ -1367,7 +1427,7 @@ def verify_upstream_control_parity(env):
             "restore override did not survive relaunch"
         )
         assert persisted_held.get("commandWait"), "command wait state did not survive relaunch"
-        print("OK: v0.22 pane overlays/HUD plus events, restore, held commands, and collapse round-trip")
+        print("OK: v0.24 split axes, overlay I/O, cursor, workspace navigation, and persistence round-trip")
     except AssertionError:
         describe_tree(app)
         raise
@@ -2130,6 +2190,7 @@ def verify_notification_banner_round_trip(env):
 def verify_custom_command_failures(env):
     config = os.path.join(env["AGTERM_STATE_DIR"], "config")
     os.makedirs(config)
+    alternative_marker = os.path.join(env["AGTERM_STATE_DIR"], "alternative-command.marker")
     with open(os.path.join(config, "keymap.conf"), "w", encoding="utf-8") as target:
         target.write(
             'command "Launch Failure" true\n'
@@ -2139,6 +2200,7 @@ def verify_custom_command_failures(env):
             # is free in both the Linux and the upstream default chord tables, so it survives keymap
             # validation and reaches the row as the user's own raw token.
             'command "Chorded Demo" ctrl+shift+e true\n'
+            f'command "Alternative Demo" ctrl+shift+u|ctrl+shift+r printf fired > {alternative_marker}\n'
         )
     process, app = launch(env)
     try:
@@ -2162,6 +2224,9 @@ def verify_custom_command_failures(env):
 
         wait_for(lambda: frame("command-origin-a"), "first command window did not become accessible")
         wait_for(lambda: frame("command-origin-b"), "second command window did not become accessible")
+        press_x11_key("ctrl+shift+r", process.pid, window_title="command-origin-a")
+        wait_for(lambda: os.path.exists(alternative_marker),
+                 "the second custom-command alternative did not dispatch")
         check_palette_row_layout(app, process.pid, "command-origin-a")
         # Both frames are proven present by the waits above, so the keymap checks reuse this two-window
         # fixture instead of launching a scenario of their own. Each restores keymap.conf before returning.

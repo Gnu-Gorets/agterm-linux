@@ -997,5 +997,4 @@ public final class AppStore {
         }
         return nil
     }
-
 }

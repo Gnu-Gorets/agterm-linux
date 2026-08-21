@@ -23,9 +23,17 @@ extension AppController {
                                             activeSessionFlagged: activeSession?.flagged ?? false,
                                             hasMarkedWorkspaces: !store.focusedWorkspaceIDs.isEmpty,
                                             activeWorkspaceMarked: store.isCurrentWorkspaceFocusMember,
+                                            activeWorkspaceCollapsed: store.isCurrentWorkspaceCollapsed,
+                                            canStepWorkspaces: store.canStepWorkspaces,
                                             activeSessionHasSplit: activeSession?.hasSplit ?? false,
+                                            activeSplitAxis: activeSession?.splitAxis,
                                             hasPendingClose: store.pendingCloseSummary != nil,
-                                            hasRecentClosed: !library.recentClosedItems.isEmpty)
+                                            hasRecentClosed: !library.recentClosedItems.isEmpty,
+                                            hasActiveSession: activeSession != nil,
+                                            hasCurrentWorkspace: store.currentWorkspaceID != nil,
+                                            terminalZoomActive: terminalZoom.target != nil,
+                                            dashboardOpen: dashboard.isOpen,
+                                            pickerActive: pickController.pending != nil)
         var items: [LinuxPaletteItem] = PaletteCommand.allCases.filter { $0.isVisible(in: paletteContext) }.map { cmd in
             let row = LinuxPaletteRow.action(cmd, in: paletteContext, chord: cmd.builtinAction.flatMap(resolvedChord(for:)))
             return (row: row, run: run(for: cmd))
@@ -100,10 +108,14 @@ extension AppController {
         case .nextSession: return { self.navigate(.next) }
         case .previousAttentionSession: return { self.navigate(.previousAttention) }
         case .nextAttentionSession: return { self.navigate(.nextAttention) }
+        case .previousWorkspace: return { self.navigateWorkspace(.previous) }
+        case .nextWorkspace: return { self.navigateWorkspace(.next) }
         case .firstSession: return { self.navigate(.first) }
         case .lastSession: return { self.navigate(.last) }
         case .showAttention: return { self.showAttentionPalette() }
-        case .toggleSplit: return { self.toggleSplit() }
+        case .toggleSplit: return { self.toggleSplit(axis: .leftRight) }
+        case .toggleHorizontalSplit: return { self.toggleSplit(axis: .topBottom) }
+        case .closeSplit: return { self.closeActiveSplit() }
         case .toggleScratch: return { self.toggleScratch() }
         case .toggleTerminalZoom: return { self.toggleTerminalZoom() }
         case .dashboard: return { self.toggleDashboard() }
@@ -131,6 +143,7 @@ extension AppController {
         case .clearFocus: return { self.focusWorkspace(nil) }
         case .addWorkspaceToFocus: return { self.addActiveWorkspaceToFocus() }
         case .toggleWorkspaceFilter: return { self.toggleWorkspaceFilter() }
+        case .toggleWorkspaceCollapse: return { self.toggleCurrentWorkspaceCollapse() }
         }
     }
 

@@ -54,12 +54,13 @@ func isLinuxReservedChord(_ chord: Chord) -> Bool {
 /// default and can expose a fresh collision. Iterate to a fixpoint because dropping one override may
 /// restore another Linux default that invalidates a second override.
 private func resolveLinuxBuiltinOverrides(
-    _ parsed: [BuiltinAction: Chord], diagnostics: inout [KeymapDiagnostic]
+    _ parsed: [BuiltinAction: Chord], unbound: Set<BuiltinAction>, diagnostics: inout [KeymapDiagnostic]
 ) -> [BuiltinAction: Chord] {
     var candidates = parsed
     while true {
         var ownersByChord: [Chord: [BuiltinAction]] = [:]
         for action in BuiltinAction.allCases {
+            if unbound.contains(action), candidates[action] == nil { continue }
             guard let chord = candidates[action] ?? action.linuxDefaultChord else { continue }
             ownersByChord[chord, default: []].append(action)
         }
@@ -101,26 +102,92 @@ func loadLinuxKeymap(configDirectory: URL) -> (keymap: Keymap, diagnostics: [Key
             message: "chord '\(chord.displayString)' is reserved by the Linux host; \(action.rawValue) map skipped"
         ))
     }
-    overrides = resolveLinuxBuiltinOverrides(overrides, diagnostics: &diagnostics)
+    overrides = resolveLinuxBuiltinOverrides(
+        overrides,
+        unbound: parsed.builtinUnbound,
+        diagnostics: &diagnostics
+    )
     // Dropping an override restores that action's Linux default. Re-check custom commands against the
     // resulting Linux chord set because the shared parser validated against the upstream macOS defaults.
-    let activeBuiltinChords = Set(BuiltinAction.allCases.compactMap { action in
-        overrides[action] ?? action.linuxDefaultChord
+    let activeBuiltinChords: Set<Chord> = Set(BuiltinAction.allCases.compactMap { action -> Chord? in
+        if parsed.builtinUnbound.contains(action), overrides[action] == nil { return nil }
+        return overrides[action] ?? action.linuxDefaultChord
     })
-    var commands = parsed.commands
-    for index in commands.indices {
-        guard let keybind = parseKeybind(commands[index].shortcut) else { continue }
-        let reserved = keybind.contains(where: isLinuxReservedChord)
-        let restoredBuiltinConflict = keybind.first.map(activeBuiltinChords.contains) ?? false
-        guard reserved || restoredBuiltinConflict else { continue }
-        let reason = reserved ? "a Linux-reserved shortcut" : "an active Linux built-in shortcut"
+    var sequences = parsed.builtinSequences
+    for (action, alternatives) in parsed.builtinSequences {
+        let survivors = alternatives.filter { keybind in
+            !keybind.contains(where: isLinuxReservedChord)
+                && !(keybind.first.map(activeBuiltinChords.contains) ?? false)
+        }
+        guard survivors.count != alternatives.count else { continue }
+        sequences[action] = survivors
         diagnostics.append(KeymapDiagnostic(
             line: 0,
-            message: "command '\(commands[index].name)' uses \(reason) and is palette-only"
+            message: "\(action.rawValue) alternative uses a Linux-reserved or active built-in shortcut and was skipped"
         ))
-        commands[index].shortcut = ""
     }
-    return (Keymap(builtinOverrides: overrides, commands: commands), diagnostics)
+
+    var commands = parsed.commands
+    for index in commands.indices {
+        let rawAlternatives = commands[index].shortcut.split(
+            separator: "|", omittingEmptySubsequences: false
+        ).map(String.init)
+        let parsedAlternatives = rawAlternatives.compactMap { raw in
+            parseKeybind(raw).map { (raw: raw, keybind: $0) }
+        }
+        guard parsedAlternatives.count == rawAlternatives.count else { continue }
+        let survivors = parsedAlternatives.filter { binding in
+            !binding.keybind.contains(where: isLinuxReservedChord)
+                && !(binding.keybind.first.map(activeBuiltinChords.contains) ?? false)
+        }
+        guard survivors.count != parsedAlternatives.count else { continue }
+        diagnostics.append(KeymapDiagnostic(
+            line: 0,
+            message: "command '\(commands[index].name)' has a Linux-reserved or active built-in alternative; binding skipped"
+        ))
+        commands[index].shortcut = survivors.map(\.raw).joined(separator: "|")
+    }
+    return (
+        Keymap(
+            builtinOverrides: overrides,
+            commands: commands,
+            builtinSequences: sequences,
+            builtinUnbound: parsed.builtinUnbound,
+            globalHotkey: parsed.globalHotkey
+        ),
+        diagnostics
+    )
+}
+
+/// Project the Linux-resolved binding table for `keymap.list`. The shared projection intentionally uses
+/// macOS defaults; Linux must report the Ctrl-based chords that its key monitor actually dispatches.
+func projectLinuxKeymap(
+    _ keymap: Keymap, diagnostics: [KeymapDiagnostic], path: String
+) -> ControlKeymap {
+    let actions = BuiltinAction.allCases.map { action in
+        let resolved: Chord?
+        if let override = keymap.builtinOverrides[action] {
+            resolved = override
+        } else {
+            resolved = keymap.builtinUnbound.contains(action) ? nil : action.linuxDefaultChord
+        }
+        let alternates = keymap.sequences(for: action).map(\.displayString)
+        return ControlKeymapAction(
+            action: action.rawValue,
+            chord: resolved?.displayString,
+            alternates: alternates.isEmpty ? nil : alternates,
+            overridden: resolved != action.linuxDefaultChord ? true : nil
+        )
+    }
+    let commands = keymap.commands.map {
+        ControlKeymapCommand(name: $0.name, shortcut: $0.shortcut.isEmpty ? nil : $0.shortcut)
+    }
+    return ControlKeymap(
+        path: path,
+        actions: actions,
+        commands: commands,
+        diagnostics: diagnostics.map { ControlKeymapDiagnostic(line: $0.line, message: $0.message) }
+    )
 }
 
 /// The toast for a keymap load, or `nil` when the load produced nothing worth saying.
@@ -185,7 +252,8 @@ extension AppController {
         // its action's default chord; a genuine chord collision resolves override-wins). Reserved monitor
         // chords are never inserted — they're handled by the fixed fallback.
         var reverse: [Chord: BuiltinAction] = [:]
-        for action in BuiltinAction.allCases where km.builtinOverrides[action] == nil {
+        for action in BuiltinAction.allCases
+        where km.builtinOverrides[action] == nil && !km.builtinUnbound.contains(action) {
             if let chord = action.linuxDefaultChord, !isLinuxReservedChord(chord) { reverse[chord] = action }
         }
         for (action, chord) in km.builtinOverrides where !isLinuxReservedChord(chord) {
@@ -195,7 +263,10 @@ extension AppController {
 
         // Custom commands: the shared engine indexes by id + builds the leader matcher (parseKeymap already
         // cleared shortcuts that collide with built-ins / reserved chords / each other).
-        customCommandEngine = CustomCommandEngine(commands: km.commands)
+        customCommandEngine = CustomCommandEngine(
+            commands: km.commands,
+            builtinSequences: km.builtinSequences
+        )
         return diagnostics.count
     }
 
@@ -259,6 +330,9 @@ extension AppController {
         switch customCommandEngine.advance(chord) {
         case .fired(let command):
             runCustomCommand(command, origin: origin, allowSessionless: store.activeSession == nil)
+            return true
+        case .firedBuiltin(let action):
+            dispatchBuiltin(action, sessionID: sessionID)
             return true
         case .armed:
             return true
@@ -346,7 +420,8 @@ extension AppController {
         case .increaseFontSize: focusedSurface()?.performBindingAction(FontBindingAction.increase)
         case .decreaseFontSize: focusedSurface()?.performBindingAction(FontBindingAction.decrease)
         case .resetFontSize: focusedSurface()?.performBindingAction(FontBindingAction.reset)
-        case .toggleSplit: toggleSplit()
+        case .toggleSplit: toggleSplit(axis: .leftRight)
+        case .toggleHorizontalSplit: toggleSplit(axis: .topBottom)
         case .toggleScratch: toggleScratch()
         case .toggleTerminalZoom: toggleTerminalZoom()
         case .dashboard: toggleDashboard()
@@ -358,6 +433,9 @@ extension AppController {
         case .toggleFlag: toggleFlagActive()
         case .focusWorkspace: focusActiveWorkspace()   // toggle focus on the active session's workspace
         case .toggleWorkspaceFilter: toggleWorkspaceFilter()
+        case .previousWorkspace: navigateWorkspace(.previous)
+        case .nextWorkspace: navigateWorkspace(.next)
+        case .toggleWorkspaceCollapse: toggleCurrentWorkspaceCollapse()
         case .focusLeftPane: focusPane(left: true)
         case .focusRightPane: focusPane(left: false)
         case .previousSession: navigate(.previous)

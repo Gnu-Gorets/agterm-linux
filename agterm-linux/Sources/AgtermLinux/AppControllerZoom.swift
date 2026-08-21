@@ -30,10 +30,15 @@ extension AppController {
 
     func clearInvalidTerminalZoom() {
         guard let target = terminalZoom.target,
-              !TerminalZoomController.isTargetValid(target, in: store, quickTerminalVisible: quickVisible) else {
+              !linuxZoomTargetIsValid(target) else {
             return
         }
         setTerminalZoom(.off, target: target)
+    }
+
+    func linuxZoomTargetIsValid(_ target: TerminalZoomTarget) -> Bool {
+        if target == .quick { return quickVisible && quickSurface?.isRealized == true }
+        return TerminalZoomController.isTargetValid(target, in: store)
     }
 
     func setTerminalZoom(_ mode: ControlToggleMode, target: TerminalZoomTarget?) {

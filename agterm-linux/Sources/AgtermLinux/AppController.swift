@@ -87,6 +87,9 @@ final class AppController {
     let sidebarMetadataDebouncer = Debouncer()
     /// Owner-scoped, cancellable retries for persisted split divider restoration.
     let splitRatioRestore = SplitRatioRestoreCoordinator()
+    /// GtkPaned may emit `notify::position` while its orientation changes. Ignore that transient
+    /// geometry so transposing a split cannot persist a ratio measured against the wrong axis.
+    var splitAxisTransitions: Set<UUID> = []
     /// The trailing deck reconcile a soft close arms: cancellable at window close and deferred while a
     /// sidebar interaction is live (see `SoftCloseReconcileCoordinator`).
     let softCloseReconcile = SoftCloseReconcileCoordinator(
@@ -294,7 +297,7 @@ final class AppController {
         adw_application_window_set_content(cast(window), W(toast))
         terminalZoom.targetResolver = { [weak self] in
             guard let self else { return nil }
-            return TerminalZoomController.resolveTarget(store: self.store, quickTerminalVisible: self.quickVisible)
+            return self.quickVisible ? .quick : TerminalZoomController.resolveTarget(store: self.store)
         }
         TerminalZoomRegistry.shared.register(windowID, controller: terminalZoom)
         DashboardControllerRegistry.shared.register(windowID, controller: dashboard)
@@ -501,8 +504,8 @@ final class AppController {
         if !visible, terminalZoom.target == .quick { setTerminalZoom(.off, target: .quick) }
         if quickFrame == nil, visible, let overlay = deckOverlay {
             let q = GhosttySurface(sessionID: UUID(), cwd: Self.homeCwd,
-                                   env: SurfaceEnvironment.quickTerminal(windowID: windowID,
-                                                                         socketPath: gControlServer.boundSocketPath ?? ControlServer.defaultSocketPath(),
+                                   env: SurfaceEnvironment.quickTerminal(
+                                                                         socketPath: gControlServer.resolvedSocketPath,
                                                                          programVersion: LinuxAppMetadata.version),
                                    controller: self, role: .quick, reportsPaneState: false)
             q.onExit = { [weak self] in self?.closeQuick() }
@@ -715,7 +718,7 @@ final class AppController {
         syncSidebarSelection()
     }
 
-    func toggleSplit() {
+    func toggleSplit(axis: SplitAxis? = nil) {
         guard let id = store.selectedSessionID, let session = store.session(withID: id),
               !session.fullOverlayActive else { return }
         if session.scratchActive {
@@ -724,7 +727,7 @@ final class AppController {
             sessionFocusTarget(for: id)?.grabFocus(supersedingPopoverCapture: true)
             return
         }
-        store.toggleSplit(id)
+        store.toggleSplit(id, axis: axis)
         reconcile(rebuildSidebar: false)
         updateToggleIcons()
         sessionFocusTarget(for: id)?.grabFocus(supersedingPopoverCapture: true)

@@ -25,16 +25,17 @@ struct LinuxControlDispatcher {
         case .sessionNew, .sessionDuplicate, .sessionSelect, .sessionGo, .sessionClose, .sessionRename, .sessionReveal,
                 .sessionMove, .sessionFlag, .sessionSeen, .sessionStatus, .sessionRestore:
             return dispatchSessionCommand(request)
-        case .sessionSplit, .sessionScratch, .sessionFocus, .sessionResize, .surfaceZoom,
+        case .sessionSplit, .sessionSplitClose, .sessionScratch, .sessionFocus, .sessionResize,
+                .surfaceZoom, .surfaceCursor,
                 .sessionCopy, .sessionPaste, .sessionSelectAll, .sessionOverlayOpen,
                 .sessionOverlayClose, .sessionOverlayResize, .sessionOverlayResult,
-                .sessionBackground, .sessionText:
+                .sessionOverlayCopy, .sessionOverlayText, .sessionBackground, .sessionText:
             return dispatchSessionSurfaceCommand(request)
         case .sessionHudOpen, .sessionHudUpdate, .sessionHudClose:
             return dispatchHudCommand(request)
         case .sessionType, .quickType, .quickText:
             return nil
-        case .workspaceNew, .workspaceSelect, .workspaceRename, .workspaceDelete,
+        case .workspaceNew, .workspaceSelect, .workspaceGo, .workspaceRename, .workspaceDelete,
                 .workspaceMove, .workspaceFocus, .workspaceFilter, .workspaceCollapse, .workspaceExpand:
             return dispatchWorkspaceCommand(request)
         case .fontInc, .fontDec, .fontReset, .keymapReload, .keymapList, .configReload, .notify,
@@ -309,6 +310,11 @@ struct LinuxControlDispatcher {
                                            collapsed: request.args?.collapsed ?? false)
         case .workspaceSelect:
             return actions.selectWorkspace(request.target, window: request.args?.window)
+        case .workspaceGo:
+            guard let direction = request.args?.to.flatMap(WorkspaceNavigation.init(wire:)) else {
+                return ControlResponse(ok: false, error: "workspace.go requires --to next|prev")
+            }
+            return actions.goWorkspace(window: request.args?.window, direction: direction)
         case .workspaceRename:
             guard let name = request.args?.name?.linuxTrimmedOrNil else {
                 return ControlResponse(ok: false, error: "workspace.rename requires a name")
@@ -349,7 +355,23 @@ struct LinuxControlDispatcher {
     private func dispatchSessionSurfaceCommand(_ request: ControlRequest) -> ControlResponse {
         switch request.cmd {
         case .sessionSplit:
-            return actions.splitSession(request.target, window: request.args?.window, mode: request.args?.mode)
+            let axis: SplitAxis?
+            if let raw = request.args?.axis {
+                guard let parsed = SplitAxis(rawValue: raw) else {
+                    return ControlResponse(ok: false, error: "invalid split axis: \(raw) (vertical|horizontal)")
+                }
+                axis = parsed
+            } else {
+                axis = nil
+            }
+            return actions.splitSession(
+                request.target,
+                window: request.args?.window,
+                mode: request.args?.mode,
+                axis: axis
+            )
+        case .sessionSplitClose:
+            return actions.closeSessionSplit(request.target, window: request.args?.window)
         case .sessionScratch:
             return actions.scratchSession(request.target, window: request.args?.window, mode: request.args?.mode,
                                           command: request.args?.command)
@@ -378,6 +400,8 @@ struct LinuxControlDispatcher {
                                        error: "invalid surface.zoom mode: \(request.args?.mode ?? "toggle")")
             }
             return actions.setSurfaceZoom(request.target, window: request.args?.window, mode: mode)
+        case .surfaceCursor:
+            return actions.readSurfaceCursor(request.target, window: request.args?.window)
         case .sessionOverlayOpen:
             guard let command = request.args?.command, !command.isEmpty else {
                 return ControlResponse(ok: false, error: "session.overlay.open requires a command")
@@ -435,6 +459,18 @@ struct LinuxControlDispatcher {
             case .pane(let pane):
                 return actions.sessionOverlayResult(request.target, window: request.args?.window, pane: pane)
             }
+        case .sessionOverlayCopy:
+            switch parseOverlayPane(request.args?.pane) {
+            case .rejected(let response): return response
+            case .pane(let pane):
+                return actions.copySessionOverlaySelection(
+                    request.target,
+                    window: request.args?.window,
+                    pane: pane
+                )
+            }
+        case .sessionOverlayText:
+            return dispatchSessionOverlayText(request)
         case .sessionBackground:
             return dispatchSessionBackground(request)
         case .sessionText:
@@ -647,6 +683,26 @@ struct LinuxControlDispatcher {
                                        options: ControlSessionTextOptions(pane: request.args?.pane,
                                                                           all: all,
                                                                           lines: lines))
+    }
+
+    private func dispatchSessionOverlayText(_ request: ControlRequest) -> ControlResponse {
+        let all = request.args?.all ?? false
+        let lines = request.args?.lines
+        if all, lines != nil {
+            return ControlResponse(ok: false, error: "use either --all or --lines, not both")
+        }
+        if let lines, lines <= 0 {
+            return ControlResponse(ok: false, error: "--lines must be greater than 0")
+        }
+        switch parseOverlayPane(request.args?.pane) {
+        case .rejected(let response): return response
+        case .pane(let pane):
+            return actions.readSessionOverlayText(
+                request.target,
+                window: request.args?.window,
+                options: ControlSessionOverlayTextOptions(pane: pane, all: all, lines: lines)
+            )
+        }
     }
 
     private func dispatchWindowCommand(_ request: ControlRequest) -> ControlResponse {

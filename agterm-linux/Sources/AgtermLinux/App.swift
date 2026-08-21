@@ -176,6 +176,7 @@ private let onShutdown: @MainActor @convention(c) (OpaquePointer?, gpointer?) ->
     MainActor.assumeIsolated {
         colorSchemeChangeDebouncer.cancel()
         flushOnQuit()
+        gControlServer.stop()
     }
 }
 
