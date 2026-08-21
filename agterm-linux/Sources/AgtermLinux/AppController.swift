@@ -503,10 +503,15 @@ final class AppController {
     func setQuick(_ visible: Bool) {
         if !visible, terminalZoom.target == .quick { setTerminalZoom(.off, target: .quick) }
         if quickFrame == nil, visible, let overlay = deckOverlay {
+            // Upstream's detached Quick Terminal is app-level, so the shared environment intentionally
+            // omits a window id. Linux keeps Quick Terminal inside its owning window and must retain that
+            // context so untargeted control commands from its shell resolve back to the visible owner.
+            var environment = SurfaceEnvironment.quickTerminal(
+                socketPath: gControlServer.resolvedSocketPath,
+                programVersion: LinuxAppMetadata.version)
+            environment["AGTERM_WINDOW_ID"] = windowID.uuidString
             let q = GhosttySurface(sessionID: UUID(), cwd: Self.homeCwd,
-                                   env: SurfaceEnvironment.quickTerminal(
-                                                                         socketPath: gControlServer.resolvedSocketPath,
-                                                                         programVersion: LinuxAppMetadata.version),
+                                   env: environment,
                                    controller: self, role: .quick, reportsPaneState: false)
             q.onExit = { [weak self] in self?.closeQuick() }
             // A floating card panel over the FULL window content: rounded + shadowed by .agterm-quick
