@@ -126,8 +126,7 @@ enum AgentHooksInstaller {
     }
 
     // bake the bundled agtermctl's absolute path into the installed wrappers so the hooks fire even when the
-    // CLI was never symlinked into PATH. The transform is host-free in `AgentHooksInstall`, which also owns the
-    // PATH fallback the block needs for a bundle that moved since the install.
+    // CLI was never symlinked into PATH. The transform itself is host-free in `AgentHooksInstall`.
     private static func bakeAgtermctlPath() throws {
         guard let tool = bundledTool else { return } // no bundled CLI: leave the PATH fallback in place
         for name in [AgentHooksInstall.wrapperName, AgentHooksInstall.codexWrapperName] {

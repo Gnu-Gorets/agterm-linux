@@ -430,11 +430,9 @@ struct AgentHooksInstallTests {
     }
 
     @Test func bakedBlockFallsBackToPathWhenTheBakedBundleIsGone() {
-        // a bundle moved after the install leaves the baked path dead, and the wrapper swallows the failure,
-        // so the block itself has to test the path before it commits to it
+        // pins #472: the wrapper swallows the failure, so the block has to test the path before committing
         let baked = AgentHooksInstall.bakeAgtermctlPath(into: wrapperStub, toolPath: "/Volumes/agterm/agterm.app/Contents/MacOS/agtermctl")
         #expect(baked.contains(#"  [ -x "$AGTERMCTL" ] || AGTERMCTL="$(command -v agtermctl || true)""#))
-        // the assignment and the test are both inside the unset branch, so an explicit override is left alone
         #expect(baked.contains(#"if [ -z "${AGTERMCTL:-}" ]; then"#))
     }
 

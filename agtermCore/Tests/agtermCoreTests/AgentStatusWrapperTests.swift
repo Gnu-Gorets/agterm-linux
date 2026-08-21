@@ -146,10 +146,7 @@ struct AgentStatusWrapperTests {
         #expect(!r.argv.contains("--pane-id"))
     }
 
-    // run the wrapper AS THE INSTALLER WRITES IT: `AgentHooksInstall.bakeAgtermctlPath` applied to the shipped
-    // script, a stub `agtermctl` reachable on PATH, and no AGTERMCTL in the environment unless `override` asks
-    // for one. Every stub records its own path first, so the caller can tell WHICH one ran. `bakedToolExists`
-    // false is the bundle that moved away after the install.
+    // every stub records its own path first, so the caller can tell WHICH of the three ran
     private func runBaked(bakedToolExists: Bool, override: Bool = false) throws -> [String] {
         let fm = FileManager.default
         let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("agterm-baked-\(UUID().uuidString)")
@@ -196,8 +193,7 @@ struct AgentStatusWrapperTests {
     }
 
     @Test func bakedWrapperFallsBackToPathWhenTheBundleMoved() throws {
-        // installing the hooks from the mounted DMG bakes a /Volumes path that dies on eject, and the wrapper
-        // suppresses the failure and exits 0, so the status simply stops appearing with no error (#472)
+        // pins #472: a baked path dead after the bundle moved, failing silently because the wrapper exits 0
         let argv = try runBaked(bakedToolExists: false)
         #expect(argv.first?.hasSuffix("/bin/agtermctl") == true)
         #expect(Array(argv.dropFirst()) == ["session", "status", "active", "--target", "sid"])

@@ -173,7 +173,10 @@ so the installer-added `source` line takes effect. For Pi, restart it or run `/r
 For OpenCode, restart it so it loads `~/.config/opencode/plugins/agterm-status.js`;
 the plugin installs only after OpenCode has created `~/.config/opencode`.
 The installed wrapper resolves the bundled `agtermctl` itself; a bare development build instead needs
-`agtermctl` on `PATH`.
+`agtermctl` on `PATH`. Moving or replacing agterm.app invalidates the path the installer baked in — the
+wrapper then falls back to `agtermctl` on `PATH`, and with nothing there the glyph silently stops
+updating. Re-run Help ▸ Install Agent Status Hooks… after moving the app, or install the CLI with
+Help ▸ Install Command Line Tool….
 
 ### "The agent-status glyph updates the wrong session"
 

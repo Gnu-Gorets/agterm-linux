@@ -35,7 +35,7 @@ public enum AgentHooksInstall {
     public static let fishIntegrationRelativePath = "shell/integration.fish"
 
     /// Sentinel opening the installer-baked AGTERMCTL block; a re-bake replaces it instead of duplicating it.
-    public static let agtermctlMarker = "# >>> agterm agtermctl path (installer-baked) >>>"
+    static let agtermctlMarker = "# >>> agterm agtermctl path (installer-baked) >>>"
 
     /// Marker lines bracketing the agterm-managed block in a shell rc file; the opening marker is also the
     /// idempotency probe (present → already installed).
@@ -283,14 +283,8 @@ public enum AgentHooksInstall {
     }
 
     /// bake `toolPath` — the bundled `agtermctl` — into an installed wrapper, replacing the block a previous
-    /// install left behind and inserting the fresh one after the shebang.
-    ///
-    /// The emitted block keeps the wrapper's documented resolution order (`$AGTERMCTL` > baked path > PATH). Its
-    /// `-x` test is what makes the PATH rung reachable at all: a bundle that MOVED since the install leaves the
-    /// baked path pointing at nothing, and the wrapper suppresses output and exits 0 by design, so every status
-    /// update then fails silently. Installing from the mounted DMG is the easy way in — that bakes a `/Volumes`
-    /// path, dead the moment the image is ejected. The test sits INSIDE the unset branch so an explicit override
-    /// is never second-guessed.
+    /// install left behind. The `-x` test sits INSIDE the unset branch so an explicit override is never
+    /// second-guessed; the wrapper's own header owns why the PATH rung has to stay reachable.
     public static func bakeAgtermctlPath(into text: String, toolPath: String) -> String {
         let block = agtermctlBlockLines(toolPath: toolPath)
         return insertAfterShebang(stripBakedBlock(from: text, bodyLines: block.count - 1), lines: block)
@@ -307,8 +301,9 @@ public enum AgentHooksInstall {
         ]
     }
 
-    // drop a previously baked block: the marker plus `bodyLines` lines below it. The count comes from the block
-    // being emitted rather than a literal, so growing the block cannot leave half of the old one behind.
+    // drop a previously baked block: the marker plus `bodyLines` lines below it. `bodyLines` measures the block
+    // being WRITTEN, so an older build's block of another length mis-strips; safe only because
+    // `copyBundledFolder` re-copies the pristine wrapper first, leaving no marker to match.
     private static func stripBakedBlock(from text: String, bodyLines: Int) -> String {
         var result: [String] = []
         var skip = 0
