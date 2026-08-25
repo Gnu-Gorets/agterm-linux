@@ -232,7 +232,6 @@ struct SessionTests {
     }
 
     @Test func effectiveCwdStaysPrimaryWhileSplitFocused() {
-        // effectiveCwd (new-pane seeding + AGTERM_SESSION_PWD) is NOT focus-aware.
         let session = Session(initialCwd: "/repo")
         session.currentCwd = "/repo/primary"
         session.isSplit = true

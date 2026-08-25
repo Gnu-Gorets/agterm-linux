@@ -402,8 +402,8 @@ public final class AppStore {
     public func addSession(toWorkspace workspaceID: UUID, cwd: String, command: String? = nil,
                            name: String? = nil, wait: Bool = false, at index: Int? = nil, select: Bool = true) -> Session? {
         guard let wsIndex = workspaces.firstIndex(where: { $0.id == workspaceID }) else { return nil }
-        // cwd feeds {AGT_SESSION_PWD} through initialCwd → effectiveCwd until OSC 7 reports; name feeds
-        // {AGT_SESSION_NAME}. See TerminalText.
+        // both reach a custom command's expansion — cwd through initialCwd, name through customName — so
+        // both are sanitized here. See TerminalText.
         let session = Session(initialCwd: TerminalText.sanitized(cwd),
                               customName: name.map(TerminalText.sanitized)?.trimmedOrNil)
         session.initialCommand = command
