@@ -634,7 +634,7 @@ public final class Session: Identifiable {
     }
 
     /// Drops the unconsumed CAPTURE payloads only, leaving the persisted and pending `session.restore` pins
-    /// armed. The pending half of `clearCapturedForegroundCommands()`; `.claude/rules/settings.md` on arming.
+    /// armed. The pending half of `clearCapturedForegroundCommands()`; public because agterm-linux calls it.
     public func clearPendingForegroundCommands() {
         pendingForegroundCommand = nil
         pendingSplitForegroundCommand = nil
