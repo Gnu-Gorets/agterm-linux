@@ -633,18 +633,16 @@ public final class Session: Identifiable {
         }
     }
 
-    /// Drops the unconsumed CAPTURE payloads only, leaving the `session.restore` pins — persisted and
-    /// pending — armed. What `restore.clear` needs: it clears captures, and the launch arms them here
-    /// rather than in the persisted fields, so clearing those alone would leave a replay running.
+    /// Drops the unconsumed CAPTURE payloads only, leaving the persisted and pending `session.restore` pins
+    /// armed. The pending half of `clearCapturedForegroundCommands()`; `.claude/rules/settings.md` on arming.
     public func clearPendingForegroundCommands() {
         pendingForegroundCommand = nil
         pendingSplitForegroundCommand = nil
     }
 
     /// Drops the captured foreground commands whole: the persisted pair AND the unconsumed pending pair.
-    /// `restore.clear` and a non-last window close both need exactly this, over different session sets, and
-    /// clearing the persisted fields alone would leave a launch-armed replay running (see
-    /// `.claude/rules/settings.md`). Owning it here keeps the next capture slot from needing a second edit.
+    /// `restore.clear` and a non-last window close both need exactly this, over different session sets.
+    /// `.claude/rules/settings.md` covers why the persisted fields cannot be dropped on their own.
     public func clearCapturedForegroundCommands() {
         foregroundCommand = nil
         splitForegroundCommand = nil
