@@ -338,11 +338,13 @@ buys nothing. A caller with no tree uses `version`.
   `--wait` (only with `--command`, else an error) HOLDS the session open after the command exits —
   showing libghostty's press-any-key prompt with the final output intact instead of closing immediately —
   so you can read a build/test/deploy's final output or an early failure that would otherwise flash and
-  vanish. It persists across restart (unlike an overlay's live-only `--wait`), so a restored command
-  session that re-runs its command holds again; read it back on `tree`'s `commandWait`.
-  The command is persisted (`SessionSnapshot.initialCommand`) and re-runs on restore when **Restore
-  running commands on restart** is on (default off → a restored session is a plain shell); a live
-  captured foreground takes precedence over it. `--name`
+  vanish. In Re-run commands mode it persists across restart (unlike an overlay's live-only `--wait`),
+  so a restored command session that starts its command again also holds; read it back on `tree`'s
+  `commandWait`. Live sessions mode types the command into the persistent zmx shell only on first creation.
+  The shell stays open when it exits, `--wait` adds no hold prompt, and a missing daemon restores a fresh
+  shell without replaying the command.
+  The command is persisted (`SessionSnapshot.initialCommand`) and starts again on restore in Re-run commands
+  mode; a captured foreground takes precedence over it. Fresh shells mode restores a plain shell. `--name`
   seeds the session's custom name (the sidebar label; blank/omitted leaves the auto basename),
   equivalent to a `session rename` right after create. `--after SID` / `--before SID` place the new
   session directly after / before an anchor session instead of appending at the end (the anchor is a
@@ -1191,6 +1193,26 @@ returns `unknown theme: <name>`; a positional name combined with `--light` is a 
 output prints `ok`. App-global (no `--window`). The GUI's live-preview picker (View ▸ Select Theme…)
 is keyboard-only — committing it replaces the CURRENT appearance's side when syncing (the pair is
 kept); over the socket `theme set` is the commit, with no preview.
+
+## restore modes
+
+**Settings ▸ General ▸ Restore sessions** chooses one global launch mode. The process keeps the mode it
+started with, so a change applies after restarting agterm.
+
+- **Fresh shells** restores the structural snapshot with new shells.
+- **Re-run commands** starts captured commands again. The old processes are not attached.
+- **Live sessions** wraps primary and split panes with zmx and reattaches to their running processes. Zsh
+  must be the macOS login shell. Scratch, overlay, and quick terminals remain temporary.
+
+Closing agterm or sending it SIGTERM ends the attach clients and leaves live daemons running. A missing
+daemon, including after a reboot or manual zmx kill, comes back as a fresh shell under the same name. A
+session or split that is explicitly deleted has its daemon killed after the undo grace period.
+
+The tree exposes actual backing without adding sidebar UI. Primary and split surface entries carry
+`backedByZmx`; the session-level field is true only when every existing primary or split pane is backed.
+Reattach keeps usable text, TUI state, and normal colors. It does not retain inline images, earlier OSC 133
+prompt markers, program-changed palette entries, or existing cell hyperlink metadata. New terminal output
+after reattach behaves normally.
 
 ## restore
 

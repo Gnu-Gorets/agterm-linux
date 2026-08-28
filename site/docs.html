@@ -1405,7 +1405,7 @@
             <p style="font-size: 16px; line-height: 1.7; color: #cbc6bc; margin: 0 0 16px">
               A live-preview theme picker (View ▸ Select Theme…, or the action palette) applies each of the 512 bundled themes to
               the open terminals as you move through the list — Enter commits and syncs it to Settings, Esc reverts to the one you
-              started on. Settings (⌘,) has six tabs, and changes apply live:
+              started on. Settings (⌘,) has six tabs. Most changes apply live; the restore mode says when a restart is required:
             </p>
             <div style="display: flex; flex-direction: column; gap: 10px; margin: 0 0 8px">
               <div style="font-size: 15px; line-height: 1.6; color: #cbc6bc; padding-left: 22px; position: relative">
@@ -1415,7 +1415,7 @@
                 ><strong style="color: #e6e1d7">General</strong> — mouse scroll speed, right-click-to-paste, whether clicking a workspace
                 row expands or collapses it (on by default; the disclosure triangle always does), where a new session opens (your home
                 directory by default, the current session's directory, or a fixed folder you pick), an
-                opt-in re-run of each pane's foreground command on restart, an opt-in confirm before closing a session, and
+                a restore mode for fresh shells, re-run commands, or live sessions, an opt-in confirm before closing a session, and
                 whether to load your global Ghostty config.
               </div>
               <div style="font-size: 15px; line-height: 1.6; color: #cbc6bc; padding-left: 22px; position: relative">
@@ -3025,10 +3025,38 @@ command = "'/Users/you/.config/agterm/agent-status/agterm-codex-status.sh' stop"
             </h2>
             <p style="font-size: 16px; line-height: 1.7; color: #cbc6bc; margin: 0 0 20px">
               Sessions come back on the next launch with their directory, font size, and split state restored. General settings
-              offers fresh shells, re-run commands, or live sessions. The choice is frozen for the process and changes after restart;
-              live sessions require zsh as the macOS login shell.
+              offers <strong style="color: #e6e1d7">Fresh shells</strong>, <strong style="color: #e6e1d7">Re-run commands</strong>,
+              or <strong style="color: #e6e1d7">Live sessions</strong>. The choice is frozen for the process, so changing it takes
+              effect after restarting agterm. Live mode requires zsh as the macOS login shell; an unsupported shell or missing zmx
+              resource falls back to fresh shells, with the reason shown in Settings.
+            </p>
+            <p style="font-size: 15px; line-height: 1.65; color: #949ba4; margin: -8px 0 20px">
+              Saving settings with this version removes the legacy
+              <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">restoreRunningCommand</span> key. If an
+              older agterm later opens the same state directory, it sees no restore setting and defaults to fresh shells.
             </p>
             <ul style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 14px">
+              <li style="font-size: 15px; line-height: 1.65; color: #cbc6bc; padding-left: 22px; position: relative">
+                <span
+                  style="position: absolute; left: 0; top: 2px; color: #6d82f3; font-family: &quot;JetBrains Mono&quot;, monospace"
+                  >›</span
+                ><strong style="color: #e6e1d7">Live mode reattaches the running process.</strong> Every primary and split pane
+                starts through zmx. Scratch, overlay, and quick terminals stay temporary. Closing agterm or stopping it with SIGTERM
+                ends the attach client while the daemon and its process continue; the next launch attaches to the same name. A reboot,
+                manual zmx kill, or another missing daemon creates a fresh shell under that name instead of failing the restore.
+                Deleting a session, workspace, split, or window kills the corresponding daemon after any undo grace expires.
+                <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">tree --json</span> reports the actual
+                state as <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">surfaces[].backedByZmx</span>
+                and a session-level <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">backedByZmx</span>,
+                which is true only when every existing primary or split pane is backed. The sidebar adds no separate indicator.
+                Reattach restores usable text, TUI state, and normal colors, but its synthesized screen does not retain inline images,
+                earlier OSC 133 prompt markers, program-changed palette entries, or hyperlink metadata already attached to cells.
+                New output after reattach behaves normally. In live mode,
+                <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">session new --command</span> types the
+                command into the persistent shell only when the pane is first created. The session stays open when that command exits,
+                so <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">--wait</span> adds no hold prompt, and
+                a missing daemon restores a fresh shell without replaying the command.
+              </li>
               <li style="font-size: 15px; line-height: 1.65; color: #cbc6bc; padding-left: 22px; position: relative">
                 <span
                   style="position: absolute; left: 0; top: 2px; color: #6d82f3; font-family: &quot;JetBrains Mono&quot;, monospace"

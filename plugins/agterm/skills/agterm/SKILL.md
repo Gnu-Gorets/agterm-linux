@@ -140,6 +140,24 @@ you work. For any session-scoped command meant to act on *this* session — `ses
 … — pass `--target "$AGTERM_SESSION_ID"`. Omit it and
 you open overlays / type into whatever the user has selected, not your own session.
 
+## Restore modes
+
+**Settings ▸ General ▸ Restore sessions** is global and takes effect after restarting agterm:
+
+- **Fresh shells** restores the saved windows, workspaces, sessions, directories, and split layout with new shells.
+- **Re-run commands** starts each captured foreground command again. It does not reconnect to the old process.
+- **Live sessions** runs every primary and split pane through zmx and reattaches to the same process. It requires
+  zsh as the macOS login shell. Scratch, overlay, and quick terminals stay temporary.
+
+Closing agterm or stopping it with SIGTERM leaves live daemons running. A missing daemon, including after a
+reboot or manual zmx kill, restores that pane as a fresh shell. `tree --json` is the only backing indicator:
+primary and split entries report `surfaces[].backedByZmx`, and the session-level `backedByZmx` is true only
+when every existing primary or split is backed. The sidebar has no zmx glyph.
+
+Reattach keeps usable text, TUI state, and normal colors. It does not retain inline images, earlier OSC 133
+prompt markers, program-changed palette entries, or hyperlink metadata already attached to cells. New output
+after reattach behaves normally.
+
 ## Launching a program in a session
 
 **Bind it at creation.** `session new --command` (and `scratch --command`) makes the program the session
@@ -149,6 +167,11 @@ process, so no shell line is involved:
 agtermctl session new --cwd ~/proj --name worker \
   --command "zsh -lc 'claude \"\$(cat ~/brief.md)\"'"   # GUI PATH: wrap a non-default binary
 ```
+
+In Fresh shells and Re-run commands modes, the session closes when this command exits unless `--wait` holds
+the final output. In Live sessions mode the command is typed into the persistent shell only on first creation;
+the shell stays open after it exits, `--wait` adds no hold prompt, and a missing daemon restores a fresh shell
+without replaying the command.
 
 `session type` drives an ALREADY-RUNNING program — it is not a launcher. Its keystrokes land in a line
 buffer you do not own: a newline submits (a multi-line brief becomes N premature Enters), and the user

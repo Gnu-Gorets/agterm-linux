@@ -196,12 +196,12 @@ checking only that the socket exists.
 **Files:**
 - Modify: `README.md`, `site/docs.html`, `site/index.html`, agent skill and troubleshooting pages
 
-- [ ] document the three modes, zsh-only support, restart requirement and primary/split scope
-- [ ] document per-surface backing, the session aggregate, the deliberate lack of sidebar UI, SIGTERM recovery
+- [x] document the three modes, zsh-only support, restart requirement and primary/split scope
+- [x] document per-surface backing, the session aggregate, the deliberate lack of sidebar UI, SIGTERM recovery
       and missing-daemon fresh shells
-- [ ] document synthesized-screen losses and `--command` close/wait behavior
-- [ ] preserve command text owned by Task 4 and existing install/position facts
-- [ ] run writing and narrow documentation checks
+- [x] document synthesized-screen losses and `--command` close/wait behavior
+- [x] preserve command text owned by Task 4 and existing install/position facts
+- [x] run writing and narrow documentation checks
 
 ### Task 9: Verify and finalize
 

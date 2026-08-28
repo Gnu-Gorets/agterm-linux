@@ -103,6 +103,33 @@ To remap a shortcut ghostty still owns: a physical key name (`key_c`, `key_v`, �
 any layout; a bare letter (`c`, `v`) matches the produced character. Edit `~/.config/agterm/ghostty.conf`,
 then `agtermctl config reload`.
 
+### "My live session came back as a fresh shell"
+
+Check these in order:
+
+- **Restart after selecting Live sessions.** The restore mode is fixed when agterm starts. Changing
+  **Settings ▸ General ▸ Restore sessions** affects the next process, not sessions already open.
+- **Read the eligibility reason in Settings.** Live mode requires zsh as the macOS login shell and the
+  bundled zmx and zsh-integration resources. If the launch cannot use live mode, every pane starts as an
+  ordinary shell.
+- **Inspect actual backing with `tree --json`.** Primary and split surfaces report `backedByZmx`; the session
+  field is true only when every existing primary or split is backed. The sidebar deliberately has no zmx
+  indicator.
+- **Confirm the pane is in scope.** Primary and split panes can survive. Scratch, overlay, and quick terminals
+  are temporary by design.
+- **A missing daemon means a fresh shell.** A reboot, manual zmx kill, or stale/deleted daemon leaves nothing
+  to attach. Agterm creates a new daemon under the saved name and opens a fresh shell rather than failing.
+
+SIGTERM to agterm should leave a backed pane's daemon and process alive for the next launch. Explicitly
+deleting its session, workspace, split, or window kills it after any undo grace period.
+
+A reattached screen can look slightly different without being a fresh shell. Usable text, TUI state, and
+normal colors survive, but inline images, earlier OSC 133 prompt markers, program-changed palette entries,
+and hyperlink metadata already attached to cells do not. New output behaves normally.
+
+Saving settings with this version removes the legacy `restoreRunningCommand` key. If an older agterm opens
+the same state directory later, it sees no restore setting and defaults to fresh shells.
+
 ### "My session restore override didn't fire"
 
 You set `session restore` but the pane came back as a plain shell (or re-ran the old captured command).
