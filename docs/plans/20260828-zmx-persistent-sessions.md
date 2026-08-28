@@ -186,10 +186,10 @@ checking only that the socket exists.
 - Create: `agterm/Ghostty/ZmxForegroundResolver.swift`
 - Modify: `ForegroundProcess.swift`, `ControlServer.swift`, zmx parser tests
 
-- [ ] map each wrapped pane name through the zmx leader to the daemon pty foreground group
-- [ ] cache the leader map, refresh on zmx lifecycle changes plus a slow reconcile, and evict dead entries
-- [ ] leave unwrapped lookup unchanged and avoid a `zmx ls` process per pane
-- [ ] test wrapped, stale and unwrapped cases
+- [x] map each wrapped pane name through the zmx leader to the daemon pty foreground group
+- [x] cache the leader map, refresh on zmx lifecycle changes plus a slow reconcile, and evict dead entries
+- [x] leave unwrapped lookup unchanged and avoid a `zmx ls` process per pane
+- [x] test wrapped, stale and unwrapped cases
 
 ### Task 8: Update general documentation
 

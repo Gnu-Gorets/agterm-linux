@@ -27,6 +27,7 @@ struct agtermApp: App {
     /// launch writes its own window snapshot moments after the scene appears and that write would read back
     /// as prior state.
     private let welcomeDue: Bool
+    private let zmxForegroundResolver: ZmxForegroundResolver?
 
     /// The plain `WindowGroup`'s scene id, used by `openWindow(id:)` to spawn additional windows.
     private static let windowGroupID = "terminal"
@@ -56,7 +57,9 @@ struct agtermApp: App {
         // FIRST, before anything reads or writes the state directory: `WindowLibrary`'s bootstrap seeds a
         // window and saves it, which a later read would see as evidence of an earlier launch.
         let hadPriorState = FirstRunWelcome.hasPriorState(in: stateDirectory)
-        let library = agtermApp.restoredLibrary(stateDirectory: stateDirectory)
+        let restored = agtermApp.restoredRuntime(stateDirectory: stateDirectory)
+        let library = restored.library
+        zmxForegroundResolver = restored.foregroundResolver
         _library = State(initialValue: library)
         let actions = AppActions(library: library)
         _actions = State(initialValue: actions)
@@ -68,7 +71,8 @@ struct agtermApp: App {
         welcomeDue = FirstRunWelcome.isDue(welcomeShown: settingsModel.settings.welcomeShown,
                                            hasPriorState: hadPriorState)
         let controlServer = ControlServer(library: library, actions: actions, settingsModel: settingsModel,
-                                          identity: Self.appIdentity)
+                                          identity: Self.appIdentity,
+                                          zmxForegroundResolver: restored.foregroundResolver)
         _controlServer = State(initialValue: controlServer)
         _sessionSwitcher = State(initialValue: SessionSwitcher(library: library, canSwitch: { actions.uiActionsEnabled }))
         _paneShortcuts = State(initialValue: PaneShortcuts(library: library, actions: actions))
@@ -101,11 +105,13 @@ struct agtermApp: App {
                     library: library,
                     makeSurface: {
                         Self.makeSurface(for: $0, store: $1,
-                                         env: surfaceEnv(for: $0, pane: .left), library: library)
+                                         env: surfaceEnv(for: $0, pane: .left), library: library,
+                                         zmxForegroundResolver: zmxForegroundResolver)
                     },
                     makeSplitSurface: {
                         Self.makeSplitSurface(for: $0, store: $1,
-                                              env: surfaceEnv(for: $0, pane: .right), library: library)
+                                              env: surfaceEnv(for: $0, pane: .right), library: library,
+                                              zmxForegroundResolver: zmxForegroundResolver)
                     },
                     makeOverlaySurface: {
                         Self.makeOverlaySurface(for: $0, store: $1, pane: $2, env: surfaceEnv(for: $0))
@@ -217,20 +223,33 @@ struct agtermApp: App {
     /// Builds the app-global window library at the state directory — `AGTERM_STATE_DIR`, a temp dir under UI test.
     /// Bootstrap migrates/recovers (legacy `workspaces.json` → one window, else seed): always valid, non-empty.
     @MainActor
-    private static func restoredLibrary(stateDirectory: URL) -> WindowLibrary {
-        guard !isHostedUnitTest else { return WindowLibrary(directory: stateDirectory) }
+    private struct RestoredRuntime {
+        let library: WindowLibrary
+        let foregroundResolver: ZmxForegroundResolver?
+    }
+
+    private static func restoredRuntime(stateDirectory: URL) -> RestoredRuntime {
+        guard !isHostedUnitTest else {
+            return RestoredRuntime(library: WindowLibrary(directory: stateDirectory), foregroundResolver: nil)
+        }
         let ghostty = GhosttyApp.shared
         let environment = ProcessInfo.processInfo.environment
         let executable = ZmxLaunch.executablePath(bundleURL: Bundle.main.bundleURL, environment: environment,
                                                   allowDebugOverride: ZmxLaunch.allowDebugOverride)
         let client = ZmxClient(executablePath: executable,
                               socketDirectory: ZmxSupport.socketDirectory(forStateDirectory: stateDirectory.path))
-        return WindowLibrary(
+        let foregroundResolver = ZmxForegroundResolver(leaderProvider: { client.sessionLeaderPIDs() })
+        let library = WindowLibrary(
             directory: stateDirectory,
-            paneFinalizer: { _ = client.kill(paneIdentities: $0) },
+            paneFinalizer: {
+                _ = client.kill(paneIdentities: $0)
+                foregroundResolver.noteLifecycleChange()
+            },
             launchInventorySink: {
                 _ = client.reap(knownPaneIdentities: $0, live: ghostty.launchRestoreMode == .live)
+                foregroundResolver.noteLifecycleChange()
             })
+        return RestoredRuntime(library: library, foregroundResolver: foregroundResolver)
     }
 
     /// Opens the windows open at quit beyond the one SwiftUI auto-opened at launch (which claimed the launch
@@ -245,7 +264,8 @@ struct agtermApp: App {
     /// directory. On shell exit the view calls back to close the owning session in the store.
     @MainActor
     private static func makeSurface(for session: Session, store: AppStore, env: [String: String],
-                                    library: WindowLibrary) -> GhosttySurfaceView {
+                                    library: WindowLibrary,
+                                    zmxForegroundResolver: ZmxForegroundResolver?) -> GhosttySurfaceView {
         // GhosttyApp resolved resources and latched restore mode before WindowLibrary assembled the launch
         // inventory, so every later factory reads the same process policy and GHOSTTY_RESOURCES_DIR.
         let ghostty = GhosttyApp.shared
@@ -262,6 +282,7 @@ struct agtermApp: App {
             : nil
         let disposition = ZmxLaunch.disposition(requested: ghostty.requestedRestoreMode,
                                                 active: ghostty.launchRestoreMode, configuration: zmx)
+        if disposition.backedByZmx { zmxForegroundResolver?.noteLifecycleChange() }
         let command: String?
         let initialInput: String?
         let waitAfterCommand: Bool
@@ -435,7 +456,8 @@ struct agtermApp: App {
     /// just the split (hide + teardown), not the session.
     @MainActor
     private static func makeSplitSurface(for session: Session, store: AppStore, env: [String: String],
-                                         library: WindowLibrary) -> GhosttySurfaceView {
+                                         library: WindowLibrary,
+                                         zmxForegroundResolver: ZmxForegroundResolver?) -> GhosttySurfaceView {
         // cwd is the persisted `initialSplitCwd` (a restored split keeps its own directory), else the session's
         // effectiveCwd. Font size matches the primary; the split's own cmd +/- is not persisted. Env inherits the
         // parent's window/workspace/session ids. The captured foreground command re-runs via initial_input
@@ -449,6 +471,7 @@ struct agtermApp: App {
             : nil
         let disposition = ZmxLaunch.disposition(requested: ghostty.requestedRestoreMode,
                                                 active: ghostty.launchRestoreMode, configuration: zmx)
+        if disposition.backedByZmx { zmxForegroundResolver?.noteLifecycleChange() }
         let command: String?
         let initialInput: String?
         let surfaceEnv: [String: String]

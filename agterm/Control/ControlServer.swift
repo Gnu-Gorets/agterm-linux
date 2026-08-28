@@ -22,6 +22,7 @@ final class ControlServer {
     let actions: AppActions
     let settingsModel: SettingsModel
     let launchRestoreMode: RestoreMode
+    let zmxForegroundResolver: ZmxForegroundResolver?
     private let socketPath: String
 
     /// The target-resolution query layer: owns the `emptyStore`/`store` frontmost-fallback and wraps the
@@ -132,11 +133,13 @@ final class ControlServer {
     let identity: AppIdentity
 
     init(library: WindowLibrary, actions: AppActions, settingsModel: SettingsModel, identity: AppIdentity,
-         launchRestoreMode: RestoreMode = GhosttyApp.shared.launchRestoreMode, socketPath: String? = nil) {
+         launchRestoreMode: RestoreMode = GhosttyApp.shared.launchRestoreMode,
+         zmxForegroundResolver: ZmxForegroundResolver? = nil, socketPath: String? = nil) {
         self.library = library
         self.actions = actions
         self.settingsModel = settingsModel
         self.launchRestoreMode = launchRestoreMode
+        self.zmxForegroundResolver = zmxForegroundResolver
         self.identity = identity
         self.resolver = ControlTargetResolver(library: library)
         self.socketPath = socketPath ?? ControlServer.defaultSocketPath()
@@ -642,6 +645,10 @@ final class ControlServer {
     /// selected session's owner, since an empty or foreground-created workspace becomes current on its own).
     func buildTree(in store: AppStore) -> ControlTree {
         let shellBasename = ProcessInfo.processInfo.environment["SHELL"].map(CommandRestore.basename)
+        let sessions = store.workspaces.flatMap(\.sessions)
+        if ZmxForegroundRefreshPolicy.hasWrappedPane(in: sessions) {
+            zmxForegroundResolver?.refreshIfNeeded()
+        }
         // the projected window owns its quick terminal; find its id by store identity to read the live
         // QuickTerminalController.isVisible (a nil controller — never opened, or tearing down — reads false).
         let windowID = library.windowID(for: store)
@@ -651,12 +658,14 @@ final class ControlServer {
         return store.controlTree(
             foreground: { session in
                 (session.surface as? GhosttySurfaceView).flatMap {
-                    ForegroundProcess.running(for: $0, shellBasename: shellBasename)
+                    ForegroundProcess.running(for: $0, shellBasename: shellBasename,
+                                              zmxResolver: zmxForegroundResolver)
                 }
             },
             splitForeground: { session in
                 (session.splitSurface as? GhosttySurfaceView).flatMap {
-                    ForegroundProcess.running(for: $0, shellBasename: shellBasename)
+                    ForegroundProcess.running(for: $0, shellBasename: shellBasename,
+                                              zmxResolver: zmxForegroundResolver)
                 }
             },
             fontSize: { ($0.addressableSurface as? GhosttySurfaceView)?.currentFontSize() },

@@ -49,4 +49,18 @@ final class ZmxClientTests: XCTestCase {
         XCTAssertTrue(client.kill(paneIdentities: [pane]))
         XCTAssertEqual(arguments, ["kill", "agterm-abcdef0123456789abcdef0123456789", "--force"])
     }
+
+    func testLeaderRefreshUsesOneFullListingAndParsesOnlyAppSessions() {
+        var invocations: [ZmxClient.Invocation] = []
+        let client = ZmxClient(executablePath: "/tmp/zmx", socketDirectory: "/tmp/zmx-dir") {
+            invocations.append($0)
+            return """
+            name=agterm-a\tpid=10\tclients=1\tcreated=1
+            name=other\tpid=11\tclients=0\tcreated=1
+            """
+        }
+
+        XCTAssertEqual(client.sessionLeaderPIDs(), ["agterm-a": 10])
+        XCTAssertEqual(invocations.map(\.arguments), [["list"]])
+    }
 }

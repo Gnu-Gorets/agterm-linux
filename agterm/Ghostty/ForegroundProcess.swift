@@ -37,8 +37,15 @@ enum ForegroundProcess {
     /// leader. Once the leader is reaped there is no parentage to test and every survivor qualifies, so a
     /// pipeline that outlives its `sudo` does report — see `groupDescentCandidates`.
     @MainActor
-    static func running(for view: GhosttySurfaceView, shellBasename: String?) -> [String]? {
-        guard let pgid = view.foregroundPid() else { return nil }
+    static func running(for view: GhosttySurfaceView, shellBasename: String?,
+                        zmxResolver: ZmxForegroundResolver? = nil) -> [String]? {
+        let pgid: pid_t?
+        if view.isZmxWrapped, let sessionName = view.zmxSessionName {
+            pgid = zmxResolver?.foregroundPID(sessionName: sessionName)
+        } else {
+            pgid = view.foregroundPid()
+        }
+        guard let pgid else { return nil }
         if let argv = procArgs(pid: pgid) { return usable(argv, shellBasename: shellBasename) }
         let members = CommandRestore.groupDescentCandidates(pgid: pgid, members: processGroup(pgid: pgid))
         for pid in members {

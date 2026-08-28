@@ -13,8 +13,8 @@ struct ZmxLifecycleTests {
         """
 
         #expect(try ZmxListParser.parse(output) == [
-            ZmxSessionRecord(name: "agterm-a", clients: 0),
-            ZmxSessionRecord(name: "agterm-b", clients: 2),
+            ZmxSessionRecord(name: "agterm-a", clients: 0, leaderPID: 10),
+            ZmxSessionRecord(name: "agterm-b", clients: 2, leaderPID: 11),
             ZmxSessionRecord(name: "agterm-busy", clients: nil),
         ])
     }
@@ -27,6 +27,52 @@ struct ZmxLifecycleTests {
         #expect(throws: ZmxListParser.ParseError.self) {
             try ZmxListParser.parse("name=agterm-a\tclients=wat\n")
         }
+        #expect(throws: ZmxListParser.ParseError.self) {
+            try ZmxListParser.parse("name=agterm-a\tpid=wat\tclients=0\n")
+        }
+    }
+
+    @Test func leaderMapUsesOnlyAppNamesWithReadablePositivePids() throws {
+        let records = try ZmxListParser.parse("""
+        name=agterm-a\tpid=10\tclients=0
+        name=other\tpid=11\tclients=0
+        name=agterm-no-pid\tclients=0
+        name=agterm-busy\terr=Timeout\tstatus=unreachable
+        """)
+
+        #expect(ZmxLeaderMap.leaders(in: records) == ["agterm-a": 10])
+    }
+
+    @Test func foregroundRefreshGateInvalidatesAndReconcilesSlowly() {
+        var gate = ZmxRefreshGate()
+        let start = Date(timeIntervalSince1970: 100)
+
+        let first = gate.shouldRefresh(now: start)
+        let held = gate.shouldRefresh(now: start.addingTimeInterval(1))
+        #expect(first)
+        #expect(!held)
+        gate.noteLifecycleChange()
+        let invalidated = gate.shouldRefresh(now: start.addingTimeInterval(2))
+        let heldAgain = gate.shouldRefresh(now: start.addingTimeInterval(3))
+        let reconciled = gate.shouldRefresh(
+            now: start.addingTimeInterval(2 + ZmxRefreshGate.reconcileInterval))
+        #expect(invalidated)
+        #expect(!heldAgain)
+        #expect(reconciled)
+    }
+
+    @Test func foregroundRefreshNeedsAtLeastOneActuallyWrappedPane() {
+        let ordinary = Session(initialCwd: "/ordinary")
+        ordinary.surface = SpySurface(backedByZmx: false)
+        let wrapped = Session(initialCwd: "/wrapped")
+        wrapped.surface = SpySurface(backedByZmx: true)
+
+        #expect(!ZmxForegroundRefreshPolicy.hasWrappedPane(in: [ordinary]))
+        #expect(ZmxForegroundRefreshPolicy.hasWrappedPane(in: [ordinary, wrapped]))
+        wrapped.surface = SpySurface(backedByZmx: false)
+        wrapped.hasSplit = true
+        wrapped.splitSurface = SpySurface(backedByZmx: true)
+        #expect(ZmxForegroundRefreshPolicy.hasWrappedPane(in: [wrapped]))
     }
 
     @Test func reapPolicyUsesCompleteLiveInventoryAndZeroClientAppNamesOnly() {

@@ -65,6 +65,15 @@ final class ZmxClient {
         kill(names: paneIdentities.map(ZmxSupport.daemonName(for:)))
     }
 
+    func sessionLeaderPIDs() -> [String: pid_t]? {
+        do {
+            return ZmxLeaderMap.leaders(in: try ZmxListParser.parse(invoke(["list"])))
+        } catch {
+            Self.logger.error("zmx leader refresh failed: \(String(describing: error), privacy: .public)")
+            return nil
+        }
+    }
+
     private func kill(names: [String]) -> Bool {
         var seen: Set<String> = []
         let unique = names.filter { seen.insert($0).inserted }
