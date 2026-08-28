@@ -13,7 +13,7 @@ flag or control command that opts a pane out of `live`.
 
 The implementation uses stock libghostty. A surface runs `zmx attach <name>` as its command, while zmx owns
 the long-lived shell. Scratch, overlay and quick terminals stay ephemeral. Zsh is the only supported login
-shell in v1; every other shell starts as an ordinary unwrapped shell with a visible warning.
+shell in v1; every other shell starts as an ordinary unwrapped shell and Settings explains why.
 
 ## Facts that replace the old plan
 
@@ -35,6 +35,10 @@ after reattach, and preserved terminal color when `NO_COLOR` is absent.
 Primary and split panes are wrapped. A split is already part of persisted session state through its layout,
 cwd, ratio and foreground fields. It needs one new stable identity so promotion cannot cross-wire daemon names.
 
+A hidden split persists `hasSplit` and its identity, so launch inventory still claims the daemon. Split focus
+is not added to the snapshot: after restart the hidden session defaults to its primary pane, and showing the
+split reattaches the surviving split daemon.
+
 Scratch, overlay and quick terminals stay unwrapped. Scratch has no snapshot representation, so a wrapped
 scratch would leave a daemon that no restored model could claim; launch reap would correctly treat it as an
 orphan. Making scratch persistent would change its product meaning and belongs outside this feature.
@@ -52,10 +56,9 @@ orphan. Making scratch persistent would change its product meaning and belongs o
 Changing modes does not clear older captured argv. Switching back to `rerun` has the same stale-capture
 behavior as turning the current boolean off and on.
 
-`tree` reports one session-level `backedByZmx` value. Wrapping is decided once per launch, and a failed
-`zmx attach` exits the surface rather than falling back to a plain shell, so a pane is never silently
-unwrapped inside a `live` launch. That is why no sidebar indicator is added: the state it would report
-cannot occur. An unsupported login shell is a whole-launch condition and Settings states it once.
+`tree` reports `backedByZmx` on each primary and split surface, plus a session aggregate that is true only when
+every existing pane is backed. Eligibility failures are process-wide and appear in Settings. A later attach
+failure for one pane is logged with its identity and reason. V1 adds no sidebar glyph for this rare state.
 
 ## Lifecycle table
 
@@ -68,7 +71,7 @@ Daemon action follows semantic deletion, never `TerminalSurface.teardown()`.
 | Immediate session or workspace close | Kill every covered daemon immediately. |
 | Window delete, open or closed | Kill every covered daemon from live or persisted state. |
 | Explicit split close or split process exit | Kill that split daemon. |
-| Hidden split | Stays alive while the app runs. The snapshot persists no hidden split, so a relaunch leaves it unclaimed and the reap collects it, exactly as a hidden split is lost today. |
+| Hidden split | Persist `hasSplit` and identity so the daemon remains claimed; restore focus to primary and reattach the split when shown. |
 | Primary exit with a split survivor | Move the survivor identity to primary; the dead daemon exits naturally. |
 | Live launch | Reap zero-client app daemons absent from a complete persisted-name set. Skip reap if inventory is incomplete. |
 | Non-live launch | Reap every zero-client app daemon in this instance namespace. |
@@ -101,7 +104,9 @@ checking only that the socket exists.
 - [ ] decode unknown mode strings as `none` and write only the new key
 - [ ] persist primary and split pane identity and use it as `AGTERM_PANE_ID`; promotion moves the survivor
       identity to primary and a new split mints another
-- [ ] test migration, identity minting on a legacy snapshot, duplicate sessions, and promotion then re-split
+- [ ] persist `hasSplit` for a hidden split without adding `splitFocused` to the snapshot
+- [ ] test migration, identity minting on a legacy snapshot, duplicate sessions, promotion then re-split, and
+      a hidden split that stays claimed while focus resets to primary
 - [ ] run the focused core tests
 
 ### Task 2: Add zsh wrapping inputs and daemon naming
@@ -149,14 +154,15 @@ checking only that the socket exists.
 ### Task 5: Wrap primary and split panes and report actual backing
 
 **Files:**
-- Modify: `agterm/agtermApp.swift`, `GhosttySurfaceView.swift`, control-tree shaping and sidebar rows
+- Modify: `agterm/agtermApp.swift`, `GhosttySurfaceView.swift`, control-tree shaping and logging
 - Create: focused app and UI tests
 
 - [ ] use the bundled binary and launch mode; keep `AGTERM_ZMX_PATH` as a Debug-only override
 - [ ] wrap primary and split panes and leave scratch, overlay and quick terminals unchanged
 - [ ] set wrapped state before surface creation and use native `command` plus `initial_input`
 - [ ] on fallback, start a plain shell without consuming capture or restore-override state
-- [ ] add session-level `backedByZmx` reporting the launch's actual wrapping, with no new sidebar element
+- [ ] add per-surface `backedByZmx`, a session aggregate, and pane-specific logging for attach failure; add no
+      sidebar element
 - [ ] bypass zmx in default UI tests with the UI-test sentinel; add one explicit real-zmx test with cleanup
 
 ### Task 6: Add zmx lifecycle control and launch cleanup
@@ -191,7 +197,8 @@ checking only that the socket exists.
 - Modify: `README.md`, `site/docs.html`, `site/index.html`, agent skill and troubleshooting pages
 
 - [ ] document the three modes, zsh-only support, restart requirement and primary/split scope
-- [ ] document session-level backing, fallback warnings, SIGTERM recovery and missing-daemon fresh shells
+- [ ] document per-surface backing, the session aggregate, the deliberate lack of sidebar UI, SIGTERM recovery
+      and missing-daemon fresh shells
 - [ ] document synthesized-screen losses and `--command` close/wait behavior
 - [ ] preserve command text owned by Task 4 and existing install/position facts
 - [ ] run writing and narrow documentation checks
