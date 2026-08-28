@@ -612,7 +612,11 @@ side, and reads `lastAppliedIsDark` when bare. Refuse it outside XCUITest; provi
   `AGT_*` context only). That is why a recipe preflight uses `agtermctl version` rather than the variable.
 
 - Session nodes include foreground/split foreground argv, background spec, overlay size, pane overlays,
-  split axis, split ratio, split focus, status fields, flag, unseen, restore pins, surfaces, and `realized`.
+  split axis, split ratio, split focus, status fields, flag, unseen, restore pins, surfaces, `realized`,
+  and `backedByZmx`.
+- `backedByZmx` on a session is true only when every existing primary/split pane is currently backed.
+  Primary/split entries in `surfaces` report their own Boolean; scratch and overlays omit it. Older servers
+  omit both levels. There is no sidebar indicator.
 - `realized` reports the MAIN pane's `TerminalSurface.isRealized`, populated host-free in
   `AppStore.controlTree` (no app closure — `isRealized` is on the protocol) and false for an empty slot, so
   only a server predating the field omits it. It exists because `session.new` answers `ok` for a model

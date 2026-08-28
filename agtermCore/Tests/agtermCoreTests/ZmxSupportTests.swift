@@ -98,6 +98,22 @@ struct ZmxSupportTests {
         #expect(!ZmxSupport.socketPathFits(directory: directory, daemonName: fittingName + "n"))
     }
 
+    @Test func launchDispositionKeepsLiveFallbackStateUnconsumed() {
+        let configuration = ZmxSupport.Configuration(
+            command: "zmx attach session", environment: [:], daemonName: "session",
+            socketDirectory: "/tmp/zmx", paneID: "pane")
+
+        #expect(ZmxSupport.launchDisposition(requested: .rerun, active: .rerun,
+                                             configuration: configuration) == .ordinary)
+        #expect(ZmxSupport.LaunchDisposition.ordinary.consumesRestoreState)
+        #expect(ZmxSupport.launchDisposition(requested: .live, active: .live,
+                                             configuration: configuration) == .wrapped(configuration))
+        #expect(!ZmxSupport.LaunchDisposition.wrapped(configuration).consumesRestoreState)
+        #expect(ZmxSupport.launchDisposition(requested: .live, active: .none,
+                                             configuration: nil) == .fallback)
+        #expect(!ZmxSupport.LaunchDisposition.fallback.consumesRestoreState)
+    }
+
     private func makeInputs(resources: URL, shell: String = "/bin/zsh",
                             baseEnvironment: [String: String] = [:]) -> ZmxSupport.Inputs {
         .init(zmxExecutablePath: "/bin/echo", passwordDatabaseShell: shell,

@@ -444,6 +444,9 @@
                 answer <span style="font-family: &quot;JetBrains Mono&quot;, monospace">session not realized</span>. A surface cannot be
                 created while the display is asleep, so a session made by a scheduled job overnight stays unrealized until the
                 displays wake, then recovers on its own — poll this after an unattended create),
+                <span style="font-family: &quot;JetBrains Mono&quot;, monospace">backedByZmx</span> (true only when every existing
+                primary/split pane is currently zmx-backed; each primary/split object in
+                <span style="font-family: &quot;JetBrains Mono&quot;, monospace">surfaces</span> reports its own value),
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace">hasSplit</span> (a second pane exists at all, shown or
                 hidden, omitted when there is none — read this rather than
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace">split</span> to tell whether a session has a split),

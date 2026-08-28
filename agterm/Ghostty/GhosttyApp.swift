@@ -117,7 +117,7 @@ final class GhosttyApp {
     private init() {
         let initialSettings = Self.settingsStore().load()
         let restoreDecision = initialSettings.effectiveRestoreMode.launchDecision(
-            passwordDatabaseShell: ZmxSpike.passwordDatabaseLoginShell())
+            liveUnavailableReason: ZmxLaunch.liveUnavailableReason())
         requestedRestoreMode = restoreDecision.requested
         launchRestoreMode = restoreDecision.active
         liveRestoreUnavailableReason = restoreDecision.liveUnavailableReason

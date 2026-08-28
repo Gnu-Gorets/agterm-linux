@@ -161,6 +161,18 @@ public final class Session: Identifiable {
     /// hiding the split keeps the shell alive. Freed only on `closeSplit`/`closeSession`.
     @ObservationIgnored public var splitSurface: (any TerminalSurface)?
 
+    public func zmxBacking(for surface: TerminalZoomSurface) -> Bool? {
+        switch surface {
+        case .primary: self.surface?.backedByZmx ?? false
+        case .split: splitSurface?.backedByZmx ?? false
+        default: nil
+        }
+    }
+
+    public var allPanesBackedByZmx: Bool {
+        (surface?.backedByZmx ?? false) && (!hasSplit || (splitSurface?.backedByZmx ?? false))
+    }
+
     /// Where the split (right) pane re-spawns on restore (the split factory reads it), from the persisted
     /// `SessionSnapshot.splitCwd`, so each pane keeps its own cwd across a relaunch; nil for a fresh split,
     /// which seeds from `effectiveCwd`.

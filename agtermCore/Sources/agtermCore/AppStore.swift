@@ -278,15 +278,15 @@ public final class AppStore {
                 let surfaces = TerminalZoomSurface.allCases.compactMap { surface -> ControlSurfaceNode? in
                     guard surface.isAvailable(in: session) else { return nil }
                     let id = TerminalSurfaceID(sessionID: session.id, surface: surface).rawValue
-                    return ControlSurfaceNode(id: id, kind: surface.rawValue,
-                                              active: surface.isActive(in: session),
-                                              visible: surface.isVisible(in: session))
+                    return ControlSurfaceNode(id: id, kind: surface.rawValue, active: surface.isActive(in: session),
+                                              visible: surface.isVisible(in: session),
+                                              backedByZmx: session.zmxBacking(for: surface))
                 }
                 return ControlSessionNode(id: session.id.uuidString, name: session.displayName,
                                           cwd: session.effectiveCwd, title: session.oscTitle,
                                           active: session.id == activeID,
-                                          split: session.isSplit,
-                                          hasSplit: session.hasSplit ? true : nil,
+                                          split: session.isSplit, hasSplit: session.hasSplit ? true : nil,
+                                          backedByZmx: session.allPanesBackedByZmx,
                                           splitAxis: session.hasSplit ? session.splitAxis.rawValue : nil,
                                           splitRatio: session.hasSplit ? session.splitRatio : nil,
                                           splitFocused: session.hasSplit ? session.splitFocused : nil,

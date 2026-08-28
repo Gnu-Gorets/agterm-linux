@@ -234,6 +234,26 @@ struct AppStorePaneTests {
         #expect(realized() == true)
     }
 
+    @Test func controlTreeReportsPerPaneAndAggregateZmxBacking() {
+        let store = makeStore()
+        let ws = store.addWorkspace(name: "work")
+        let session = store.addSession(toWorkspace: ws.id, cwd: "/a")!
+        session.surface = SpySurface(backedByZmx: true)
+        session.hasSplit = true
+        session.isSplit = true
+        session.splitSurface = SpySurface(backedByZmx: false)
+
+        var node = store.controlTree().workspaces[0].sessions[0]
+        #expect(node.backedByZmx == false)
+        #expect(node.surfaces?.first(where: { $0.kind == "left" })?.backedByZmx == true)
+        #expect(node.surfaces?.first(where: { $0.kind == "right" })?.backedByZmx == false)
+        #expect(node.surfaces?.first(where: { $0.kind == "scratch" })?.backedByZmx == nil)
+
+        session.splitSurface = SpySurface(backedByZmx: true)
+        node = store.controlTree().workspaces[0].sessions[0]
+        #expect(node.backedByZmx == true)
+    }
+
     @Test func addressableSurfaceIsTheMainPaneUntilThePrimaryExits() {
         let store = makeStore()
         let ws = store.addWorkspace(name: "work")

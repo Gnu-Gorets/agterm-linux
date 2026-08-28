@@ -157,13 +157,13 @@ checking only that the socket exists.
 - Modify: `agterm/agtermApp.swift`, `GhosttySurfaceView.swift`, control-tree shaping and logging
 - Create: focused app and UI tests
 
-- [ ] use the bundled binary and launch mode; keep `AGTERM_ZMX_PATH` as a Debug-only override
-- [ ] wrap primary and split panes and leave scratch, overlay and quick terminals unchanged
-- [ ] set wrapped state before surface creation and use native `command` plus `initial_input`
-- [ ] on fallback, start a plain shell without consuming capture or restore-override state
-- [ ] add per-surface `backedByZmx`, a session aggregate, and pane-specific logging for attach failure; add no
+- [x] use the bundled binary and launch mode; keep `AGTERM_ZMX_PATH` as a Debug-only override
+- [x] wrap primary and split panes and leave scratch, overlay and quick terminals unchanged
+- [x] set wrapped state before surface creation and use native `command` plus `initial_input`
+- [x] on fallback, start a plain shell without consuming capture or restore-override state
+- [x] add per-surface `backedByZmx`, a session aggregate, and pane-specific logging for attach failure; add no
       sidebar element
-- [ ] bypass zmx in default UI tests with the UI-test sentinel; add one explicit real-zmx test with cleanup
+- [x] bypass zmx in default UI tests with the UI-test sentinel; add one explicit real-zmx test with cleanup
 
 ### Task 6: Add zmx lifecycle control and launch cleanup
 

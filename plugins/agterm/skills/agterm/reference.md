@@ -112,6 +112,8 @@ new` returns `ok` for a session that exists in the model, which is not the same 
 to create a surface while the DISPLAY is asleep, so a session a scheduled job creates overnight stays
 unrealized until the displays wake, at which point it recovers on its own. Poll this after creating a
 session unattended; `agtermctl tree` also tags the row `(not realized)`),
+`backedByZmx` (true only when every existing primary/split pane is currently zmx-backed; older servers omit
+it),
 `hasSplit` (whether a second pane exists at all, shown or hidden with ⌘D; omitted when there is none —
 read THIS to decide whether a session has a split, because a hidden split reports `split: false` while
 its pane stays alive, and it is present exactly when `splitRatio`/`splitFocused` can be),
@@ -180,8 +182,9 @@ the read side of `font --pane`; each omitted when that pane isn't realized. `fon
 default/left target (the main pane, or the promoted split survivor once the primary exits — the same pane
 `font --pane left` writes); only the main pane's size survives a relaunch, so the split/scratch sizes and a
 promoted survivor are live-only — read them back here rather than from the snapshot), and `surfaces` (array
-of `{id, kind, active, visible}` where `kind` is
+of `{id, kind, active, visible, backedByZmx?}` where `kind` is
 `left`|`right`|`scratch`|`overlay`|`overlay-left`|`overlay-right`).
+Primary/split surfaces report `backedByZmx`; scratch and overlays omit it.
 The surface `id` is the address for `surface zoom`; hidden-but-alive split/scratch surfaces are included
 so a script can zoom them without changing split/scratch visibility first. Caveat: `active`/`visible`
 derive from the session's own flags, not from zoom — and `visible` reads false for a pane behind a

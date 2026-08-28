@@ -237,7 +237,7 @@ struct agtermApp: App {
     private static func makeSurface(for session: Session, store: AppStore, env: [String: String],
                                     library: WindowLibrary) -> GhosttySurfaceView {
         // Initializing GhosttyApp resolves the bundled resources and exports GHOSTTY_RESOURCES_DIR before the
-        // zmx gate reads it. The value is also the restore-setting authority for the ordinary launch path.
+        // zmx config reads it. The value is also the restore-setting authority for the ordinary launch path.
         let ghostty = GhosttyApp.shared
         // `initialCommand` (`session.new --command`) replaces the login shell and closes the session on its exit
         // (like kitty); it is the durable creation identity, re-emitted by every `snapshot()`. `foregroundCommand`,
@@ -248,18 +248,21 @@ struct agtermApp: App {
         // `session.restore` override beats both from the TRANSIENT pending slot. The zmx path deliberately leaves
         // both pending slots untouched because the still-running daemon, not a replay command, owns restoration.
         let zmx = ghostty.launchRestoreMode == .live
-            ? ZmxSpike.configuration(paneIdentity: session.paneIdentity, environment: env)
+            ? ZmxLaunch.configuration(paneIdentity: session.paneIdentity, pane: "primary", environment: env)
             : nil
+        let disposition = ZmxLaunch.disposition(requested: ghostty.requestedRestoreMode,
+                                                active: ghostty.launchRestoreMode, configuration: zmx)
         let command: String?
         let initialInput: String?
         let waitAfterCommand: Bool
         let surfaceEnv: [String: String]
-        if let zmx {
+        switch disposition {
+        case .wrapped(let zmx):
             command = zmx.command
             initialInput = session.wasRestored ? nil : session.initialCommand.map { $0 + "\n" }
             waitAfterCommand = false
             surfaceEnv = zmx.environment
-        } else {
+        case .ordinary:
             let pendingForeground = session.takePendingForegroundCommand(pane: .left)
             let restoreInput = Self.restoreInitialInput(pendingForeground)
             let inputs = CommandRestore.RestoreInputs(
@@ -275,11 +278,16 @@ struct agtermApp: App {
             initialInput = plan.initialInput
             waitAfterCommand = session.commandWait
             surfaceEnv = env
+        case .fallback:
+            command = nil
+            initialInput = nil
+            waitAfterCommand = false
+            surfaceEnv = env
         }
         let view = GhosttySurfaceView(workingDirectory: session.initialCwd, fontSize: session.fontSize.map(Float.init),
                                       command: command, initialInput: initialInput,
-                                      waitAfterCommand: waitAfterCommand, env: surfaceEnv)
-        view.isZmxWrapped = zmx != nil
+                                      waitAfterCommand: waitAfterCommand, env: surfaceEnv,
+                                      backedByZmx: disposition.backedByZmx)
         view.session = session
         let sessionID = session.id
         view.onExit = { [weak view] in
@@ -425,12 +433,37 @@ struct agtermApp: App {
         // `restorePlan` — `restoreInput` alone decides. A `session.restore` override wins over the capture, from
         // the TRANSIENT pending slot (seeded only by an app-bootstrap restore whose split was shown) not the
         // sticky persisted field; taking it clears it, so a fresh ⌘D split after a split shell exits is a shell.
-        let capturedInput = Self.restoreInitialInput(session.takePendingForegroundCommand(pane: .right))
-        let restoreInput = CommandRestore.restoreInput(restoreEnabled: GhosttyApp.shared.restoreRunningCommand,
-                                                       restoreOverride: session.takePendingRestoreOverride(pane: .right),
-                                                       capturedInput: capturedInput)
+        let ghostty = GhosttyApp.shared
+        let zmx = ghostty.launchRestoreMode == .live
+            ? ZmxLaunch.configuration(paneIdentity: session.splitPaneIdentity, pane: "split", environment: env)
+            : nil
+        let disposition = ZmxLaunch.disposition(requested: ghostty.requestedRestoreMode,
+                                                active: ghostty.launchRestoreMode, configuration: zmx)
+        let command: String?
+        let initialInput: String?
+        let surfaceEnv: [String: String]
+        switch disposition {
+        case .wrapped(let zmx):
+            command = zmx.command
+            initialInput = nil
+            surfaceEnv = zmx.environment
+        case .ordinary:
+            let capturedInput = Self.restoreInitialInput(session.takePendingForegroundCommand(pane: .right))
+            initialInput = CommandRestore.restoreInput(
+                restoreEnabled: ghostty.restoreRunningCommand,
+                restoreOverride: session.takePendingRestoreOverride(pane: .right),
+                capturedInput: capturedInput)
+            command = nil
+            surfaceEnv = env
+        case .fallback:
+            command = nil
+            initialInput = nil
+            surfaceEnv = env
+        }
         let view = GhosttySurfaceView(workingDirectory: session.initialSplitCwd ?? session.effectiveCwd,
-                                      fontSize: session.fontSize.map(Float.init), initialInput: restoreInput, env: env)
+                                      fontSize: session.fontSize.map(Float.init), command: command,
+                                      initialInput: initialInput, env: surfaceEnv,
+                                      backedByZmx: disposition.backedByZmx)
         view.session = session
         view.isSplitPane = true
         let sessionID = session.id

@@ -134,8 +134,9 @@ paths:
   non-zero diagnostics. A config-directory change reloads both co-located files. Launch also reports
   cached diagnostics.
 - **Restore mode is frozen at launch.** `none` restores fresh shells, `rerun` uses the captured-command path
-  below, and `live` is zmx-backed. Settings changes apply after restart. A live request on an unsupported
-  password-database login shell falls back to `none`, and Settings explains that zsh is required. Every
+  below, and `live` is zmx-backed. Settings changes apply after restart. A live request falls back to
+  `none` when the bundled executable, zsh integration, socket budget, or password-database login shell is
+  unsupported, and Settings reports the reason. Every
   primary/split factory, later session, reopened window, capture gate and quit path reads the immutable
   launch mode, never the mutable setting.
 - **Rerun replay is launch-scoped; capture runs at two exits and on demand.**

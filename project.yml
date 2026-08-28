@@ -190,6 +190,7 @@ targets:
       - agtermUITests
     dependencies:
       - target: agterm
+      - package: agtermCore
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.umputun.agtermUITests

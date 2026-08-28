@@ -2,6 +2,18 @@ import Foundation
 
 /// Host-free validation and configuration for a zmx-backed terminal surface.
 public enum ZmxSupport {
+    public enum LaunchDisposition: Equatable, Sendable {
+        case ordinary
+        case wrapped(Configuration)
+        case fallback
+
+        public var consumesRestoreState: Bool { self == .ordinary }
+        public var backedByZmx: Bool {
+            guard case .wrapped = self else { return false }
+            return true
+        }
+    }
+
     public struct Inputs: Sendable {
         public let zmxExecutablePath: String
         public let passwordDatabaseShell: String?
@@ -30,6 +42,15 @@ public enum ZmxSupport {
         public let daemonName: String
         public let socketDirectory: String
         public let paneID: String
+
+        public init(command: String, environment: [String: String], daemonName: String,
+                    socketDirectory: String, paneID: String) {
+            self.command = command
+            self.environment = environment
+            self.daemonName = daemonName
+            self.socketDirectory = socketDirectory
+            self.paneID = paneID
+        }
     }
 
     public enum Rejection: Error, Equatable, Sendable {
@@ -100,7 +121,14 @@ public enum ZmxSupport {
         ))
     }
 
-    static func socketDirectory(forStateDirectory stateDirectory: String) -> String {
+    public static func launchDisposition(requested: RestoreMode, active: RestoreMode,
+                                         configuration: Configuration?) -> LaunchDisposition {
+        guard requested == .live else { return .ordinary }
+        guard active == .live, let configuration else { return .fallback }
+        return .wrapped(configuration)
+    }
+
+    public static func socketDirectory(forStateDirectory stateDirectory: String) -> String {
         let canonical = URL(fileURLWithPath: stateDirectory, isDirectory: true)
             .standardizedFileURL.resolvingSymlinksInPath().path
         return "/tmp/agterm-zmx-\(stableHash(canonical))"

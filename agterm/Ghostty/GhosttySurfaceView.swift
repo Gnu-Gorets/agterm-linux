@@ -46,8 +46,9 @@ final class GhosttySurfaceView: NSView, TerminalSurface {
     /// The owning model session, `weak` to break the cycle with `Session.surface`. Set by the factory.
     weak var session: Session?
 
-    /// Whether this primary pane actually launched through the env-gated zmx spike.
-    var isZmxWrapped = false
+    /// Whether this primary/split pane launched through zmx. Fixed before `createSurface` reads its config.
+    let backedByZmx: Bool
+    var isZmxWrapped: Bool { backedByZmx }
 
     /// The session whose visual config this surface inherits when it deliberately has no `session`: the scratch
     /// renders the owner's watermark without its OSC title/PWD reports mutating the session model. Nil for
@@ -326,7 +327,8 @@ final class GhosttySurfaceView: NSView, TerminalSurface {
     var lastReportedMousePoint: NSPoint?
 
     init(workingDirectory: String, fontSize: Float? = nil, command: String? = nil, initialInput: String? = nil,
-         waitAfterCommand: Bool = false, autoFocus: Bool = false, env: [String: String] = [:]) {
+         waitAfterCommand: Bool = false, autoFocus: Bool = false, env: [String: String] = [:],
+         backedByZmx: Bool = false) {
         self.workingDirectory = workingDirectory
         self.initialFontSize = fontSize
         self.command = command
@@ -334,6 +336,7 @@ final class GhosttySurfaceView: NSView, TerminalSurface {
         self.waitAfterCommand = waitAfterCommand
         self.autoFocus = autoFocus
         self.env = env
+        self.backedByZmx = backedByZmx
         super.init(frame: .zero)
         wantsLayer = true
         setupTrackingArea()
@@ -509,6 +512,9 @@ final class GhosttySurfaceView: NSView, TerminalSurface {
         // SHOW_CHILD_EXITED action and close_surface_cb can both fire for one exit.
         guard !didHandleProcessExit else { return }
         didHandleProcessExit = true
+        if backedByZmx {
+            logger.error("zmx attach process exited for pane \(self.paneToken, privacy: .public)")
+        }
         onExit?()
     }
 
@@ -574,9 +580,9 @@ final class GhosttySurfaceView: NSView, TerminalSurface {
         }
         // restore-running-command: feed the captured command line to the login shell as if typed, so it re-runs
         // and exits back to a prompt. Ordinary command surfaces keep the fields mutually exclusive because a
-        // command REPLACES the shell. The zmx spike is the exception: its command is the attach client, and
+        // command REPLACES the shell. A zmx-backed surface is the exception: its command is the attach client, and
         // libghostty's initial input is what that client forwards into the daemon-side shell.
-        if command == nil || isZmxWrapped, let initialInput, let p = strdup(initialInput) {
+        if command == nil || backedByZmx, let initialInput, let p = strdup(initialInput) {
             configCStrings.append(p)
             config.initial_input = UnsafePointer(p)
         }

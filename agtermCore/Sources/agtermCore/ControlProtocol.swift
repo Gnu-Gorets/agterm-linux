@@ -424,12 +424,19 @@ public struct ControlSurfaceNode: Codable, Sendable, Equatable {
     public let kind: String
     public let active: Bool
     public let visible: Bool
+    /// Actual zmx backing for primary/split surfaces; nil for ephemeral surfaces or older servers.
+    public let backedByZmx: Bool?
 
     public init(id: String, kind: String, active: Bool, visible: Bool) {
+        self.init(id: id, kind: kind, active: active, visible: visible, backedByZmx: nil)
+    }
+
+    public init(id: String, kind: String, active: Bool, visible: Bool, backedByZmx: Bool?) {
         self.id = id
         self.kind = kind
         self.active = active
         self.visible = visible
+        self.backedByZmx = backedByZmx
     }
 }
 
@@ -500,6 +507,8 @@ public struct ControlSessionNode: Codable, Sendable, Equatable {
     /// second-guessing `split`. The sidebar icon, the dashboard's second cell and Focus Left/Right Pane all
     /// follow this, not `split`.
     public let hasSplit: Bool?
+    /// True only when every existing primary/split pane is currently zmx-backed; nil on older servers.
+    public let backedByZmx: Bool?
     /// Divider direction for a live split (`vertical`=left/right, `horizontal`=top/bottom); nil without one.
     public let splitAxis: String?
     /// The primary-pane fraction (0.05...0.95) of a session that HAS a split (shown or hidden); nil with no
@@ -599,7 +608,7 @@ public struct ControlSessionNode: Codable, Sendable, Equatable {
     public let realized: Bool?
 
     public init(id: String, name: String, cwd: String, title: String? = nil, active: Bool, split: Bool,
-                hasSplit: Bool? = nil, splitAxis: String? = nil,
+                hasSplit: Bool? = nil, backedByZmx: Bool?, splitAxis: String? = nil,
                 splitRatio: Double? = nil, splitFocused: Bool? = nil,
                 overlay: Bool = false, overlaySizePercent: Int? = nil, paneOverlays: [String]? = nil,
                 hud: ControlHudNode? = nil, scratch: Bool = false, flagged: Bool = false,
@@ -618,6 +627,7 @@ public struct ControlSessionNode: Codable, Sendable, Equatable {
         self.active = active
         self.split = split
         self.hasSplit = hasSplit
+        self.backedByZmx = backedByZmx
         self.splitAxis = splitAxis
         self.splitRatio = splitRatio
         self.splitFocused = splitFocused
