@@ -247,7 +247,7 @@ struct agtermApp: App {
         // honors the toggle, and a captured foreground preempts `initialCommand` even when denylist-suppressed. A
         // `session.restore` override beats both from the TRANSIENT pending slot. The zmx path deliberately leaves
         // both pending slots untouched because the still-running daemon, not a replay command, owns restoration.
-        let zmx = ZmxSpike.configuration(sessionID: session.id, environment: env)
+        let zmx = ZmxSpike.configuration(paneIdentity: session.paneIdentity, environment: env)
         let command: String?
         let initialInput: String?
         let waitAfterCommand: Bool
@@ -589,12 +589,18 @@ struct agtermApp: App {
                 workspaceID = workspace.id
             }
         }
-        // a session-owned pane bakes a fresh stable AGTERM_PANE_ID, so the hook forwards --pane-id and the
-        // status handler resolves the surface's LIVE slot, not the baked role (#199); the overlay needs none.
+        let paneIdentity: UUID? = switch pane {
+        case .left: session.paneIdentity
+        case .right: session.splitPaneIdentity
+        case .scratch: UUID()
+        case nil: nil
+        }
+        // a session-owned pane bakes its stable identity, so the hook resolves the surface's live slot after
+        // promotion; scratch is ephemeral and gets one identity for the lifetime of its surface.
         return SurfaceEnvironment.session(sessionID: session.id, windowID: windowID,
                                           workspaceID: workspaceID, socketPath: controlServer.resolvedSocketPath,
                                           programVersion: Self.terminalProgramVersion,
-                                          pane: pane, paneToken: pane == nil ? nil : UUID().uuidString)
+                                          pane: pane, paneToken: paneIdentity?.uuidString)
     }
 
     /// The environment the quick terminal exposes — scratch, not in the tree and owned by no window, so its

@@ -116,12 +116,12 @@ checking only that the socket exists.
 - Create: `agtermCore/Tests/agtermCoreTests/ZmxSupportTests.swift`
 - Modify/Delete: `agterm/Ghostty/ZmxSpike.swift` when its logic moves
 
-- [ ] accept only a password-database login shell whose basename is `zsh`
-- [ ] reproduce zsh integration with `ZDOTDIR`, preserved `GHOSTTY_ZSH_ZDOTDIR`, explicit `SHELL`, `ZMX_DIR`
+- [x] accept only a password-database login shell whose basename is `zsh`
+- [x] reproduce zsh integration with `ZDOTDIR`, preserved `GHOSTTY_ZSH_ZDOTDIR`, explicit `SHELL`, `ZMX_DIR`
       and `ZMX_NO_DETACH_KEY=1`; require the bundled zsh loader
-- [ ] name daemons from the full compact pane UUID and use it as `AGTERM_PANE_ID`
-- [ ] derive the namespace from a canonical state path and check the final Unix socket budget
-- [ ] test supported, unsupported and missing-resource decisions plus stable names and path limits
+- [x] name daemons from the full compact pane UUID and use it as `AGTERM_PANE_ID`
+- [x] derive the namespace from a canonical state path and check the final Unix socket budget
+- [x] test supported, unsupported and missing-resource decisions plus stable names and path limits
 
 ### Task 3: Build and sign zmx
 
