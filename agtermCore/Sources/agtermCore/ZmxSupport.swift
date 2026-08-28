@@ -95,7 +95,7 @@ public enum ZmxSupport {
             return .failure(.missingZshIntegration)
         }
 
-        let daemonName = "agterm-" + compactUUID(inputs.paneIdentity)
+        let daemonName = daemonName(for: inputs.paneIdentity)
         let socketDirectory = socketDirectory(forStateDirectory: inputs.stateDirectory)
         guard socketPathFits(directory: socketDirectory, daemonName: daemonName) else {
             return .failure(.socketPathTooLong)
@@ -132,6 +132,10 @@ public enum ZmxSupport {
         let canonical = URL(fileURLWithPath: stateDirectory, isDirectory: true)
             .standardizedFileURL.resolvingSymlinksInPath().path
         return "/tmp/agterm-zmx-\(stableHash(canonical))"
+    }
+
+    public static func daemonName(for paneIdentity: UUID) -> String {
+        "agterm-" + compactUUID(paneIdentity)
     }
 
     static func socketPathFits(directory: String, daemonName: String) -> Bool {

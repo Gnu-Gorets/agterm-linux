@@ -86,6 +86,9 @@ public final class WindowLibrary {
     @ObservationIgnored private let recentClosedStore: RecentClosedStore
     /// One bounded run-identified ring shared by every window store for this library/app lifetime.
     @ObservationIgnored private let controlEventRing: ControlEventRing
+    @ObservationIgnored private let paneFinalizer: (([UUID]) -> Void)?
+    @ObservationIgnored private let launchInventorySink: ((Set<UUID>?) -> Void)?
+    @ObservationIgnored private var launchInventoryComplete = true
     @ObservationIgnored private var treeEventDebouncers: [UUID: Debouncer]
     @ObservationIgnored private var isBootstrapping = true
 
@@ -112,18 +115,30 @@ public final class WindowLibrary {
     private var indexURL: URL { directory.appendingPathComponent(Self.indexFileName) }
     private var windowsDirectory: URL { directory.appendingPathComponent(Self.windowsSubdirectory, isDirectory: true) }
 
-    /// Creates the library rooted at `directory`, running migration/recovery per the recovery contract.
+    /// Preserves the pre-zmx initializer symbol for source and incremental-build compatibility.
+    public convenience init(directory: URL = PersistenceStore.defaultDirectory,
+                            controlEventRing: ControlEventRing? = nil) {
+        self.init(directory: directory, paneFinalizer: nil, launchInventorySink: nil,
+                  controlEventRing: controlEventRing)
+    }
+
+    /// Creates the library rooted at `directory`, running migration/recovery and the strict pane inventory.
     public init(directory: URL = PersistenceStore.defaultDirectory,
+                paneFinalizer: (([UUID]) -> Void)?,
+                launchInventorySink: ((Set<UUID>?) -> Void)? = nil,
                 controlEventRing: ControlEventRing? = nil) {
         self.directory = directory
         self.recentClosedStore = RecentClosedStore(directory: directory)
         self.controlEventRing = controlEventRing ?? ControlEventRing()
+        self.paneFinalizer = paneFinalizer
+        self.launchInventorySink = launchInventorySink
         self.treeEventDebouncers = [:]
         self.stores = [:]
         self.windows = []
         self.recentClosedItems = recentClosedStore.load()
         self.frontmostWindowID = nil
         bootstrap()
+        if let launchInventorySink { launchInventorySink(prepareLaunchPaneInventory()) }
         isBootstrapping = false
     }
 
@@ -347,7 +362,7 @@ public final class WindowLibrary {
         if let existing = stores[id] { return existing }
         let persistence = persistenceStore(for: id)
         let store = makeStore(for: id, persistence: persistence)
-        let snapshot = persistence.load()
+        let snapshot = loadSnapshotForStore(persistence)
         store.restore(from: snapshot, launchRestore: launchRestore)
         stores[id] = store
         let carriedCaptures = snapshot.workspaces.contains { workspace in
@@ -467,6 +482,7 @@ public final class WindowLibrary {
     /// persists. No-ops on the last window. Clears `frontmostWindowID` if it pointed at the removed one.
     public func removeWindow(_ id: UUID) {
         guard canRemoveWindow, let index = windows.firstIndex(where: { $0.id == id }) else { return }
+        finalizeWindowPanes(id)
         if let store = stores[id] {
             for workspace in store.workspaces {
                 for session in workspace.sessions { store.emitSessionClosed(session, workspace: workspace.id) }
@@ -690,8 +706,74 @@ public final class WindowLibrary {
                     session: draft.session,
                     payload: draft.payload
                 ))
-            }
+            },
+            paneFinalizer: paneFinalizer
         )
+    }
+
+    private func loadSnapshotForStore(_ persistence: PersistenceStore) -> Snapshot {
+        guard launchInventorySink != nil else { return persistence.load() }
+        var snapshot: Snapshot
+        do {
+            snapshot = try persistence.loadChecked()
+        } catch {
+            launchInventoryComplete = false
+            log("pane inventory could not read an open window snapshot: \(error)")
+            return persistence.load()
+        }
+        let upgrade = PaneIdentityInventory.upgrade(&snapshot)
+        if upgrade.changed {
+            do {
+                try persistence.save(snapshot)
+            } catch {
+                launchInventoryComplete = false
+                log("pane inventory could not persist an open window upgrade: \(error)")
+            }
+        }
+        return snapshot
+    }
+
+    private func prepareLaunchPaneInventory() -> Set<UUID>? {
+        var identities: Set<UUID> = []
+        for window in windows {
+            let persistence = persistenceStore(for: window.id)
+            do {
+                var snapshot = try persistence.loadChecked()
+                let upgrade = PaneIdentityInventory.upgrade(&snapshot)
+                if let store = stores[window.id] {
+                    let live = Set(PaneIdentityInventory.identities(in: store.workspaces.flatMap(\.sessions)))
+                    guard !upgrade.changed, upgrade.identities == live else {
+                        launchInventoryComplete = false
+                        log("pane inventory disagrees with open window \(window.id)")
+                        continue
+                    }
+                    identities.formUnion(live)
+                } else {
+                    if upgrade.changed { try persistence.save(snapshot) }
+                    identities.formUnion(upgrade.identities)
+                }
+            } catch {
+                launchInventoryComplete = false
+                log("pane inventory could not read or upgrade closed window \(window.id): \(error)")
+            }
+        }
+        return launchInventoryComplete ? identities : nil
+    }
+
+    private func finalizeWindowPanes(_ id: UUID) {
+        guard let paneFinalizer else { return }
+        if let store = stores[id] {
+            let identities = PaneIdentityInventory.identities(in: store.workspaces.flatMap(\.sessions))
+            if !identities.isEmpty { paneFinalizer(identities) }
+            return
+        }
+        do {
+            var snapshot = try persistenceStore(for: id).loadChecked()
+            let identities = PaneIdentityInventory.upgrade(&snapshot).identities
+            if !identities.isEmpty { paneFinalizer(Array(identities)) }
+        } catch {
+            log("window delete could not inventory panes for \(id): \(error)")
+        }
     }
 
     private func scheduleTreeChanged(for windowID: UUID) {

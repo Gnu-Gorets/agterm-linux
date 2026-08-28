@@ -56,7 +56,7 @@ struct agtermApp: App {
         // FIRST, before anything reads or writes the state directory: `WindowLibrary`'s bootstrap seeds a
         // window and saves it, which a later read would see as evidence of an earlier launch.
         let hadPriorState = FirstRunWelcome.hasPriorState(in: stateDirectory)
-        let library = agtermApp.restoredLibrary()
+        let library = agtermApp.restoredLibrary(stateDirectory: stateDirectory)
         _library = State(initialValue: library)
         let actions = AppActions(library: library)
         _actions = State(initialValue: actions)
@@ -217,10 +217,20 @@ struct agtermApp: App {
     /// Builds the app-global window library at the state directory — `AGTERM_STATE_DIR`, a temp dir under UI test.
     /// Bootstrap migrates/recovers (legacy `workspaces.json` → one window, else seed): always valid, non-empty.
     @MainActor
-    private static func restoredLibrary() -> WindowLibrary {
-        ProcessInfo.processInfo.environment["AGTERM_STATE_DIR"]
-            .map { WindowLibrary(directory: URL(fileURLWithPath: $0, isDirectory: true)) }
-            ?? WindowLibrary()
+    private static func restoredLibrary(stateDirectory: URL) -> WindowLibrary {
+        guard !isHostedUnitTest else { return WindowLibrary(directory: stateDirectory) }
+        let ghostty = GhosttyApp.shared
+        let environment = ProcessInfo.processInfo.environment
+        let executable = ZmxLaunch.executablePath(bundleURL: Bundle.main.bundleURL, environment: environment,
+                                                  allowDebugOverride: ZmxLaunch.allowDebugOverride)
+        let client = ZmxClient(executablePath: executable,
+                              socketDirectory: ZmxSupport.socketDirectory(forStateDirectory: stateDirectory.path))
+        return WindowLibrary(
+            directory: stateDirectory,
+            paneFinalizer: { _ = client.kill(paneIdentities: $0) },
+            launchInventorySink: {
+                _ = client.reap(knownPaneIdentities: $0, live: ghostty.launchRestoreMode == .live)
+            })
     }
 
     /// Opens the windows open at quit beyond the one SwiftUI auto-opened at launch (which claimed the launch
@@ -236,8 +246,8 @@ struct agtermApp: App {
     @MainActor
     private static func makeSurface(for session: Session, store: AppStore, env: [String: String],
                                     library: WindowLibrary) -> GhosttySurfaceView {
-        // Initializing GhosttyApp resolves the bundled resources and exports GHOSTTY_RESOURCES_DIR before the
-        // zmx config reads it. The value is also the restore-setting authority for the ordinary launch path.
+        // GhosttyApp resolved resources and latched restore mode before WindowLibrary assembled the launch
+        // inventory, so every later factory reads the same process policy and GHOSTTY_RESOURCES_DIR.
         let ghostty = GhosttyApp.shared
         // `initialCommand` (`session.new --command`) replaces the login shell and closes the session on its exit
         // (like kitty); it is the durable creation identity, re-emitted by every `snapshot()`. `foregroundCommand`,

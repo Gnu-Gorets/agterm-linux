@@ -234,9 +234,9 @@ extension AppStore {
         pendingCloseOrder.removeAll { $0 == id }
         switch record {
         case .sessions(let close):
-            for session in close.sessions { hardFinalizePendingSession(session.session) }
+            hardFinalizePendingSessions(close.sessions.map(\.session))
         case .workspace(let close):
-            hardFinalizePendingWorkspace(close.workspace)
+            hardFinalizePendingSessions(close.workspace.sessions)
         }
         if pendingCloseSummary?.id == id { promotePendingCloseSummary() }
         save()
@@ -411,20 +411,17 @@ extension AppStore {
         recordRecency()
     }
 
-    private func hardFinalizePendingSession(_ session: Session) {
-        session.surface?.teardown()
-        session.splitSurface?.teardown()
-        session.overlaySurface?.teardown()
-        session.teardownPaneOverlays()
-        session.scratchSurface?.teardown()
-        session.discardHudBody() // a HUD whose surface never realized has no teardown to delete its body file
-        WatermarkStorage.removeRenderedText(sessionID: session.id)
-        removeFromRecency(session.id)
-    }
-
-    private func hardFinalizePendingWorkspace(_ workspace: Workspace) {
-        for session in workspace.sessions {
-            hardFinalizePendingSession(session)
+    private func hardFinalizePendingSessions(_ sessions: [Session]) {
+        finalizePaneIdentities(sessions)
+        for session in sessions {
+            session.surface?.teardown()
+            session.splitSurface?.teardown()
+            session.overlaySurface?.teardown()
+            session.teardownPaneOverlays()
+            session.scratchSurface?.teardown()
+            session.discardHudBody() // a HUD whose surface never realized has no teardown to delete its body file
+            WatermarkStorage.removeRenderedText(sessionID: session.id)
+            removeFromRecency(session.id)
         }
     }
 

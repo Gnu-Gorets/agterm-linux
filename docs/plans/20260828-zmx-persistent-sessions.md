@@ -172,13 +172,13 @@ checking only that the socket exists.
 - Create: host-free zmx list/reap parsing and tests
 - Modify: `AppStore`, pending-close and pane lifecycle files, `WindowLibrary`, launch persistence wiring
 
-- [ ] add bounded injectable `zmx ls` and `zmx kill` operations plus list parsing
-- [ ] call one semantic-finalization sink from immediate and grace-based session/workspace deletion and window
+- [x] add bounded injectable `zmx ls` and `zmx kill` operations plus list parsing
+- [x] call one semantic-finalization sink from immediate and grace-based session/workspace deletion and window
       deletion; keep all zmx work out of surface teardown
-- [ ] finalize split identities on explicit close/exit and move identity on promotion
-- [ ] inventory all persisted names before surfaces mount; skip live reap on read/decode failure
-- [ ] reap unclaimed zero-client names in `live`, and every zero-client app name outside `live`
-- [ ] test undo, immediate close, window close/delete, selected split behavior, incomplete inventory and reboot upsert
+- [x] finalize split identities on explicit close/exit and move identity on promotion
+- [x] inventory all persisted names before surfaces mount; skip live reap on read/decode failure
+- [x] reap unclaimed zero-client names in `live`, and every zero-client app name outside `live`
+- [x] test undo, immediate close, window close/delete, selected split behavior, incomplete inventory and reboot upsert
 
 ### Task 7: Resolve real foreground processes
 

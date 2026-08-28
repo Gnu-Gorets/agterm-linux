@@ -110,11 +110,6 @@ public final class AppStore {
     /// `session.resize` while `Session.splitRatio` is nil.
     public static let splitRatioDefault: Double = 0.5
 
-    /// Clamp a primary-pane split fraction to `splitRatioMin...splitRatioMax`.
-    public static func clampSplitRatio(_ ratio: Double) -> Double {
-        min(splitRatioMax, max(splitRatioMin, ratio))
-    }
-
     /// Most-recently-selected session ids, front = current; drives the Ctrl-Tab switcher (`items[1]` is the
     /// previous). `@ObservationIgnored`, read imperatively; persisted so the order survives a relaunch.
     @ObservationIgnored public private(set) var sessionRecency = RecencyStack<UUID>()
@@ -131,6 +126,7 @@ public final class AppStore {
     @ObservationIgnored let recentClosedStore: RecentClosedStore?
     @ObservationIgnored var recentClosedDidChange: (() -> Void)?
     @ObservationIgnored let controlEventSink: ((ControlEventDraft) -> Void)?
+    @ObservationIgnored let paneFinalizer: (([UUID]) -> Void)?
     /// Coalesces the high-frequency selection/font saves: a click-storm or a font ramp writes once after the
     /// burst settles instead of hitting disk per event.
     @ObservationIgnored private let saveDebouncer = Debouncer()
@@ -173,13 +169,15 @@ public final class AppStore {
                 persistence: PersistenceStore = PersistenceStore(),
                 recentClosedStore: RecentClosedStore? = nil,
                 recentClosedDidChange: (() -> Void)? = nil,
-                controlEventSink: ((ControlEventDraft) -> Void)? = nil) {
+                controlEventSink: ((ControlEventDraft) -> Void)? = nil,
+                paneFinalizer: (([UUID]) -> Void)?) {
         self.workspaces = workspaces
         self.selectedSessionID = selectedSessionID
         self.persistence = persistence
         self.recentClosedStore = recentClosedStore
         self.recentClosedDidChange = recentClosedDidChange
         self.controlEventSink = controlEventSink
+        self.paneFinalizer = paneFinalizer
     }
 
     /// The currently selected session, derived from `selectedSessionID`.
@@ -480,6 +478,7 @@ public final class AppStore {
         emitSessionClosed(removed, workspace: workspace.id)
         recordRecentClosedSession(removed, workspaceID: workspace.id, workspaceName: workspace.name,
                                   workspaceIndex: location.workspaceIndex, sessionIndex: location.sessionIndex)
+        finalizePaneIdentities([removed])
         removed.surface?.teardown()
         removed.splitSurface?.teardown()
         removed.overlaySurface?.teardown()
@@ -515,6 +514,7 @@ public final class AppStore {
                                     focusMember: focusedWorkspaceIDs.contains(workspaceID))
         for session in workspace.sessions { emitSessionClosed(session, workspace: workspace.id) }
         if workspace.sessions.isEmpty { scheduleTreeChanged() }
+        finalizePaneIdentities(workspace.sessions)
         for session in workspace.sessions {
             session.surface?.teardown()
             session.splitSurface?.teardown()

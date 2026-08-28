@@ -11,6 +11,16 @@ public enum PaneOverlayOpenFailure: Equatable, Sendable {
 }
 
 extension AppStore {
+    /// Clamp a primary-pane split fraction to `splitRatioMin...splitRatioMax`.
+    public static func clampSplitRatio(_ ratio: Double) -> Double {
+        min(splitRatioMax, max(splitRatioMin, ratio))
+    }
+
+    func finalizePaneIdentities(_ sessions: [Session]) {
+        let identities = PaneIdentityInventory.identities(in: sessions)
+        if !identities.isEmpty { paneFinalizer?(identities) }
+    }
+
     /// Toggles the one-level split. With no axis this is the legacy preserve-axis hide/show operation. With
     /// an axis it is the axis-specific UI command: the same shown axis hides, another shown axis transposes,
     /// and a hidden or absent split is shown in the requested arrangement.
@@ -82,6 +92,7 @@ extension AppStore {
     /// resets `splitFocused`, else it points the collapsed view at the gone pane.
     public func closeSplit(_ sessionID: UUID) {
         guard let session = session(withID: sessionID) else { return }
+        if let splitPaneIdentity = session.splitPaneIdentity { paneFinalizer?([splitPaneIdentity]) }
         session.isSplit = false
         session.hasSplit = false
         session.splitFocused = false
