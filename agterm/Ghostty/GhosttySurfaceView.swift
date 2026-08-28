@@ -46,6 +46,9 @@ final class GhosttySurfaceView: NSView, TerminalSurface {
     /// The owning model session, `weak` to break the cycle with `Session.surface`. Set by the factory.
     weak var session: Session?
 
+    /// Whether this primary pane actually launched through the env-gated zmx spike.
+    var isZmxWrapped = false
+
     /// The session whose visual config this surface inherits when it deliberately has no `session`: the scratch
     /// renders the owner's watermark without its OSC title/PWD reports mutating the session model. Nil for
     /// overlays and quick terminals; main/split use `session`.
@@ -570,9 +573,10 @@ final class GhosttySurfaceView: NSView, TerminalSurface {
             config.command = nil // login shell
         }
         // restore-running-command: feed the captured command line to the login shell as if typed, so it re-runs
-        // and exits back to a prompt. same buffer lifetime; mutually exclusive with `command` (which REPLACES
-        // the shell), enforced here rather than by caller discipline alone.
-        if command == nil, let initialInput, let p = strdup(initialInput) {
+        // and exits back to a prompt. Ordinary command surfaces keep the fields mutually exclusive because a
+        // command REPLACES the shell. The zmx spike is the exception: its command is the attach client, and
+        // libghostty's initial input is what that client forwards into the daemon-side shell.
+        if command == nil || isZmxWrapped, let initialInput, let p = strdup(initialInput) {
             configCStrings.append(p)
             config.initial_input = UnsafePointer(p)
         }

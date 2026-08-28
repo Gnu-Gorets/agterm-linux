@@ -236,26 +236,48 @@ struct agtermApp: App {
     @MainActor
     private static func makeSurface(for session: Session, store: AppStore, env: [String: String],
                                     library: WindowLibrary) -> GhosttySurfaceView {
+        // Initializing GhosttyApp resolves the bundled resources and exports GHOSTTY_RESOURCES_DIR before the
+        // zmx gate reads it. The value is also the restore-setting authority for the ordinary launch path.
+        let ghostty = GhosttyApp.shared
         // `initialCommand` (`session.new --command`) replaces the login shell and closes the session on its exit
         // (like kitty); it is the durable creation identity, re-emitted by every `snapshot()`. `foregroundCommand`,
         // a distinct child captured at quit, is consumed run-once; an exec-replacing command has a nil libghostty
         // foreground pid, so it is never captured and restores via the exec `command` path, keeping close-on-exit.
-        // Precedence is host-free `CommandRestore.restorePlan`: fresh always runs, restored honors the toggle, a
-        // captured foreground preempts `initialCommand` even when denylist-suppressed. A `session.restore` override
-        // beats both, from the TRANSIENT pending slot (only an app-bootstrap restore seeds it) not the sticky
-        // persisted field; taking it clears it, so this pane's next surface is a plain shell.
-        let pendingForeground = session.takePendingForegroundCommand(pane: .left)
-        let hadForeground = pendingForeground != nil
-        let restoreInput = Self.restoreInitialInput(pendingForeground)
-        let inputs = CommandRestore.RestoreInputs(wasRestored: session.wasRestored,
-                                                  restoreEnabled: GhosttyApp.shared.restoreRunningCommand,
-                                                  hadForeground: hadForeground, foregroundInput: restoreInput,
-                                                  initialCommand: session.initialCommand,
-                                                  restoreOverride: session.takePendingRestoreOverride(pane: .left))
-        let plan = CommandRestore.restorePlan(inputs)
+        // On the ordinary path, precedence is host-free `CommandRestore.restorePlan`: fresh always runs, restored
+        // honors the toggle, and a captured foreground preempts `initialCommand` even when denylist-suppressed. A
+        // `session.restore` override beats both from the TRANSIENT pending slot. The zmx path deliberately leaves
+        // both pending slots untouched because the still-running daemon, not a replay command, owns restoration.
+        let zmx = ZmxSpike.configuration(sessionID: session.id, environment: env)
+        let command: String?
+        let initialInput: String?
+        let waitAfterCommand: Bool
+        let surfaceEnv: [String: String]
+        if let zmx {
+            command = zmx.command
+            initialInput = session.wasRestored ? nil : session.initialCommand.map { $0 + "\n" }
+            waitAfterCommand = false
+            surfaceEnv = zmx.environment
+        } else {
+            let pendingForeground = session.takePendingForegroundCommand(pane: .left)
+            let restoreInput = Self.restoreInitialInput(pendingForeground)
+            let inputs = CommandRestore.RestoreInputs(
+                wasRestored: session.wasRestored,
+                restoreEnabled: ghostty.restoreRunningCommand,
+                hadForeground: pendingForeground != nil,
+                foregroundInput: restoreInput,
+                initialCommand: session.initialCommand,
+                restoreOverride: session.takePendingRestoreOverride(pane: .left)
+            )
+            let plan = CommandRestore.restorePlan(inputs)
+            command = plan.command
+            initialInput = plan.initialInput
+            waitAfterCommand = session.commandWait
+            surfaceEnv = env
+        }
         let view = GhosttySurfaceView(workingDirectory: session.initialCwd, fontSize: session.fontSize.map(Float.init),
-                                      command: plan.command, initialInput: plan.initialInput,
-                                      waitAfterCommand: session.commandWait, env: env)
+                                      command: command, initialInput: initialInput,
+                                      waitAfterCommand: waitAfterCommand, env: surfaceEnv)
+        view.isZmxWrapped = zmx != nil
         view.session = session
         let sessionID = session.id
         view.onExit = { [weak view] in
