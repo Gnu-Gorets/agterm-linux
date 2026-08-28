@@ -862,11 +862,8 @@ public struct ControlResult: Codable, Sendable, Equatable {
     public var themes: [String]?
     /// The applied primary-pane split fraction echoed by `session.resize`, after clamping / a relative nudge.
     public var ratio: Double?
-    /// The pane `session.restore` wrote, as a `StatusPane` raw value, echoed like `ratio` is for
-    /// `session.resize`. It earns its place for `--pane-id`: that addressing names a surface token rather
-    /// than a role, so the caller cannot know which pane it hit without reading the tree back and diffing
-    /// `restoreCommand` against `splitRestoreCommand`. Present on every success, including the `--pane`
-    /// and default-to-main paths, so a caller never has to branch on how it addressed the pane.
+    /// The pane `session.restore` wrote, as a `StatusPane` raw value.
+    /// Present on every success, including the `--pane` and default-to-main paths.
     public var pane: String?
     /// The light/dark syncing state for `theme.set`/`theme.list`, from the stored theme: `sync` = whether it
     /// is ghostty's dual `light:,dark:` form (the terminal tracks the macOS appearance), `light`/`dark` its

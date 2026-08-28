@@ -114,6 +114,8 @@ Check, in order:
 - **The pane resolved to the scratch, or you pinned `--pane right` on a session with no split.** Both are
   rejected at set time (`the scratch terminal is never restored` / `session has no split`), so nothing was
   pinned — re-read the command's output.
+- **The pin landed on the other pane.** Pass `--json` when setting the override and compare `result.pane`
+  with the pane you meant.
 - **It already fired once this launch.** The override is consumed once per launch: after it runs, a second
   surface for the same pane in the SAME session (e.g. opening a fresh split with ⌘D) gets a plain shell. It
   is still pinned — `tree` reports `restoreCommand` — and fires again on the NEXT restart.

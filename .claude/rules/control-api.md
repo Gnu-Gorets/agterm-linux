@@ -123,7 +123,8 @@ paths:
   that way. One that changes WHERE a mutation lands is not: give it a read-back so a caller can see what the
   server did, rather than leaving the two outcomes indistinguishable. Since `agtermctl` ships inside the
   bundle, the CLI that sends a field and the app that reads it are the same build, so the exposure is a
-  stale RUNNING process across an upgrade, not a mismatched install.
+  stale RUNNING process across an upgrade, not a mismatched install. Only an app predating `result.pane`
+  omits it from a successful `session.restore`; treat absence as UNKNOWN, never as the default pane.
 - Human output shows IDs only for created session/workspace/window, retains them in JSON, uses
   `result.affected` for session counts, and reserves `result.count` for diagnostics/search.
   A command that reuses `count` for something else must carry its own `result.text`, which the shared

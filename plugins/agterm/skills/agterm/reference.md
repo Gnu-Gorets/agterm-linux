@@ -567,7 +567,9 @@ error keeps those names for compatibility.
   given as the fallback (a silent main-pane default here would overwrite the wrong pane).
   Every success names the pane it wrote in `result.pane` (`left`/`right`), which is the read-back for
   `--pane-id`: a token names a surface rather than a role, so without it the caller has to re-read the tree
-  and diff `restoreCommand` against `splitRestoreCommand` to find out where the pin landed.
+  and diff `restoreCommand` against `splitRestoreCommand` to find out where the pin landed. Only an app
+  predating the field omits it from a successful `session.restore`; treat absence as UNKNOWN, never as the
+  default `left` pane.
   The pinned value is SHELL CODE: it persists in the window's state file (`windows/<id>.json`), is readable
   via `tree`, and may enter shell history when it runs — so it must not carry secrets, and only
   safely-interpolated values (a UUID-shaped session id) belong in it. It persists immediately, so a

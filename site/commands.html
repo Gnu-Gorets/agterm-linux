@@ -1421,7 +1421,9 @@
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace">result.pane</span>, the read-back for
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace">--pane-id</span>: a token names a surface rather than a role, so without it the caller has to re-read
                 the tree and diff <span style="font-family: &quot;JetBrains Mono&quot;, monospace">restoreCommand</span> against
-                <span style="font-family: &quot;JetBrains Mono&quot;, monospace">splitRestoreCommand</span> to find out where the pin landed.
+                <span style="font-family: &quot;JetBrains Mono&quot;, monospace">splitRestoreCommand</span> to find out where the pin landed. Only an app predating the field omits it from
+                a successful <span style="font-family: &quot;JetBrains Mono&quot;, monospace">session.restore</span>; treat absence as unknown, never as the default
+                <span style="font-family: &quot;JetBrains Mono&quot;, monospace">left</span> pane.
                 The pinned value is shell code stored in the window's state file and readable via
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace">tree</span>, so it must not carry secrets. Not to be confused
                 with <span style="font-family: &quot;JetBrains Mono&quot;, monospace; white-space: nowrap">restore clear</span>, which is
