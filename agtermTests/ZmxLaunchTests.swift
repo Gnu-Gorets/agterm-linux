@@ -46,6 +46,22 @@ final class ZmxLaunchTests: XCTestCase {
             isUITestLaunch: true, allowDebugOverride: true))
     }
 
+    func testResolvedGhosttyResourcesOverrideMissingBundleResources() throws {
+        let bundle = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agterm-zmx-empty-bundle-\(UUID().uuidString).app", isDirectory: true)
+        let resources = try makeResourcesWithZshLoader()
+        defer {
+            try? FileManager.default.removeItem(at: bundle)
+            try? FileManager.default.removeItem(at: resources)
+        }
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+
+        XCTAssertNil(ZmxLaunch.liveUnavailableReason(
+            bundleURL: bundle,
+            environment: ["AGTERM_ZMX_PATH": "/bin/echo", "GHOSTTY_RESOURCES_DIR": resources.path],
+            passwordDatabaseShell: "/bin/zsh", isUITestLaunch: false, allowDebugOverride: true))
+    }
+
     func testWrappedStateIsFixedAtInitialization() {
         let view = GhosttySurfaceView(workingDirectory: "/tmp", backedByZmx: true)
 
@@ -56,10 +72,18 @@ final class ZmxLaunchTests: XCTestCase {
     private func makeBundleWithZshLoader() throws -> URL {
         let bundle = FileManager.default.temporaryDirectory
             .appendingPathComponent("agterm-zmx-bundle-\(UUID().uuidString).app", isDirectory: true)
-        let loader = bundle.appendingPathComponent("Contents/Resources/ghostty/shell-integration/zsh",
-                                                   isDirectory: true)
+        let loader = bundle.appendingPathComponent("Contents/Resources/ghostty/shell-integration/zsh", isDirectory: true)
         try FileManager.default.createDirectory(at: loader, withIntermediateDirectories: true)
         try Data().write(to: loader.appendingPathComponent(".zshenv"))
         return bundle
+    }
+
+    private func makeResourcesWithZshLoader() throws -> URL {
+        let resources = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agterm-zmx-resources-\(UUID().uuidString)", isDirectory: true)
+        let loader = resources.appendingPathComponent("shell-integration/zsh", isDirectory: true)
+        try FileManager.default.createDirectory(at: loader, withIntermediateDirectories: true)
+        try Data().write(to: loader.appendingPathComponent(".zshenv"))
+        return resources
     }
 }

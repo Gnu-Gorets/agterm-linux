@@ -85,7 +85,9 @@ enum ZmxLaunch {
     private static func configurationResult(runtime: Runtime, paneIdentity: UUID,
                                             baseEnvironment: [String: String])
         -> Result<ZmxSupport.Configuration, ZmxSupport.Rejection> {
-        let resources = runtime.bundleURL.appendingPathComponent("Contents/Resources/ghostty").path
+        let bundledResources = runtime.bundleURL.appendingPathComponent("Contents/Resources/ghostty").path
+        let resources = runtime.environment["GHOSTTY_RESOURCES_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+            ?? bundledResources
         let stateDirectory = runtime.environment["AGTERM_STATE_DIR"] ?? PersistenceStore.defaultDirectory.path
         return ZmxSupport.configuration(for: .init(
             zmxExecutablePath: executablePath(bundleURL: runtime.bundleURL, environment: runtime.environment,

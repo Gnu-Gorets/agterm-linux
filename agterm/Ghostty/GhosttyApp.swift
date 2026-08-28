@@ -115,13 +115,14 @@ final class GhosttyApp {
     private var resourcesDir: String?
 
     private init() {
+        let resolvedResources = Self.resolveResources()
         let initialSettings = Self.settingsStore().load()
         let restoreDecision = initialSettings.effectiveRestoreMode.launchDecision(
             liveUnavailableReason: ZmxLaunch.liveUnavailableReason())
         requestedRestoreMode = restoreDecision.requested
         launchRestoreMode = restoreDecision.active
         liveRestoreUnavailableReason = restoreDecision.liveUnavailableReason
-        resolveResources()
+        resourcesDir = resolvedResources
         guard ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) == GHOSTTY_SUCCESS else {
             logger.error("ghostty_init failed")
             return
@@ -636,7 +637,7 @@ final class GhosttyApp {
         return paths
     }()
 
-    private func resolveResources() {
+    private static func resolveResources() -> String? {
         // resolve from our own candidates (bundle first), ignoring any inherited GHOSTTY_RESOURCES_DIR: a stale
         // one shadows our complete bundle and leaves libghostty deriving a broken TERMINFO. TERMINFO itself is
         // never set here — libghostty overwrites it at shell spawn with dirname(GHOSTTY_RESOURCES_DIR)/terminfo,
@@ -647,10 +648,10 @@ final class GhosttyApp {
         )
         guard let dir = resolver.resolve() else {
             unsetenv("GHOSTTY_RESOURCES_DIR")
-            return
+            return nil
         }
-        resourcesDir = dir
         setenv("GHOSTTY_RESOURCES_DIR", dir, 1)
+        return dir
     }
 }
 
