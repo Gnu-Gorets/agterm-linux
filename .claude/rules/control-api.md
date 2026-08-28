@@ -305,7 +305,8 @@ side, and reads `lastAppliedIsDark` when bare. Refuse it outside XCUITest; provi
 ## Overlay, zoom, dashboard, and picker
 
 - Overlay open runs one shell-wrapped program in a nonpersisted per-session surface. Size nil is full;
-  1...100 is floating. Optional color uses shared validated `#rrggbb` surface config and window opacity.
+  1...100 is floating; values outside that range are refused. Optional color uses shared validated
+  `#rrggbb` surface config and window opacity.
   Background target runs without selection; `--follow` selects. `--wait` retains Ghostty's exit prompt.
 - `--pane left|right` on open/close/result scopes the overlay to ONE split pane, leaving the sibling live.
   Slots are independent and always full-pane: reject `--pane` with `--size-percent` and on `overlay.resize`.
