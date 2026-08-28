@@ -148,9 +148,6 @@ struct ControlDispatcherOverlayTests {
         #expect(actions.calls.isEmpty)
     }
 
-    // `open` and `resize` share the field, the documented 1...100 range and the host clamp behind it, so
-    // they have to share the refusal too: without this, `open` answers ok and silently clamps while the
-    // sibling errors on the same value. The conflict check stays ahead of the range check, as in `resize`.
     @Test func sessionOverlayOpenRejectsOutOfRangeSizePercent() async {
         let actions = MockControlActions()
         let dispatcher = ControlDispatcher(actions: actions)
