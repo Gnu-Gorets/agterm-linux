@@ -137,11 +137,15 @@ public struct WorkspaceSnapshot: Codable, Equatable, Sendable {
 /// fresh shell in. `cwd` is the live `currentCwd`, or the `initialCwd` before any PWD report.
 public struct SessionSnapshot: Codable, Equatable, Sendable {
     public var id: UUID
+    public var paneIdentity: UUID?
+    public var splitPaneIdentity: UUID?
     public var customName: String?
     public var cwd: String
     /// Whether the session was shown as a split; nil = not split. On restore the split pane
     /// re-spawns a fresh shell, like the primary.
     public var isSplit: Bool?
+    /// Whether a split exists even when hidden; nil follows the legacy `isSplit` value.
+    public var hasSplit: Bool?
     /// The shown split's divider direction; nil/missing restores the legacy left/right arrangement.
     public var splitAxis: SplitAxis?
     /// The terminal font size in points; nil = the ghostty config default.
@@ -177,7 +181,8 @@ public struct SessionSnapshot: Codable, Equatable, Sendable {
     /// The split (right) pane's restore-command override, the split analogue of `restoreCommand`.
     public var splitRestoreCommand: String?
 
-    public init(id: UUID, customName: String?, cwd: String, isSplit: Bool? = nil,
+    public init(id: UUID, paneIdentity: UUID? = nil, splitPaneIdentity: UUID? = nil,
+                customName: String?, cwd: String, isSplit: Bool? = nil, hasSplit: Bool? = nil,
                 splitAxis: SplitAxis? = nil, fontSize: Double? = nil,
                 splitCwd: String? = nil, splitRatio: Double? = nil, flagged: Bool? = nil,
                 foregroundCommand: [String]? = nil, splitForegroundCommand: [String]? = nil,
@@ -185,9 +190,12 @@ public struct SessionSnapshot: Codable, Equatable, Sendable {
                 backgroundWatermark: BackgroundWatermark? = nil,
                 restoreCommand: String? = nil, splitRestoreCommand: String? = nil) {
         self.id = id
+        self.paneIdentity = paneIdentity
+        self.splitPaneIdentity = splitPaneIdentity
         self.customName = customName
         self.cwd = cwd
         self.isSplit = isSplit
+        self.hasSplit = hasSplit
         self.splitAxis = splitAxis
         self.fontSize = fontSize
         self.splitCwd = splitCwd
@@ -203,7 +211,8 @@ public struct SessionSnapshot: Codable, Equatable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, customName, cwd, isSplit, splitAxis, fontSize, splitCwd, splitRatio, flagged
+        case id, paneIdentity, splitPaneIdentity, customName, cwd, isSplit, hasSplit, splitAxis
+        case fontSize, splitCwd, splitRatio, flagged
         case foregroundCommand, splitForegroundCommand, initialCommand, commandWait, backgroundWatermark
         case restoreCommand, splitRestoreCommand
     }
@@ -218,9 +227,12 @@ public struct SessionSnapshot: Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
+        paneIdentity = (try? c.decodeIfPresent(UUID.self, forKey: .paneIdentity)) ?? nil
+        splitPaneIdentity = (try? c.decodeIfPresent(UUID.self, forKey: .splitPaneIdentity)) ?? nil
         customName = (try? c.decodeIfPresent(String.self, forKey: .customName)) ?? nil
         cwd = try c.decode(String.self, forKey: .cwd)
         isSplit = (try? c.decodeIfPresent(Bool.self, forKey: .isSplit)) ?? nil
+        hasSplit = (try? c.decodeIfPresent(Bool.self, forKey: .hasSplit)) ?? nil
         splitAxis = (try? c.decodeIfPresent(SplitAxis.self, forKey: .splitAxis)) ?? nil
         fontSize = (try? c.decodeIfPresent(Double.self, forKey: .fontSize)) ?? nil
         splitCwd = (try? c.decodeIfPresent(String.self, forKey: .splitCwd)) ?? nil

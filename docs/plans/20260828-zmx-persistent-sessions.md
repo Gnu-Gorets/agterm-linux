@@ -100,14 +100,14 @@ checking only that the socket exists.
 - Modify: `Session.swift`, `Snapshot.swift`, `AppStore+Snapshot.swift`, `AppStore+Panes.swift`
 - Modify: matching `agtermCore` tests
 
-- [ ] migrate legacy `restoreRunningCommand`: true becomes `rerun`; false or absent becomes `none`
-- [ ] decode unknown mode strings as `none` and write only the new key
-- [ ] persist primary and split pane identity and use it as `AGTERM_PANE_ID`; promotion moves the survivor
+- [x] migrate legacy `restoreRunningCommand`: true becomes `rerun`; false or absent becomes `none`
+- [x] decode unknown mode strings as `none` and write only the new key
+- [x] persist primary and split pane identity and use it as `AGTERM_PANE_ID`; promotion moves the survivor
       identity to primary and a new split mints another
-- [ ] persist `hasSplit` for a hidden split without adding `splitFocused` to the snapshot
-- [ ] test migration, identity minting on a legacy snapshot, duplicate sessions, promotion then re-split, and
+- [x] persist `hasSplit` for a hidden split without adding `splitFocused` to the snapshot
+- [x] test migration, identity minting on a legacy snapshot, duplicate sessions, promotion then re-split, and
       a hidden split that stays claimed while focus resets to primary
-- [ ] run the focused core tests
+- [x] run the focused core tests
 
 ### Task 2: Add zsh wrapping inputs and daemon naming
 

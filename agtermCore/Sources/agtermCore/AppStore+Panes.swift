@@ -43,7 +43,11 @@ extension AppStore {
         if session.isSplit {
             let isNewSplit = !session.hasSplit
             session.hasSplit = true
-            if isNewSplit { session.splitFocused = true }
+            if isNewSplit {
+                // Every split-creating path must mint this identity before exposing the pane.
+                session.splitPaneIdentity = UUID()
+                session.splitFocused = true
+            }
         }
         // hiding the split un-renders a pane, so an overlay opened on it that has not realized yet would sit
         // active with no surface and no program forever.
@@ -87,6 +91,7 @@ extension AppStore {
         session.splitCwd = nil
         session.splitTitle = nil
         session.initialSplitCwd = nil
+        session.splitPaneIdentity = nil
         // the right pane is gone: drop the persisted pin, the captured command, and any payload still armed
         // for this launch, so a fresh split is a plain shell. The capture slot matters since `restore.capture`
         // can fill it mid-run: left behind, a re-split would arm the dead pane's command on the next launch.
@@ -124,6 +129,8 @@ extension AppStore {
         survivor.promoteToPrimaryPane()
         session.surface = survivor
         session.splitSurface = nil
+        session.paneIdentity = session.splitPaneIdentity ?? UUID()
+        session.splitPaneIdentity = nil
         session.isSplit = false
         session.hasSplit = false
         session.splitFocused = false

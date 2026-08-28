@@ -81,6 +81,10 @@ public struct PaneOverlay: Equatable, Sendable {
 @MainActor
 public final class Session: Identifiable {
     public let id: UUID
+    /// Stable process identity for the primary pane. It follows a promoted split survivor.
+    public var paneIdentity: UUID
+    /// Stable process identity for an existing split pane, including a hidden split.
+    public var splitPaneIdentity: UUID?
     public var customName: String?
     /// Live cwd from the latest OSC 7 / PWD report; the sidebar row refreshes. Persisted by `snapshot()` on
     /// quit + structural mutations only (OSC 7 fires constantly), so a crash loses cwd since the last save.
@@ -373,8 +377,11 @@ public final class Session: Identifiable {
     /// START callback, cleared on close; weak, since the session strongly owns its panes. Ephemeral.
     @ObservationIgnored public weak var searchSurface: (any TerminalSurface)?
 
-    public init(id: UUID = UUID(), initialCwd: String, customName: String? = nil) {
+    public init(id: UUID = UUID(), initialCwd: String, customName: String? = nil,
+                paneIdentity: UUID = UUID(), splitPaneIdentity: UUID? = nil) {
         self.id = id
+        self.paneIdentity = paneIdentity
+        self.splitPaneIdentity = splitPaneIdentity
         self.initialCwd = initialCwd
         self.customName = customName
     }
