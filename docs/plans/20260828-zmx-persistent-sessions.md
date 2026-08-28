@@ -129,11 +129,11 @@ checking only that the socket exists.
 - Modify: `scripts/setup.sh`, `project.yml`, `scripts/release.sh`, `.github/workflows/ci.yml`, `.gitignore`
 - Stage: `agterm/Resources/zmx/zmx`, `agterm/Resources/zmx/LICENSE`
 
-- [ ] pin `ZMX_REV` and track zmx with its own stamp so zmx changes do not rebuild Ghostty
-- [ ] stage the binary and MIT notice with the existing Zig 0.16 toolchain
-- [ ] extend the existing helper phase so zmx and `agtermctl` are signed before one app seal
-- [ ] sign both helpers before Developer ID release signing and check zmx signature/entitlements in CI
-- [ ] run setup twice, then build and inspect the bundled binary
+- [x] pin `ZMX_REV` and track zmx with its own stamp so zmx changes do not rebuild Ghostty
+- [x] stage the binary and MIT notice with the existing Zig 0.16 toolchain
+- [x] extend the existing helper phase so zmx and `agtermctl` are signed before one app seal
+- [x] sign both helpers before Developer ID release signing and check zmx signature/entitlements in CI
+- [x] run setup twice, then build and inspect the bundled binary
 
 ### Task 4: Latch mode and update restore-command contracts
 
