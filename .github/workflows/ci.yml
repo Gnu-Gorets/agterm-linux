@@ -272,7 +272,7 @@ jobs:
         shell: bash
         run: find cookbook -type f -name '*.py' -print0 | xargs -0 -r ruff check --ignore EXE001
       - name: Python recipe tests
-        # One process per file keeps recipes independent and gives each test script its own argv.
-        # Bash explicitly, for pipefail, same reason as the ruff step above.
+        # one process per file keeps recipes independent and gives each test script its own argv.
+        # bash explicitly, for pipefail, same reason as the ruff step above.
         shell: bash
         run: find cookbook -type f -name 'test_*.py' -print0 | xargs -0 -r -n1 python3

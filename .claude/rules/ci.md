@@ -58,10 +58,11 @@ paths:
   lint or parse step; until then it merges unchecked, which is why `cookbook/CONTRIBUTING.md` tells a
   contributor to flag any other language in the pull request. Keep that file, `cookbook/README.md` and
   this bullet in step when the set changes.
-- Keep explicit `shell: bash` on the layout, shellcheck, and zsh steps. It supplies bash process
-  substitution and `bash -eo pipefail`; default `bash -e` can hide a failed `find` behind successful
-  `xargs -r`. Use `-print0 | xargs -0 -r` for whitespace and empty matches, plus `-n1` for `zsh -n`
-  because it parses only its first path. Keep `[ -d "$d" ] || continue` so an empty recipe tree does not
+- Keep explicit `shell: bash` on every cookbook validation step with a pipeline or process substitution.
+  It supplies bash process substitution and `bash -eo pipefail`; default `bash -e` can hide a failed
+  `find` behind successful `xargs -r`. Use `-print0 | xargs -0 -r` for whitespace and empty matches,
+  plus `-n1` for `zsh -n` because it parses only its first path.
+  Keep `[ -d "$d" ] || continue` so an empty recipe tree does not
   turn the unexpanded glob into directory `*`.
 - The two-way index scan accepts only lines starting with `|`, so prose links/comments cannot satisfy it
   and deleted directories leave stale rows. It is line-based, so keep fenced sample rows in
