@@ -444,9 +444,13 @@ struct Session: ParsableCommand {
             session restore --clear                drop the override, back to auto-capture
 
             The override is written now and consumed on the NEXT launch — it never touches the running \
-            session. It wins over the pane's captured foreground command, is gated on the \
-            restore-running-command setting, and reads back on `tree` as restoreCommand (main pane) or \
+            session. It wins over the pane's captured foreground command in rerun mode and reads back on \
+            `tree` as restoreCommand (main pane) or \
             splitRestoreCommand (split pane). It is STICKY: it fires again on every launch until cleared.
+
+            Set and --none still save policy while this launch is in fresh-shell or live mode; the response \
+            names the active mode and says the policy is saved for rerun mode. --clear works in every mode. \
+            A pin never opts one session out of live mode.
 
             COMMAND is shell code, stored verbatim in the window's state file and readable via `tree`, so \
             it must not carry secrets.

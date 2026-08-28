@@ -144,12 +144,12 @@ checking only that the socket exists.
   `site/docs.html`, and agent-skill command pages
 - Modify: focused app, control and Settings tests
 
-- [ ] create one immutable launch mode used by launch surfaces, new windows and reopened windows
-- [ ] replace the checkbox with a three-value picker that applies after restart and explains an unsupported
+- [x] create one immutable launch mode used by launch surfaces, new windows and reopened windows
+- [x] replace the checkbox with a three-value picker that applies after restart and explains an unsupported
       login shell
-- [ ] implement the `restore.capture`, `restore.clear` and `session.restore` behavior above with checked saves
-- [ ] update every named command contract in the same task; retain command names
-- [ ] test late-window latching, both refusal modes, inactive set/none policies and both clear forms
+- [x] implement the `restore.capture`, `restore.clear` and `session.restore` behavior above with checked saves
+- [x] update every named command contract in the same task; retain command names
+- [x] test late-window latching, both refusal modes, inactive set/none policies and both clear forms
 
 ### Task 5: Wrap primary and split panes and report actual backing
 

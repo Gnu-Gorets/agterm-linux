@@ -78,8 +78,8 @@ struct Restore: ParsableCommand {
             pane comes back running the capture command. Bind it or run it from a scheduled job rather than \
             by hand; "restore clear" is app-global, so it is no per-pane undo.
 
-            Needs "Restore running commands on restart", which is what replays the capture: with the \
-            setting off this captures nothing and fails, saying so.
+            This command is available only when this launch is in rerun mode. In fresh-shell or live mode \
+            it fails and names the active mode.
             """)
         // app-global, like `restore clear`: every open window, so no `--window` selector.
         @OptionGroup var options: BasicOptions

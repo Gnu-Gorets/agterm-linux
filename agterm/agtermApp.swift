@@ -244,10 +244,12 @@ struct agtermApp: App {
         // a distinct child captured at quit, is consumed run-once; an exec-replacing command has a nil libghostty
         // foreground pid, so it is never captured and restores via the exec `command` path, keeping close-on-exit.
         // On the ordinary path, precedence is host-free `CommandRestore.restorePlan`: fresh always runs, restored
-        // honors the toggle, and a captured foreground preempts `initialCommand` even when denylist-suppressed. A
+        // honors rerun mode, and a captured foreground preempts `initialCommand` even when denylist-suppressed. A
         // `session.restore` override beats both from the TRANSIENT pending slot. The zmx path deliberately leaves
         // both pending slots untouched because the still-running daemon, not a replay command, owns restoration.
-        let zmx = ZmxSpike.configuration(paneIdentity: session.paneIdentity, environment: env)
+        let zmx = ghostty.launchRestoreMode == .live
+            ? ZmxSpike.configuration(paneIdentity: session.paneIdentity, environment: env)
+            : nil
         let command: String?
         let initialInput: String?
         let waitAfterCommand: Bool
@@ -334,7 +336,7 @@ struct agtermApp: App {
     }
 
     /// The `initial_input` for a restored pane: the captured foreground argv re-rendered as a shell command
-    /// line + newline, or nil when the restore-running-command flag is off or `shouldRestore` refuses the
+    /// line + newline, or nil outside rerun mode or when `shouldRestore` refuses the
     /// argv — a denylisted basename, a control character, or a lossily-decoded byte (→ plain shell). The
     /// denylist is the user's `restore-denylist.conf`, parsed at launch into `GhosttyApp.shared.restoreDenylist`.
     @MainActor

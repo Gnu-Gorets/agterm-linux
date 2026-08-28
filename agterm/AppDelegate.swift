@@ -317,9 +317,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // mark terminating so per-window willClose can't zero the open-set during quit — it must survive
         // for the next launch's reopen-all.
         library?.isTerminating = true
-        // restore-running-command: capture each pane's live foreground command BEFORE the snapshot save so a
-        // restored pane can re-run it. A force-quit/crash skips it (sessions + cwd still restore).
-        if settingsModel?.settings.restoreRunningCommand == true, let library {
+        // Rerun mode captures each pane's live foreground command before the snapshot save. A force quit or
+        // crash skips this path; sessions and cwd still restore.
+        if GhosttyApp.shared.restoreRunningCommand, let library {
             Self.captureForegroundCommands(sessions: library.allOpenSessions())
         }
         library?.finalizeAllPendingCloses()

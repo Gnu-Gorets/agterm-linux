@@ -329,8 +329,9 @@ omitted when expanded).
   the NEXT launch, overriding the captured foreground command. A `"cmd"` shell line pins it, `--none` pins
   nothing (a plain shell), `--clear` drops the override back to auto-capture. Written now, consumed on the
   next launch (it never touches the running session), and STICKY — fires again on every restart until
-  cleared. Gated on the "Restore running commands on restart" setting (a set while it is off succeeds with
-  a note that nothing will run) but bypasses `restore-denylist.conf`. Read back as the tree node's
+  cleared. It runs in `rerun` mode. In fresh-shell or live mode, a command or `--none` still saves policy
+  for a future rerun launch and returns a note naming the active mode; `--clear` works in every mode. A pin
+  never opts one session out of live mode. Deliberate pins bypass `restore-denylist.conf`. Read back as the tree node's
   `restoreCommand`/`splitRestoreCommand`. `--pane right` needs a split; `scratch` is rejected. `--pane-id`
   (the shell's `$AGTERM_PANE_ID`) resolves the pane's live slot — unlike `session status`, a token that
   does not resolve errors unless `--pane` is also given. For a non-idempotent command like
@@ -496,11 +497,11 @@ terminal theme app-wide, per slot: a NAME sets the light/single theme (a dark th
 appearance automatically; `theme set --dark none` stops tracking. The app default is the bundled
 **agterm** theme; omit the name for ghostty's built-in default ("default ghostty"); an unknown name errors.
 
-**restore** — `restore capture` — capture every pane's running command now, into the slot the quit-time
+**restore** - `restore capture` - capture every pane's running command now, into the slot the quit-time
 capture fills, so an exit that never reaches a clean quit (a force quit, a crash, a hard reset) still
-restores; prints how many panes were captured, and refuses while **Restore running commands on restart**
-is off, since nothing would replay the capture · `restore clear` — clear every session's saved foreground
-command (the restore-running-command capture) so the next restart restores plain shells.
+restores; prints how many panes were captured and runs only in `rerun` mode, otherwise refusing and naming
+the active mode · `restore clear` - clear every session's saved foreground command in any mode so the next
+restart restores plain shells in rerun mode.
 
 **version** — `agtermctl version` — which agterm is serving this socket, as `result.app` (`version`, plus
 `commit` when the build recorded one). App-global: no target, no `--window`, no window need be open, so it

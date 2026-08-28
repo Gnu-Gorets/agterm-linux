@@ -549,13 +549,13 @@ error keeps those names for compatibility.
   restore: the captured foreground AND the session's own `session new --command`, which a pinned line (or
   `--none`) suppresses — so a restored `--command` session runs the pinned line instead, as typed input
   rather than the exec path, and its `--wait` close-on-exit behavior no longer applies.
-  It is gated on the **Restore running commands on restart** setting (a pinned command while the setting is
-  off succeeds with a note in `result.text` that nothing will run; `--none`/`--clear` get no note, since
-  their outcome is delivered either way), and bypasses `restore-denylist.conf`
+  It runs only in `rerun` mode. In fresh-shell or live mode, a command or `--none` still saves policy for a
+  future rerun launch and returns a note in `result.text` naming the active mode; `--clear` works in every
+  mode. A pin never opts one session out of live mode. Deliberate pins bypass `restore-denylist.conf`
   (it names its command deliberately, so the denylist is never the reason it does not fire). It is typed
   verbatim as a shell line, so `cd x && claude --resume y` works as written.
-  A split HIDDEN at quit is not restored, so its pin is dropped on that launch rather than left to fire
-  into a later manual split.
+  A split hidden at quit keeps its identity and pin; showing it after restart creates the pane and applies
+  the saved rerun policy.
   It exists for NON-IDEMPOTENT commands — `claude --resume <id> --fork-session` mints a NEW session on every
   restart, so restoring it verbatim never reattaches the session the user was in. A Claude Code
   `SessionStart` hook that rewrites the override to the live session id on every start makes the next
@@ -1198,10 +1198,9 @@ shutdown, restart or logout is not one of them: that path quits the app normally
 Run it from a scheduled job or bind it, and an exit nobody was there for restores like a deliberate
 quit. Consumption is unchanged — the next launch arms each captured command once and clears it. App-global
 (no `--window`), prints `count`, the number of panes it captured a command for (main and shown split count
-one each). With the **Restore running commands on restart** setting off it captures nothing and returns an
-error saying so: nothing would replay the capture, and it would go stale where a `session.restore` pin
-would keep waiting for the setting. A capture is also only as fresh as its last run: a pager or a build that
-has finished since still re-runs after a crash, which `restore clear` drops wholesale and
+one each). It runs only in `rerun` mode. Fresh-shell and live modes return
+`restore.capture requires rerun mode; active restore mode is MODE`. A capture is only as fresh as its last
+run: a pager or a build that has finished since still re-runs after a crash, which `restore clear` drops wholesale and
 `restore-denylist.conf` prevents per program. Typed at a prompt the command records ITSELF, since while it
 runs it is that pane's foreground process and the pane comes back running `agtermctl restore capture` (which
 prints its count and captures itself again). Bind it or schedule it rather than running it by hand:
@@ -1210,9 +1209,8 @@ prints its count and captures itself again). Bind it or schedule it rather than 
 `agtermctl restore clear` — clear every session's saved CAPTURED foreground command and persist, so the
 next restart restores plain shells for those panes (not whatever each pane was running). It does NOT clear
 a `session.new --command` session's own command (`initialCommand`, the durable creation identity), which
-still re-runs on restore when the setting is on. This is the counterpart to the
-opt-in **Restore running commands on restart** setting: that setting captures each pane's foreground
-command at a clean quit and re-runs it on relaunch; `restore clear` wipes those saved commands now
+still re-runs in `rerun` mode. This command works in every mode. `rerun` captures each pane's foreground
+command at a clean quit and starts it again on relaunch; `restore clear` wipes those saved commands now
 (also closing the force-quit re-fire window). App-global (no `--window`), prints `ok`. Like `restore capture`
 it acknowledges only a save that landed: if any window's write fails it reports that at least one window
 failed to save, since those captures are still on disk and nothing reads those slots back.

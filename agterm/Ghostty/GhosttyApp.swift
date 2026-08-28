@@ -59,10 +59,13 @@ final class GhosttyApp {
     /// Coordinator reads it in `handleSingleClick`, and the disclosure triangle ignores it because AppKit
     /// toggles that natively. Settings-mirrored like `toolbarMode`.
     private(set) var workspaceRowClickExpands: Bool = true
-    /// Whether a restored pane re-runs its last clean-quit foreground command; the surface factories read it to
-    /// decide whether to feed that command as `initial_input`. Affects only the next restore — no live
-    /// re-render notification.
-    private(set) var restoreRunningCommand: Bool = false
+    /// The persisted choice and effective mode frozen before the first surface. A live request falls back to
+    /// fresh shells when the password-database login shell is unsupported. Settings changes never mutate the
+    /// latch, so later sessions and reopened windows use the launch policy too.
+    let requestedRestoreMode: RestoreMode
+    let launchRestoreMode: RestoreMode
+    let liveRestoreUnavailableReason: String?
+    var restoreRunningCommand: Bool { launchRestoreMode == .rerun }
     /// Whether the window title bar shows the attention bell icon; off by default. The title bar reads it via
     /// `WindowContentView`'s mirrored chrome state; settings-mirrored like `toolbarMode`.
     private(set) var attentionButtonEnabled: Bool = false
@@ -112,12 +115,18 @@ final class GhosttyApp {
     private var resourcesDir: String?
 
     private init() {
+        let initialSettings = Self.settingsStore().load()
+        let restoreDecision = initialSettings.effectiveRestoreMode.launchDecision(
+            passwordDatabaseShell: ZmxSpike.passwordDatabaseLoginShell())
+        requestedRestoreMode = restoreDecision.requested
+        launchRestoreMode = restoreDecision.active
+        liveRestoreUnavailableReason = restoreDecision.liveUnavailableReason
         resolveResources()
         guard ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) == GHOSTTY_SUCCESS else {
             logger.error("ghostty_init failed")
             return
         }
-        let configInputs = Self.resolveConfigInputs()
+        let configInputs = Self.resolveConfigInputs(settings: initialSettings)
         guard let cfg = loadConfig(configInputs) else {
             logger.error("ghostty_config_new failed")
             return
@@ -197,10 +206,6 @@ final class GhosttyApp {
 
     func setWorkspaceRowClickExpands(_ enabled: Bool) {
         workspaceRowClickExpands = enabled
-    }
-
-    func setRestoreRunningCommand(_ enabled: Bool) {
-        restoreRunningCommand = enabled
     }
 
     func setAttentionButtonEnabled(_ enabled: Bool) {
@@ -317,7 +322,10 @@ final class GhosttyApp {
     }
 
     static func resolveConfigInputs() -> ConfigInputs {
-        let settings = settingsStore().load()
+        resolveConfigInputs(settings: settingsStore().load())
+    }
+
+    private static func resolveConfigInputs(settings: AppSettings) -> ConfigInputs {
         let configDir = ConfigPaths.configDirectory(
             setting: settings.configDirectory,
             stateDir: ProcessInfo.processInfo.environment["AGTERM_STATE_DIR"],

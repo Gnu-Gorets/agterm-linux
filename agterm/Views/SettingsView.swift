@@ -116,8 +116,18 @@ private struct GeneralSettingsView: View {
                             .accessibilityIdentifier("settings-new-session-choose")
                     }
                 }
-                Toggle("Restore running commands on restart", isOn: restoreRunningCommand)
-                    .accessibilityIdentifier("settings-restore-running-command")
+                Picker("Restore sessions", selection: restoreMode) {
+                    ForEach(RestoreMode.allCases, id: \.self) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .accessibilityIdentifier("settings-restore-mode")
+                SettingHint("Changes apply after restarting agterm.")
+                    .accessibilityIdentifier("settings-restore-restart-hint")
+                if model.settings.effectiveRestoreMode == .live,
+                   let reason = GhosttyApp.shared.liveRestoreUnavailableReason {
+                    SettingHint(reason)
+                }
                 Toggle("Confirm before closing a session", isOn: confirmCloseSession)
                     .accessibilityIdentifier("settings-confirm-close-session")
                 Toggle("Allow undo after closing sessions and workspaces", isOn: closeGraceUndoEnabled)
@@ -134,9 +144,8 @@ private struct GeneralSettingsView: View {
         .padding()
     }
 
-    private var restoreRunningCommand: Binding<Bool> {
-        Binding(get: { model.settings.restoreRunningCommand ?? false },
-                set: { model.setRestoreRunningCommand($0 ? true : nil) })
+    private var restoreMode: Binding<RestoreMode> {
+        Binding(get: { model.settings.effectiveRestoreMode }, set: { model.setRestoreMode($0) })
     }
 
     private var confirmCloseSession: Binding<Bool> {

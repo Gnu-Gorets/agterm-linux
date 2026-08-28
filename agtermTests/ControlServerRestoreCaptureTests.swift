@@ -21,13 +21,7 @@ final class ControlServerRestoreCaptureTests: XCTestCase {
                 .appendingPathComponent("agterm-restore-capture-tests-\(UUID().uuidString)", isDirectory: true)
             library = WindowLibrary(directory: stateDir)
             settingsModel = SettingsModel(library: library, settingsStore: SettingsStore(directory: stateDir))
-            server = ControlServer(
-                library: library,
-                actions: AppActions(library: library),
-                settingsModel: settingsModel,
-                identity: AppIdentity(version: "9.9.9", commit: "testsha"),
-                socketPath: stateDir.appendingPathComponent("control.sock").path
-            )
+            server = makeServer(launchMode: .rerun)
         }
     }
 
@@ -41,25 +35,22 @@ final class ControlServerRestoreCaptureTests: XCTestCase {
         try await super.tearDown()
     }
 
-    func testRefusesWithTheSettingOff() {
-        settingsModel.setRestoreRunningCommand(nil)
-
-        let response = server.captureRestoreCommands()
-
-        XCTAssertFalse(response.ok, "a capture that can never replay must refuse, not answer ok")
-        XCTAssertEqual(response.error,
-                       "\"Restore running commands on restart\" is off, nothing was captured")
-        XCTAssertNil(response.result)
+    func testRefusesOutsideRerunAndNamesTheActiveMode() {
+        for mode in [RestoreMode.none, .live] {
+            let response = makeServer(launchMode: mode).captureRestoreCommands()
+            XCTAssertFalse(response.ok, "a capture that cannot replay must refuse")
+            XCTAssertEqual(response.error, "restore.capture requires rerun mode; active restore mode is \(mode.rawValue)")
+            XCTAssertNil(response.result)
+        }
     }
 
     func testTheRefusalLeavesAnEarlierCaptureAlone() {
-        settingsModel.setRestoreRunningCommand(nil)
         for session in library.allOpenSessions() {
             session.foregroundCommand = ["sleep", "12345"]
             session.splitForegroundCommand = ["sleep", "12345"]
         }
 
-        _ = server.captureRestoreCommands()
+        _ = makeServer(launchMode: .live).captureRestoreCommands()
 
         // the SPLIT slot is what pins the gate. A hosted session has no `GhosttySurfaceView`, so the main
         // slot is never assigned and survives with the guard deleted too; the split slot is nil'd
@@ -72,8 +63,6 @@ final class ControlServerRestoreCaptureTests: XCTestCase {
     }
 
     func testReportsPaneCountInItsOwnText() {
-        settingsModel.setRestoreRunningCommand(true)
-
         let response = server.captureRestoreCommands()
 
         XCTAssertTrue(response.ok)
@@ -96,7 +85,6 @@ final class ControlServerRestoreCaptureTests: XCTestCase {
     }
 
     func testCaptureReportsAFailedSave() throws {
-        settingsModel.setRestoreRunningCommand(true)
         let windowsDir = try unwritableWindowsDirectory()
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: windowsDir.path) }
 
@@ -104,6 +92,37 @@ final class ControlServerRestoreCaptureTests: XCTestCase {
 
         XCTAssertFalse(response.ok, "a capture whose save failed must not answer ok")
         XCTAssertEqual(response.error?.contains("save failed"), true, "the error should name the failed save")
+    }
+
+    func testChangingTheSettingDoesNotChangeTheCaptureLatch() {
+        settingsModel.setRestoreMode(.live)
+
+        let response = server.captureRestoreCommands()
+
+        XCTAssertTrue(response.ok, response.error ?? "")
+        XCTAssertEqual(server.launchRestoreMode, .rerun)
+    }
+
+    func testClearRemainsAvailableInLiveMode() {
+        for session in library.allOpenSessions() {
+            session.foregroundCommand = ["sleep", "12345"]
+        }
+
+        let response = makeServer(launchMode: .live).clearRestoreCommands()
+
+        XCTAssertTrue(response.ok, response.error ?? "")
+        XCTAssertTrue(library.allOpenSessions().allSatisfy { $0.foregroundCommand == nil })
+    }
+
+    private func makeServer(launchMode: RestoreMode) -> ControlServer {
+        ControlServer(
+            library: library,
+            actions: AppActions(library: library),
+            settingsModel: settingsModel,
+            identity: AppIdentity(version: "9.9.9", commit: "testsha"),
+            launchRestoreMode: launchMode,
+            socketPath: stateDir.appendingPathComponent("control-\(UUID().uuidString).sock").path
+        )
     }
 
     /// The same lever `WindowLibraryTests.saveAllOpenCheckedReportsAFailedWrite` uses: the atomic write needs

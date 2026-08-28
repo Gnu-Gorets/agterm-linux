@@ -13,7 +13,7 @@ enum ZmxSpike {
         guard let rawPath = processEnv["AGTERM_ZMX_PATH"], !rawPath.isEmpty else { return nil }
         let inputs = ZmxSupport.Inputs(
             zmxExecutablePath: rawPath,
-            passwordDatabaseShell: loginShell(),
+            passwordDatabaseShell: passwordDatabaseLoginShell(),
             resourcesDirectory: processEnv["GHOSTTY_RESOURCES_DIR"],
             stateDirectory: processEnv["AGTERM_STATE_DIR"] ?? PersistenceStore.defaultDirectory.path,
             paneIdentity: paneIdentity,
@@ -26,7 +26,7 @@ enum ZmxSpike {
         }
     }
 
-    private static func loginShell() -> String? {
+    static func passwordDatabaseLoginShell() -> String? {
         guard let entry = getpwuid(getuid()), let ptr = entry.pointee.pw_shell else { return nil }
         let value = String(cString: ptr)
         return value.isEmpty ? nil : value

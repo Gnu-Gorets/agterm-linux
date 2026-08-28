@@ -3024,18 +3024,17 @@ command = "'/Users/you/.config/agterm/agent-status/agterm-codex-status.sh' stop"
               Restore &amp; persistence
             </h2>
             <p style="font-size: 16px; line-height: 1.7; color: #cbc6bc; margin: 0 0 20px">
-              Sessions come back on the next launch with their directory, font size, and split state restored. Restore
-              reconstructs the structure, not the running processes — three limitations follow from that design:
+              Sessions come back on the next launch with their directory, font size, and split state restored. General settings
+              offers fresh shells, re-run commands, or live sessions. The choice is frozen for the process and changes after restart;
+              live sessions require zsh as the macOS login shell.
             </p>
             <ul style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 14px">
               <li style="font-size: 15px; line-height: 1.65; color: #cbc6bc; padding-left: 22px; position: relative">
                 <span
                   style="position: absolute; left: 0; top: 2px; color: #6d82f3; font-family: &quot;JetBrains Mono&quot;, monospace"
                   >›</span
-                ><strong style="color: #e6e1d7">Live processes are not reattached.</strong> By default a restored session
-                re-spawns a fresh login shell in its saved directory. The optional
-                <strong style="color: #e6e1d7">Restore running commands on restart</strong> toggle (General settings, off by
-                default) re-runs the command each pane had in the foreground at the last clean quit — a re-run, not a reattach.
+                ><strong style="color: #e6e1d7">Re-run mode starts commands again.</strong> Fresh shells is the default. Re-run
+                commands starts the command each pane had in the foreground at the last clean quit; it does not reattach that process.
                 Only a single-process command restores faithfully; a command whose name or arguments carry a control character
                 starts a plain shell instead, since the restored line is typed and the line editor would read that byte as an
                 editing key rather than text, and so does one carrying bytes that were not valid UTF-8, which are captured
@@ -3065,8 +3064,9 @@ command = "'/Users/you/.config/agterm/agent-status/agterm-codex-status.sh' stop"
                 shell, <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">--clear</span> to drop it) —
                 consumed on the next launch, sticky across restarts, winning over both the captured command and the session's own
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">--command</span>, and reading back on
-                <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">tree</span>. It obeys the same setting
-                but bypasses the denylist, since it names its command deliberately. The pinned value is shell code stored in the
+                <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">tree</span>. It runs only in re-run mode
+                but still saves policy in the other modes, and it bypasses the denylist because it names its command deliberately.
+                The pinned value is shell code stored in the
                 window's state file and readable via
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">tree</span>, so it must not carry
                 secrets. A

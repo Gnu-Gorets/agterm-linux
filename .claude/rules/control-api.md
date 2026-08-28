@@ -645,11 +645,11 @@ side, and reads `lastAppliedIsDark` when bare. Refuse it outside XCUITest; provi
 - `restore.capture` fills those same captured main/split slots on demand, from every open window's live
   panes, saves immediately, and captures no hidden split. It is app-global. It reports the slots it
   actually WROTE in `result.count` plus its own `result.text`; counting the slots afterwards instead would
-  read a stale split capture as a fresh one. It REFUSES while `restoreRunningCommand` is off, which is the
-  one place this API does not follow `session.restore`'s note-and-succeed: see [[settings]] for why the
-  two differ and for the exits the command exists for.
+  read a stale split capture as a fresh one. It runs only in the immutable `rerun` launch mode; `none` and
+  `live` refuse and name the active mode. This is the one place the API does not follow `session.restore`'s
+  note-and-succeed behavior: see [[settings]] for why the two differ and for the exits the command exists for.
 - `restore.clear` clears captured main/split foreground commands across open windows and saves immediately.
-  It never clears durable `initialCommand`; it is app-global.
+  It never clears durable `initialCommand`; it is app-global and works in every mode.
 - The captured slots are deliberately NOT a read surface: neither command exposes what is armed, and the
   tree's `foreground`/`splitForeground` answer from the LIVE process, never from the slot. They read nil for
   an armed capture whose command has since exited, and nil again in the pre-mount launch gap where the
@@ -665,7 +665,7 @@ side, and reads `lastAppliedIsDark` when bare. Refuse it outside XCUITest; provi
 - Pins persist and repeat each launch until changed, but never affect the live shell. Keep persisted
   `restoreCommand`/`splitRestoreCommand` separate from one-shot pending slots. Only bootstrap copies pins
   to pending; factories take-and-clear pending. Never let factories fall back to persisted values.
-- `CommandRestore.restorePlan` owns precedence. Honor the master `restoreRunningCommand` setting, bypass
+- `CommandRestore.restorePlan` owns precedence. Honor the immutable `rerun` launch mode, bypass
   denylist for deliberate pins, and type text verbatim. Document that persisted shell code may enter
   history and must not contain secrets.
 - Reuse command/mode/pane/paneID. Validate mode, required set command, no control characters including tab,
@@ -673,8 +673,9 @@ side, and reads `lastAppliedIsDark` when bare. Refuse it outside XCUITest; provi
 - Pane ID resolves first. Unlike status, unknown pane ID without an explicit pane errors to avoid writing
   main accidentally. Reject scratch and right without a split.
 - Save checked and roll back memory on failure; report that the previous value remains. This durable shell
-  payload must never acknowledge an unsaved clear. When restore setting is off, successful set returns an
-  explanatory note; none/clear do not.
+  payload must never acknowledge an unsaved clear. Outside `rerun`, successful set and none save policy for
+  a future rerun launch and return a note naming the active mode; clear works without a note in every mode.
+  None of these commands opts one session out of `live`.
 - Promotion moves persisted and pending right pins to main; split close clears both. Soft-close paths clear
   pending before retaining objects; duplicate copies neither.
 - Seed pending only at the three library bootstrap paths. Seed split only when snapshot restores a shown

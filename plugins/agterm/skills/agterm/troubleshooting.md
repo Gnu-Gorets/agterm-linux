@@ -108,9 +108,8 @@ then `agtermctl config reload`.
 You set `session restore` but the pane came back as a plain shell (or re-ran the old captured command).
 Check, in order:
 
-- **The "Restore running commands on restart" setting is off.** The override obeys the same master switch
-  as the rest of restore; a `set`/`--none` while it is off succeeds but nothing runs on relaunch (the
-  response says so in `result.text`). Turn it on in General settings.
+- **The launch is not in `rerun` mode.** A `set`/`--none` still saves policy, and `result.text` names the
+  active mode. Select Re-run commands in General settings and restart agterm.
 - **The pane resolved to the scratch, or you pinned `--pane right` on a session with no split.** Both are
   rejected at set time (`the scratch terminal is never restored` / `session has no split`), so nothing was
   pinned — re-read the command's output.
@@ -119,10 +118,8 @@ Check, in order:
 - **It already fired once this launch.** The override is consumed once per launch: after it runs, a second
   surface for the same pane in the SAME session (e.g. opening a fresh split with ⌘D) gets a plain shell. It
   is still pinned — `tree` reports `restoreCommand` — and fires again on the NEXT restart.
-- **The split was hidden at quit.** A hidden split is not restored at all, so its override describes a pane
-  that no longer exists: the pin is DROPPED on that launch (`tree` stops reporting `splitRestoreCommand`)
-  rather than left to fire into a later manual ⌘D split. Show the split before quitting, and re-pin after a
-  launch that dropped it.
+- **The split is still hidden.** Its identity and pin survive restart, but the surface is created only when
+  the split is shown; the saved rerun policy applies then.
 - **You reopened a closed session or a closed window, not relaunched the app.** The override fires only on
   an app-launch restore — Reopen Closed Item and reopening a closed window deliberately do NOT arm it. Quit
   and relaunch agterm to see it fire.

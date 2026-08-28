@@ -875,7 +875,7 @@
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace">/opt/homebrew/bin</span>), so a bare Homebrew binary
                 fails with exit 127. Use an absolute path, or wrap it:
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #f2b45c; white-space: nowrap">--command "zsh -lc 'htop'"</span>. The
-                command is persisted and re-runs on restore when <em>Restore running commands on restart</em> is enabled.
+                command is persisted and runs again when a restored session launches in rerun mode.
               </p>
               <p style="font-size: 13.5px; line-height: 1.6; color: #949ba4; margin: 8px 0 0">
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace">--no-select</span> creates the session in the
@@ -1397,13 +1397,15 @@
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace; white-space: nowrap">session new --command</span> as well
                 as the captured foreground — a pinned line (or <span style="font-family: &quot;JetBrains Mono&quot;, monospace">--none</span>)
                 suppresses it, so a restored command session no longer takes the exec path or its
-                <span style="font-family: &quot;JetBrains Mono&quot;, monospace">--wait</span> close-on-exit behavior. It is gated on the
-                <em>Restore running commands on restart</em> setting (a pinned command while the setting is off succeeds with a note
-                that nothing will run; <span style="font-family: &quot;JetBrains Mono&quot;, monospace">--none</span>/<span style="font-family: &quot;JetBrains Mono&quot;, monospace">--clear</span>
-                get no note, since their outcome is delivered either way) but bypasses
+                <span style="font-family: &quot;JetBrains Mono&quot;, monospace">--wait</span> close-on-exit behavior. The pin runs only in
+                <span style="font-family: &quot;JetBrains Mono&quot;, monospace">rerun</span> mode. In fresh-shell or live mode,
+                a command or <span style="font-family: &quot;JetBrains Mono&quot;, monospace">--none</span> still saves policy for a future
+                rerun launch and returns a note naming the active mode;
+                <span style="font-family: &quot;JetBrains Mono&quot;, monospace">--clear</span> works in every mode. A pin never opts one
+                session out of live mode. Deliberate pins bypass
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace">restore-denylist.conf</span>,
-                since it names its command deliberately. A split hidden at quit is not restored, so its pin is dropped on that
-                launch rather than left to fire into a later manual split. It exists for non-idempotent commands like
+                since it names its command deliberately. A split hidden at quit keeps its identity and pin; showing it after
+                restart creates the pane and applies the saved rerun policy. It exists for non-idempotent commands like
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace; white-space: nowrap">claude --resume … --fork-session</span>:
                 a <span style="font-family: &quot;JetBrains Mono&quot;, monospace">SessionStart</span> hook can rewrite it to the live
                 session id on every start so the next restart reattaches instead of forking.
@@ -2644,8 +2646,10 @@
                 For the exit that never reaches a clean quit: a force quit, a crash, a hard reset, a power loss. (A shutdown,
                 restart or logout quits the app normally and captures by itself.) Run it from a scheduled job or bind it, and an
                 exit nobody was there for restores like a deliberate quit. Consumption is unchanged, the next launch arms each
-                captured command once and clears it. With <em>Restore running commands on restart</em> off it captures nothing and
-                returns an error saying so, since nothing would replay the capture. Typed at a prompt it records ITSELF, being that
+                captured command once and clears it. It runs only when this launch is in
+                <span style="font-family: &quot;JetBrains Mono&quot;, monospace">rerun</span> mode; fresh-shell and live modes refuse with
+                <span style="font-family: &quot;JetBrains Mono&quot;, monospace">restore.capture requires rerun mode; active restore mode is MODE</span>.
+                Typed at a prompt it records ITSELF, being that
                 pane's foreground process while it runs, so bind it or schedule it rather than running it by hand.
               </p>
             </div>
@@ -2662,8 +2666,8 @@
               </p>
               <p style="font-size: 13.5px; line-height: 1.6; color: #949ba4; margin: 8px 0 0">
                 It does <em>not</em> clear a <span style="font-family: &quot;JetBrains Mono&quot;, monospace; white-space: nowrap">session new --command</span>
-                session's own command — that is the durable creation identity and still re-runs on restore when the setting is on.
-                This is the counterpart to the opt-in <em>Restore running commands on restart</em> setting.
+                session's own command. That is the durable creation identity and still re-runs in rerun mode.
+                This command works in fresh-shell, rerun, and live modes.
                 Like <span style="font-family: &quot;JetBrains Mono&quot;, monospace; white-space: nowrap">restore capture</span>, it
                 acknowledges only a save that landed: if any window fails to save it returns an error saying so, and those
                 windows keep their captured commands until a later save succeeds.

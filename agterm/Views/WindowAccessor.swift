@@ -145,7 +145,7 @@ struct WindowAccessor: NSViewRepresentable {
                     // reopened window would load a stale snapshot. skipped once the window is no longer open:
                     // a delete already dropped the store and removed the per-window file, so this resurrects it.
                     if library.isOpen(windowID) {
-                        // restore-running-command: capture while the surfaces below are still alive. Skipped
+                        // Rerun mode captures while the surfaces below are still alive. Skipped
                         // under termination — the quit-time capture already ran, and a re-read assigns
                         // unconditionally, so a foreground that exited since would overwrite it with nil.
                         // `openIDs()` is read before `closeWindow` runs, so it scopes this to the app-exit

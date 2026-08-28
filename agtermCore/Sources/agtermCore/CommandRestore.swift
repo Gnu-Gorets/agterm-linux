@@ -114,8 +114,8 @@ public enum CommandRestore {
 
     /// The inputs `restorePlan` decides from.
     /// - `wasRestored`: the session came from a restore (a FRESH command session always runs its command, a
-    ///   RESTORED one only when the opt-in is on).
-    /// - `restoreEnabled`: the `restoreRunningCommand` opt-in.
+    ///   RESTORED one only in rerun mode).
+    /// - `restoreEnabled`: whether the immutable launch mode is `rerun`.
     /// - `hadForeground`: a foreground command was CAPTURED, at the last quit or by `restore.capture`. It
     ///   PREEMPTS `initialCommand` even when suppressed (denylisted/off → `foregroundInput` nil), yielding a
     ///   plain shell rather than the stale creation command — so gate on capture, not on the input surviving.
@@ -142,8 +142,8 @@ public enum CommandRestore {
     }
 
     /// The `initial_input` for a pane: a pinned override (empty → nil, a plain shell) when one exists, else
-    /// the captured foreground input. The override is gated on `restoreEnabled`, keeping the toggle the
-    /// single master switch (like `initialCommand`, the other explicit user-set seed), and is typed
+    /// the captured foreground input. The override is gated on `restoreEnabled`, keeping rerun mode the
+    /// single switch (like `initialCommand`, the other explicit user-set seed), and is typed
     /// VERBATIM — never through `shellQuotedLine` — so `cd x && claude --resume y` works as written; the
     /// captured input arrives already gated + denylist-filtered from the app side.
     public static func restoreInput(restoreEnabled: Bool, restoreOverride: String?,
@@ -164,7 +164,7 @@ public enum CommandRestore {
     /// boundary; the app target owns only the libghostty seeding. A present `restoreOverride`
     /// short-circuits everything: it wins over the captured foreground and `initialCommand`, `command` is
     /// always nil (an override never takes the exec path), and the input comes from `restoreInput` — so it
-    /// obeys the `restoreEnabled` toggle while bypassing the denylist, which guards BLIND capture, not a
+    /// obeys the `restoreEnabled` launch mode while bypassing the denylist, which guards BLIND capture, not a
     /// deliberately named command. With no override the capture/`initialCommand` precedence applies.
     public static func restorePlan(_ inputs: RestoreInputs) -> RestorePlan {
         if inputs.restoreOverride != nil {

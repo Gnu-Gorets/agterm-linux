@@ -21,6 +21,7 @@ final class ControlServer {
     let library: WindowLibrary
     let actions: AppActions
     let settingsModel: SettingsModel
+    let launchRestoreMode: RestoreMode
     private let socketPath: String
 
     /// The target-resolution query layer: owns the `emptyStore`/`store` frontmost-fallback and wraps the
@@ -131,10 +132,11 @@ final class ControlServer {
     let identity: AppIdentity
 
     init(library: WindowLibrary, actions: AppActions, settingsModel: SettingsModel, identity: AppIdentity,
-         socketPath: String? = nil) {
+         launchRestoreMode: RestoreMode = GhosttyApp.shared.launchRestoreMode, socketPath: String? = nil) {
         self.library = library
         self.actions = actions
         self.settingsModel = settingsModel
+        self.launchRestoreMode = launchRestoreMode
         self.identity = identity
         self.resolver = ControlTargetResolver(library: library)
         self.socketPath = socketPath ?? ControlServer.defaultSocketPath()
@@ -526,12 +528,12 @@ final class ControlServer {
     /// App-global like `clearRestoreCommands`, its inverse over the same slots: no `--window` selector, every
     /// open window. Consumption stays one-shot and launch-only, so nothing here changes replay.
     ///
-    /// Gated on the same setting as the two exit-time captures, and REFUSES rather than answering ok the way
-    /// `session.restore` does. Contract and reasoning in `.claude/rules/settings.md`.
+    /// Available only in the immutable rerun launch mode. It refuses in the other two modes and names the
+    /// active one, unlike `session.restore`, which saves future rerun policy with a note.
     func captureRestoreCommands() -> ControlResponse {
-        guard settingsModel.settings.restoreRunningCommand == true else {
-            return ControlResponse(ok: false,
-                                   error: "\"Restore running commands on restart\" is off, nothing was captured")
+        guard launchRestoreMode == .rerun else {
+            return ControlResponse(ok: false, error: "restore.capture requires rerun mode; active restore mode is "
+                + launchRestoreMode.rawValue)
         }
         let sessions = library.allOpenSessions()
         let captured = AppDelegate.captureForegroundCommands(sessions: sessions)
