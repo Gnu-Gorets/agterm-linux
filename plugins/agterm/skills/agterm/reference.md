@@ -1276,6 +1276,11 @@ three-second undo. It refuses a daemon already gone, one zmx could not read (for
 live daemon's socket and leave it running unreachable), and a session inside its undo window. Killing the
 daemon of the pane you are typing in can kill the calling `agtermctl` before it reads the reply.
 
+`--window ID` scopes the search to one window's claims, for a session prefix claimed in more than one.
+Omit it to search every window, closed and unindexed ones included; `active` is not accepted, and neither
+is it for `--target`. Without it an ambiguous prefix reports `no left pane daemon for session ID`, the
+same answer a target that does not exist gets.
+
 Every zmx command needs a running agterm: only the app can join its live windows, its pending closes and
 its persisted snapshots against what zmx reports. With agterm stopped there is nothing to ask.
 

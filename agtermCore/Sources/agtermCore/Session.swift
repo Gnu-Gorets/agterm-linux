@@ -191,7 +191,7 @@ public final class Session: Identifiable {
     /// `command`), set via `session.new --command`. The surface factory reads it once; the session closes when
     /// the command exits. Persisted, so a command session — e.g. an `ssh …` shortcut, which escapes the
     /// foreground-pid capture because that pane's group is led by unreadable setuid-root `login` — re-runs it
-    /// on restore when `restoreRunningCommand` is on (via `wasRestored`); a fresh session always runs it.
+    /// on restore in `rerun` launch mode (via `wasRestored`); a fresh session always runs it.
     @ObservationIgnored public var initialCommand: String?
 
     /// Whether a `--command` session HOLDS its surface after the command exits — libghostty's "press any key
@@ -201,8 +201,8 @@ public final class Session: Identifiable {
     @ObservationIgnored public var commandWait: Bool = false
 
     /// True when the session was rebuilt by `AppStore.restore(from:)` rather than freshly created; gates the
-    /// `initialCommand` re-run on `restoreRunningCommand` (a fresh session always runs it, a restored one gets
-    /// a plain shell when off). Never persisted.
+    /// `initialCommand` re-run on `rerun` launch mode (a fresh session always runs it, a restored one gets
+    /// a plain shell in any other mode). Never persisted.
     @ObservationIgnored public var wasRestored = false
 
     /// The main pane's foreground command (full argv) for restore-running-command, read once by the surface
