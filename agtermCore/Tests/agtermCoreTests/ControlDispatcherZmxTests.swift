@@ -75,7 +75,7 @@ struct ControlDispatcherZmxTests {
         #expect(decoded.cmd == command)
     }
 
-    @Test func zmxInventoryRoundTripsEveryRowKind() throws {
+    @Test func zmxInventoryReachesACallerThroughTheWholeResponse() throws {
         let pane = UUID()
         let claim = ZmxPaneClaim(paneIdentity: pane, pane: .right, pendingClose: true, windowID: UUID(),
                                  windowName: nil, windowState: .unindexed, workspaceID: UUID(),
@@ -88,9 +88,18 @@ struct ControlDispatcherZmxTests {
                                           unavailableReason: nil)
 
         let payload = ControlZmxInventory(restore: status, result: result)
-        let decoded = try JSONDecoder().decode(ControlZmxInventory.self, from: JSONEncoder().encode(payload))
+        // through the whole response, which is the boundary a caller actually reads `result.zmx` from
+        let response = ControlResponse(ok: true, result: ControlResult(zmx: payload))
+        let encoded = try JSONEncoder().encode(response)
+        let decoded = try #require(try JSONDecoder().decode(ControlResponse.self, from: encoded).result?.zmx)
 
         #expect(decoded == payload)
+        let json = try #require(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        let rows = try #require((json["result"] as? [String: Any])?["zmx"] as? [String: Any])
+        let entries = try #require(rows["entries"] as? [[String: Any]])
+        let foreignRow = try #require(entries.first { $0["daemon"] as? String == "notes" })
+        #expect(foreignRow["sessionID"] == nil, "an unclaimed row omits its owner fields, never nulls them")
+        #expect(foreignRow["clients"] as? Int == 0)
         #expect(!decoded.inventoryComplete)
         let claimed = try #require(decoded.entries.first { $0.state == "pendingClose" })
         #expect(claimed.observation == "running")

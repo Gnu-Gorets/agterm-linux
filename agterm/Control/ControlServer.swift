@@ -131,8 +131,10 @@ final class ControlServer {
     /// Which agterm this is, injected rather than read from `Bundle.main` here: the identity is the app's to
     /// know, and a hosted test would otherwise see its own host bundle.
     let identity: AppIdentity
-    /// Talks to the daemons behind the zmx commands. Nil outside live mode and in hosted tests, where
-    /// every zmx command answers that the backend is unavailable rather than pretending an empty listing.
+    /// Talks to the daemons behind the zmx commands. Present in every real launch, live mode or not —
+    /// `list` and `prune` must still work after a launch in `none` or `rerun`, which is exactly when
+    /// detached daemons are left over. Nil only in hosted tests, where the commands answer that the
+    /// backend is unavailable rather than pretending an empty listing.
     let zmxClient: ZmxClient?
 
     init(library: WindowLibrary, actions: AppActions, settingsModel: SettingsModel, identity: AppIdentity,
