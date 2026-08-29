@@ -3,8 +3,9 @@ import Darwin
 import Foundation
 import os
 
-@MainActor
-final class ZmxClient {
+/// Immutable process adapter. Production calls may run concurrently on background tasks; the default runner
+/// owns all mutable process state per invocation.
+final class ZmxClient: @unchecked Sendable {
     struct Invocation {
         let executablePath: String
         let arguments: [String]
@@ -34,8 +35,8 @@ final class ZmxClient {
     }
 
     @discardableResult
-    func reap(knownPaneIdentities: Set<UUID>?, live: Bool) -> Bool {
-        if live, knownPaneIdentities == nil {
+    func reap(knownPaneIdentities: Set<UUID>?, requestedMode: RestoreMode) -> Bool {
+        if requestedMode == .live, knownPaneIdentities == nil {
             Self.logger.error("skipping live zmx reap because the persisted pane inventory is incomplete")
             return true
         }
@@ -54,7 +55,8 @@ final class ZmxClient {
             return false
         }
         let knownNames = knownPaneIdentities.map { Set($0.map(ZmxSupport.daemonName(for:))) }
-        guard let names = ZmxReapPolicy.namesToKill(sessions: sessions, live: live, knownNames: knownNames) else {
+        guard let names = ZmxReapPolicy.namesToKill(
+            sessions: sessions, requestedMode: requestedMode, knownNames: knownNames) else {
             return true
         }
         return kill(names: names)

@@ -1414,8 +1414,8 @@
                   >›</span
                 ><strong style="color: #e6e1d7">General</strong> — mouse scroll speed, right-click-to-paste, whether clicking a workspace
                 row expands or collapses it (on by default; the disclosure triangle always does), where a new session opens (your home
-                directory by default, the current session's directory, or a fixed folder you pick), an
-                a restore mode for fresh shells, re-run commands, or live sessions, an opt-in confirm before closing a session, and
+                directory by default, the current session's directory, or a fixed folder you pick), a restore mode for fresh shells,
+                re-run commands, or live sessions, an opt-in confirm before closing a session, and
                 whether to load your global Ghostty config.
               </div>
               <div style="font-size: 15px; line-height: 1.6; color: #cbc6bc; padding-left: 22px; position: relative">
@@ -3045,6 +3045,8 @@ command = "'/Users/you/.config/agterm/agent-status/agterm-codex-status.sh' stop"
                 ends the attach client while the daemon and its process continue; the next launch attaches to the same name. A reboot,
                 manual zmx kill, or another missing daemon creates a fresh shell under that name instead of failing the restore.
                 Deleting a session, workspace, split, or window kills the corresponding daemon after any undo grace expires.
+                Switching to Fresh shells or Re-run commands and restarting ends every detached live process in this state directory.
+                A launch that still requests Live sessions but cannot use it preserves those processes for a later eligible launch.
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">tree --json</span> reports the actual
                 state as <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">surfaces[].backedByZmx</span>
                 and a session-level <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">backedByZmx</span>,

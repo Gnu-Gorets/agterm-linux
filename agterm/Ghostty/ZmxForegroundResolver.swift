@@ -13,7 +13,7 @@ final class ZmxForegroundResolver {
         case dead
     }
 
-    typealias LeaderProvider = () -> [String: pid_t]?
+    typealias LeaderProvider = @Sendable () -> [String: pid_t]?
     typealias Probe = (pid_t) -> LeaderProbe
 
     private static let logger = Logger(subsystem: "com.umputun.agterm", category: "ZmxForeground")
@@ -21,6 +21,8 @@ final class ZmxForegroundResolver {
     private let leaderProbe: Probe
     private var leaders: [String: pid_t] = [:]
     private var refreshGate = ZmxRefreshGate()
+    private var lifecycleRevision = 0
+    private var refreshTask: Task<Void, Never>?
 
     init(leaderProvider: @escaping LeaderProvider, leaderProbe: @escaping Probe = ZmxForegroundResolver.probe) {
         self.leaderProvider = leaderProvider
@@ -28,19 +30,26 @@ final class ZmxForegroundResolver {
     }
 
     func noteLifecycleChange() {
+        lifecycleRevision &+= 1
         refreshGate.noteLifecycleChange()
     }
 
     func refreshIfNeeded(now: Date = Date()) {
-        guard refreshGate.shouldRefresh(now: now), let refreshed = leaderProvider() else { return }
-        leaders = refreshed
+        guard refreshTask == nil, refreshGate.shouldRefresh(now: now) else { return }
+        let provider = leaderProvider
+        let revision = lifecycleRevision
+        refreshTask = Task { [weak self] in
+            let refreshed = await Task.detached(priority: .utility) { provider() }.value
+            guard let self else { return }
+            self.refreshTask = nil
+            guard let refreshed else { return }
+            self.leaders = refreshed
+            if self.lifecycleRevision == revision { self.refreshGate.didRefresh(now: now) }
+        }
     }
 
     func foregroundPID(sessionName: String) -> pid_t? {
-        guard let leader = leaders[sessionName] else {
-            refreshGate.noteLifecycleChange()
-            return nil
-        }
+        guard let leader = leaders[sessionName] else { return nil }
         switch leaderProbe(leader) {
         case .foreground(let pid): return pid
         case .noForeground: return nil

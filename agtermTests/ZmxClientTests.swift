@@ -20,7 +20,7 @@ final class ZmxClientTests: XCTestCase {
             return ""
         }
 
-        XCTAssertTrue(client.reap(knownPaneIdentities: [known], live: true))
+        XCTAssertTrue(client.reap(knownPaneIdentities: [known], requestedMode: .live))
         XCTAssertEqual(invocations.map(\.arguments), [["list"], ["kill", orphan, "--force"]])
         XCTAssertEqual(invocations.map(\.timeout), [1.5, 1.5])
         XCTAssertEqual(invocations[0].environment["ZMX_DIR"], "/tmp/zmx-dir")
@@ -34,8 +34,20 @@ final class ZmxClientTests: XCTestCase {
             return ""
         }
 
-        XCTAssertTrue(client.reap(knownPaneIdentities: nil, live: true))
+        XCTAssertTrue(client.reap(knownPaneIdentities: nil, requestedMode: .live))
         XCTAssertEqual(calls, 0)
+    }
+
+    func testRequestedLiveFallbackPreservesClaimedDaemons() {
+        let known = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
+        var invocations: [[String]] = []
+        let client = ZmxClient(executablePath: "/tmp/zmx", socketDirectory: "/tmp/zmx-dir") {
+            invocations.append($0.arguments)
+            return "name=\(ZmxSupport.daemonName(for: known))\tpid=1\tclients=0\tcreated=1"
+        }
+
+        XCTAssertTrue(client.reap(knownPaneIdentities: [known], requestedMode: .live))
+        XCTAssertEqual(invocations, [["list"]])
     }
 
     func testSemanticKillUsesFullPaneDaemonNames() {

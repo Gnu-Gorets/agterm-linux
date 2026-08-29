@@ -73,8 +73,8 @@ Daemon action follows semantic deletion, never `TerminalSurface.teardown()`.
 | Explicit split close or split process exit | Kill that split daemon. |
 | Hidden split | Persist `hasSplit` and identity so the daemon remains claimed; restore focus to primary and reattach the split when shown. |
 | Primary exit with a split survivor | Move the survivor identity to primary; the dead daemon exits naturally. |
-| Live launch | Reap zero-client app daemons absent from a complete persisted-name set. Skip reap if inventory is incomplete. |
-| Non-live launch | Reap every zero-client app daemon in this instance namespace. |
+| Requested-live launch | Reap zero-client app daemons absent from a complete persisted-name set. Preserve claimed daemons even when eligibility falls back. Skip reap if inventory is incomplete. |
+| Deliberate non-live launch | Reap every zero-client app daemon in this instance namespace. |
 
 The zmx directory is a short hash-derived path under `/tmp`, scoped by the canonical agterm state directory.
 A stale control socket pathname can remain after SIGTERM, so tests wait for a successful request rather than
@@ -120,8 +120,8 @@ checking only that the socket exists.
 - [x] reproduce zsh integration with `ZDOTDIR`, preserved `GHOSTTY_ZSH_ZDOTDIR`, explicit `SHELL`, `ZMX_DIR`
       and `ZMX_NO_DETACH_KEY=1`; require the bundled zsh loader
 - [x] name daemons from the full compact pane UUID and use it as `AGTERM_PANE_ID`
-- [x] derive the namespace from a canonical state path and check the final Unix socket budget
-- [x] test supported, unsupported and missing-resource decisions plus stable names and path limits
+- [x] derive a fixed-length namespace from a canonical state path; its full UUID daemon name stays within the Unix socket budget
+- [x] test supported, unsupported and missing-resource decisions plus stable names and namespace derivation
 
 ### Task 3: Build and sign zmx
 
@@ -205,12 +205,13 @@ checking only that the socket exists.
 
 ### Task 9: Verify and finalize
 
-- [ ] verify the lifecycle table in an isolated Debug instance using its captured PID and explicit socket
-- [ ] verify Claude Code and colors after SIGTERM/reattach, then verify missing-daemon upsert
-- [ ] verify destructive actions remove covered daemons and non-destructive actions only detach
-- [ ] run `swift test`, `make test-app`, `make lint`, and `make build`
-- [ ] update `CLAUDE.md`, including Zig 0.16 and the final lifecycle rules
-- [ ] delete the superseded idea plan and move this plan to `docs/plans/completed/`
+- [x] verify the lifecycle table in an isolated Debug instance using its captured PID and explicit socket;
+      the focused lifecycle test covers grace finalization before and after undo
+- [x] verify Claude Code and colors after SIGTERM/reattach, then verify missing-daemon upsert
+- [x] verify destructive actions remove covered daemons and non-destructive actions only detach
+- [x] run `swift test`, `make test-app`, `make lint`, and `make build`
+- [x] update `CLAUDE.md`, including Zig 0.16 and the final lifecycle rules
+- [x] delete the superseded idea plan and move this plan to `docs/plans/completed/`
 
 ## Manual follow-up
 

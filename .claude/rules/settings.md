@@ -135,10 +135,10 @@ paths:
   cached diagnostics.
 - **Restore mode is frozen at launch.** `none` restores fresh shells, `rerun` uses the captured-command path
   below, and `live` is zmx-backed. Settings changes apply after restart. A live request falls back to
-  `none` when the bundled executable, zsh integration, socket budget, or password-database login shell is
-  unsupported, and Settings reports the reason. Every
-  primary/split factory, later session, reopened window, capture gate and quit path reads the immutable
-  launch mode, never the mutable setting.
+  `none` when the bundled executable, zsh integration, or password-database login shell is unsupported, and
+  Settings reports the reason. The requested-live latch still claims persisted daemons during fallback; only
+  a deliberate `none` or `rerun` launch reaps them. Factories, capture gates, control responses, and reap each
+  read the appropriate immutable requested or active mode, never the mutable setting.
 - **Rerun replay is launch-scoped; capture runs at two exits and on demand.**
   `AppDelegate.captureForegroundCommands` runs at three points: `applicationWillTerminate` before
   `saveAllOpen()`, the LAST window's `willClose` before its surface teardown, which precedes

@@ -6,6 +6,11 @@ import os
 enum ZmxLaunch {
     typealias Disposition = ZmxSupport.LaunchDisposition
 
+    struct FallbackPrimaryPlan: Equatable {
+        let command: String?
+        let waitAfterCommand: Bool
+    }
+
     private struct Runtime {
         let bundleURL: URL
         let environment: [String: String]
@@ -74,6 +79,12 @@ enum ZmxLaunch {
     static func disposition(requested: RestoreMode, active: RestoreMode,
                             configuration: ZmxSupport.Configuration?) -> Disposition {
         ZmxSupport.launchDisposition(requested: requested, active: active, configuration: configuration)
+    }
+
+    static func fallbackPrimaryPlan(wasRestored: Bool, initialCommand: String?,
+                                    commandWait: Bool) -> FallbackPrimaryPlan {
+        guard !wasRestored else { return FallbackPrimaryPlan(command: nil, waitAfterCommand: false) }
+        return FallbackPrimaryPlan(command: initialCommand, waitAfterCommand: commandWait)
     }
 
     static func passwordDatabaseLoginShell() -> String? {

@@ -19,17 +19,6 @@ public enum RestoreMode: String, Codable, CaseIterable, Sendable {
         }
     }
 
-    public func launchDecision(passwordDatabaseShell: String?) -> RestoreLaunchDecision {
-        let reason: String?
-        if let passwordDatabaseShell, CommandRestore.basename(passwordDatabaseShell) == "zsh" {
-            reason = nil
-        } else {
-            let shell = passwordDatabaseShell.map(CommandRestore.basename) ?? "unknown"
-            reason = "Live sessions require zsh as the macOS login shell; current shell is \(shell)."
-        }
-        return launchDecision(liveUnavailableReason: reason)
-    }
-
     public func launchDecision(liveUnavailableReason: String?) -> RestoreLaunchDecision {
         let active: RestoreMode = self == .live && liveUnavailableReason != nil ? .none : self
         return RestoreLaunchDecision(requested: self, active: active,

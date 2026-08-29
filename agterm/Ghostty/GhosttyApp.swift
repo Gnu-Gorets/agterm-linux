@@ -59,9 +59,9 @@ final class GhosttyApp {
     /// Coordinator reads it in `handleSingleClick`, and the disclosure triangle ignores it because AppKit
     /// toggles that natively. Settings-mirrored like `toolbarMode`.
     private(set) var workspaceRowClickExpands: Bool = true
-    /// The persisted choice and effective mode frozen before the first surface. A live request falls back to
-    /// fresh shells when the password-database login shell is unsupported. Settings changes never mutate the
-    /// latch, so later sessions and reopened windows use the launch policy too.
+    /// The persisted choice and effective mode frozen before the first surface. An ineligible live request
+    /// falls back to fresh shells without releasing its daemon claims. Settings changes never mutate either
+    /// latch, so later sessions, reap, and reopened windows use the same launch policy.
     let requestedRestoreMode: RestoreMode
     let launchRestoreMode: RestoreMode
     let liveRestoreUnavailableReason: String?

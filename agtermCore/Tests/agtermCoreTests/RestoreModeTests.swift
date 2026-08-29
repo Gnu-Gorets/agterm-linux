@@ -23,26 +23,4 @@ struct RestoreModeTests {
         #expect(RestoreMode.allCases.map(\.displayName) == ["Fresh shells", "Re-run commands", "Live sessions"])
     }
 
-    @Test func liveFallsBackForAnUnsupportedPasswordDatabaseShell() {
-        let decision = RestoreMode.live.launchDecision(passwordDatabaseShell: "/bin/bash")
-
-        #expect(decision.requested == .live)
-        #expect(decision.active == .none)
-        #expect(decision.liveUnavailableReason ==
-            "Live sessions require zsh as the macOS login shell; current shell is bash.")
-    }
-
-    @Test func supportedModesStayActive() {
-        #expect(RestoreMode.live.launchDecision(passwordDatabaseShell: "/bin/zsh").active == .live)
-        #expect(RestoreMode.rerun.launchDecision(passwordDatabaseShell: "/bin/bash").active == .rerun)
-        #expect(RestoreMode.none.launchDecision(passwordDatabaseShell: nil).active == .none)
-    }
-
-    @Test func unsupportedShellReasonExistsBeforeLiveIsSelected() {
-        let decision = RestoreMode.none.launchDecision(passwordDatabaseShell: "/bin/bash")
-
-        #expect(decision.active == .none)
-        #expect(decision.liveUnavailableReason ==
-            "Live sessions require zsh as the macOS login shell; current shell is bash.")
-    }
 }

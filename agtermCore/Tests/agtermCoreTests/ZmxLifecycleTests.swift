@@ -48,14 +48,17 @@ struct ZmxLifecycleTests {
         let start = Date(timeIntervalSince1970: 100)
 
         let first = gate.shouldRefresh(now: start)
-        let held = gate.shouldRefresh(now: start.addingTimeInterval(1))
         #expect(first)
+        #expect(gate.shouldRefresh(now: start.addingTimeInterval(1)))
+        gate.didRefresh(now: start.addingTimeInterval(1))
+        let held = gate.shouldRefresh(now: start.addingTimeInterval(2))
         #expect(!held)
         gate.noteLifecycleChange()
-        let invalidated = gate.shouldRefresh(now: start.addingTimeInterval(2))
-        let heldAgain = gate.shouldRefresh(now: start.addingTimeInterval(3))
+        let invalidated = gate.shouldRefresh(now: start.addingTimeInterval(3))
+        gate.didRefresh(now: start.addingTimeInterval(3))
+        let heldAgain = gate.shouldRefresh(now: start.addingTimeInterval(4))
         let reconciled = gate.shouldRefresh(
-            now: start.addingTimeInterval(2 + ZmxRefreshGate.reconcileInterval))
+            now: start.addingTimeInterval(3 + ZmxRefreshGate.reconcileInterval))
         #expect(invalidated)
         #expect(!heldAgain)
         #expect(reconciled)
@@ -84,10 +87,10 @@ struct ZmxLifecycleTests {
             ZmxSessionRecord(name: "agterm-busy", clients: nil),
         ]
 
-        #expect(ZmxReapPolicy.namesToKill(sessions: sessions, live: true,
+        #expect(ZmxReapPolicy.namesToKill(sessions: sessions, requestedMode: .live,
                                           knownNames: ["agterm-known"]) == ["agterm-orphan"])
-        #expect(ZmxReapPolicy.namesToKill(sessions: sessions, live: true, knownNames: nil) == nil)
-        #expect(ZmxReapPolicy.namesToKill(sessions: sessions, live: false,
+        #expect(ZmxReapPolicy.namesToKill(sessions: sessions, requestedMode: .live, knownNames: nil) == nil)
+        #expect(ZmxReapPolicy.namesToKill(sessions: sessions, requestedMode: .none,
                                           knownNames: nil) == ["agterm-known", "agterm-orphan"])
     }
 

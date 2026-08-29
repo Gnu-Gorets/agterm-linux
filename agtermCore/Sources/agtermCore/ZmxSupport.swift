@@ -5,9 +5,10 @@ public enum ZmxSupport {
     public enum LaunchDisposition: Equatable, Sendable {
         case ordinary
         case wrapped(Configuration)
+        /// Live was requested but unavailable. Restored panes start plain shells without consuming rerun
+        /// state; fresh primary panes still honor their creation command.
         case fallback
 
-        public var consumesRestoreState: Bool { self == .ordinary }
         public var backedByZmx: Bool {
             guard case .wrapped = self else { return false }
             return true
@@ -58,7 +59,6 @@ public enum ZmxSupport {
         case executableUnavailable
         case unsupportedLoginShell
         case missingZshIntegration
-        case socketPathTooLong
 
         public var message: String {
             switch self {
@@ -66,14 +66,9 @@ public enum ZmxSupport {
             case .executableUnavailable: "the zmx executable is unavailable"
             case .unsupportedLoginShell: "the password-database login shell is not zsh"
             case .missingZshIntegration: "the bundled zsh integration is unavailable"
-            case .socketPathTooLong: "the zmx socket path exceeds the macOS sun_path budget"
             }
         }
     }
-
-    /// zmx derives the final socket as `ZMX_DIR + "/" + daemonName`. Darwin's 104-byte
-    /// `sun_path` leaves 103 usable bytes after the terminating NUL.
-    static let maximumSocketPathBytes = 103
 
     public static func configuration(for inputs: Inputs) -> Result<Configuration, Rejection> {
         guard (inputs.zmxExecutablePath as NSString).isAbsolutePath else {
@@ -97,9 +92,6 @@ public enum ZmxSupport {
 
         let daemonName = daemonName(for: inputs.paneIdentity)
         let socketDirectory = socketDirectory(forStateDirectory: inputs.stateDirectory)
-        guard socketPathFits(directory: socketDirectory, daemonName: daemonName) else {
-            return .failure(.socketPathTooLong)
-        }
 
         let paneID = inputs.paneIdentity.uuidString
         var environment = inputs.baseEnvironment
@@ -136,10 +128,6 @@ public enum ZmxSupport {
 
     public static func daemonName(for paneIdentity: UUID) -> String {
         "agterm-" + compactUUID(paneIdentity)
-    }
-
-    static func socketPathFits(directory: String, daemonName: String) -> Bool {
-        (directory + "/" + daemonName).utf8.count <= maximumSocketPathBytes
     }
 
     private static func compactUUID(_ id: UUID) -> String {

@@ -1207,6 +1207,8 @@ started with, so a change applies after restarting agterm.
 Closing agterm or sending it SIGTERM ends the attach clients and leaves live daemons running. A missing
 daemon, including after a reboot or manual zmx kill, comes back as a fresh shell under the same name. A
 session or split that is explicitly deleted has its daemon killed after the undo grace period.
+Switching to Fresh shells or Re-run commands and restarting ends every detached live process in the state
+directory. A launch that still requests Live sessions but cannot use it preserves those processes.
 
 The tree exposes actual backing without adding sidebar UI. Primary and split surface entries carry
 `backedByZmx`; the session-level field is true only when every existing primary or split pane is backed.

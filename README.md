@@ -115,7 +115,7 @@ The same interface covers windows, splits, overlays, dashboards, HUDs, notificat
 - [CONTRIBUTING.md](CONTRIBUTING.md) covers building from source.
 - [ARCHITECTURE.md](ARCHITECTURE.md) describes the internals: the module split, surface ownership, and the libghostty C boundary.
 
-Sessions come back on the next launch with their directory, font size, and split state. **Settings ▸ General ▸ Restore sessions** chooses fresh shells, re-run commands, or live sessions. Live mode wraps every primary and split pane; scratch, overlay, and quick terminals remain temporary. Closing agterm or stopping it with SIGTERM leaves live processes running for the next launch. A reboot, manual zmx kill, or another missing daemon restores that pane as a fresh shell.
+Sessions come back on the next launch with their directory, font size, and split state. **Settings ▸ General ▸ Restore sessions** chooses fresh shells, re-run commands, or live sessions. Live mode wraps every primary and split pane; scratch, overlay, and quick terminals remain temporary. Closing agterm or stopping it with SIGTERM leaves live processes running for the next launch. A reboot, manual zmx kill, or another missing daemon restores that pane as a fresh shell. Switching away from Live sessions and restarting ends the detached live processes. A launch that still requests Live sessions but cannot use it preserves them for a later eligible launch.
 
 Live restore keeps the running process, usable text and TUI state, and normal terminal colors. The reconstructed screen does not retain inline images, earlier OSC 133 prompt markers, program-changed palette entries, or hyperlink metadata already attached to cells. New output after reattach behaves normally.
 

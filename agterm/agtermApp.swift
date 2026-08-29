@@ -220,14 +220,14 @@ struct agtermApp: App {
         }
     }
 
-    /// Builds the app-global window library at the state directory — `AGTERM_STATE_DIR`, a temp dir under UI test.
-    /// Bootstrap migrates/recovers (legacy `workspaces.json` → one window, else seed): always valid, non-empty.
     @MainActor
     private struct RestoredRuntime {
         let library: WindowLibrary
         let foregroundResolver: ZmxForegroundResolver?
     }
 
+    /// Builds the window library and zmx foreground resolver for the state directory. Bootstrap
+    /// migrates/recovers persisted windows and inventories claimed pane identities before surfaces mount.
     private static func restoredRuntime(stateDirectory: URL) -> RestoredRuntime {
         guard !isHostedUnitTest else {
             return RestoredRuntime(library: WindowLibrary(directory: stateDirectory), foregroundResolver: nil)
@@ -241,13 +241,18 @@ struct agtermApp: App {
         let foregroundResolver = ZmxForegroundResolver(leaderProvider: { client.sessionLeaderPIDs() })
         let library = WindowLibrary(
             directory: stateDirectory,
-            paneFinalizer: {
-                _ = client.kill(paneIdentities: $0)
+            paneFinalizer: { paneIdentities in
                 foregroundResolver.noteLifecycleChange()
+                Task.detached(priority: .utility) {
+                    _ = client.kill(paneIdentities: paneIdentities)
+                }
             },
-            launchInventorySink: {
-                _ = client.reap(knownPaneIdentities: $0, live: ghostty.launchRestoreMode == .live)
+            launchInventorySink: { knownPaneIdentities in
                 foregroundResolver.noteLifecycleChange()
+                let requestedMode = ghostty.requestedRestoreMode
+                Task.detached(priority: .utility) {
+                    _ = client.reap(knownPaneIdentities: knownPaneIdentities, requestedMode: requestedMode)
+                }
             })
         return RestoredRuntime(library: library, foregroundResolver: foregroundResolver)
     }
@@ -310,9 +315,13 @@ struct agtermApp: App {
             waitAfterCommand = session.commandWait
             surfaceEnv = env
         case .fallback:
-            command = nil
+            let plan = ZmxLaunch.fallbackPrimaryPlan(
+                wasRestored: session.wasRestored,
+                initialCommand: session.initialCommand,
+                commandWait: session.commandWait)
+            command = plan.command
             initialInput = nil
-            waitAfterCommand = false
+            waitAfterCommand = plan.waitAfterCommand
             surfaceEnv = env
         }
         let view = GhosttySurfaceView(workingDirectory: session.initialCwd, fontSize: session.fontSize.map(Float.init),
@@ -463,8 +472,8 @@ struct agtermApp: App {
         // parent's window/workspace/session ids. The captured foreground command re-runs via initial_input
         // (run-once); splits never carry an `initialCommand`, so there is no mutual-exclusion guard and no
         // `restorePlan` — `restoreInput` alone decides. A `session.restore` override wins over the capture, from
-        // the TRANSIENT pending slot (seeded only by an app-bootstrap restore whose split was shown) not the
-        // sticky persisted field; taking it clears it, so a fresh ⌘D split after a split shell exits is a shell.
+        // the TRANSIENT pending slot seeded by app-bootstrap restore, not the sticky persisted field; taking
+        // it clears it, so a fresh ⌘D split after a split shell exits is a shell.
         let ghostty = GhosttyApp.shared
         let zmx = ghostty.launchRestoreMode == .live
             ? ZmxLaunch.configuration(paneIdentity: session.splitPaneIdentity, pane: "split", environment: env)

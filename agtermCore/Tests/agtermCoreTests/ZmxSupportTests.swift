@@ -91,13 +91,6 @@ struct ZmxSupportTests {
                 ZmxSupport.socketDirectory(forStateDirectory: link.path))
     }
 
-    @Test func socketBudgetCountsTheFinalUTF8Path() {
-        let directory = String(repeating: "d", count: 62)
-        let fittingName = String(repeating: "n", count: 40)
-        #expect(ZmxSupport.socketPathFits(directory: directory, daemonName: fittingName))
-        #expect(!ZmxSupport.socketPathFits(directory: directory, daemonName: fittingName + "n"))
-    }
-
     @Test func launchDispositionKeepsLiveFallbackStateUnconsumed() {
         let configuration = ZmxSupport.Configuration(
             command: "zmx attach session", environment: [:], daemonName: "session",
@@ -105,13 +98,22 @@ struct ZmxSupportTests {
 
         #expect(ZmxSupport.launchDisposition(requested: .rerun, active: .rerun,
                                              configuration: configuration) == .ordinary)
-        #expect(ZmxSupport.LaunchDisposition.ordinary.consumesRestoreState)
         #expect(ZmxSupport.launchDisposition(requested: .live, active: .live,
                                              configuration: configuration) == .wrapped(configuration))
-        #expect(!ZmxSupport.LaunchDisposition.wrapped(configuration).consumesRestoreState)
         #expect(ZmxSupport.launchDisposition(requested: .live, active: .none,
                                              configuration: nil) == .fallback)
-        #expect(!ZmxSupport.LaunchDisposition.fallback.consumesRestoreState)
+    }
+
+    @Test(arguments: [
+        (ZmxSupport.Rejection.executablePathNotAbsolute, "the zmx executable path is not absolute"),
+        (ZmxSupport.Rejection.executableUnavailable, "the zmx executable is unavailable"),
+        (ZmxSupport.Rejection.unsupportedLoginShell, "the password-database login shell is not zsh"),
+        (ZmxSupport.Rejection.missingZshIntegration, "the bundled zsh integration is unavailable"),
+    ])
+    func rejectionMessagesAreTheUserFacingSettingsReasons(
+        rejection: ZmxSupport.Rejection, expected: String
+    ) {
+        #expect(rejection.message == expected)
     }
 
     private func makeInputs(resources: URL, shell: String = "/bin/zsh",

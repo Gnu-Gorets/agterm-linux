@@ -349,16 +349,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var captured = 0
         for session in sessions {
             if let view = session.surface as? GhosttySurfaceView {
-                if view.isZmxWrapped {
+                if view.backedByZmx {
                     session.foregroundCommand = nil
                 } else {
                     session.foregroundCommand = ForegroundProcess.command(for: view, shellBasename: shellBasename)
                     if session.foregroundCommand != nil { captured += 1 }
                 }
             }
-            // only a SHOWN split is recreated on restore, so gate on isSplit — a hidden split's captured
-            // command would sit stale until the next ⌘D fires it. Clearing it in the else keeps that stale
-            // value out of the snapshot now that a capture can run more than once per launch.
+            // capture only a shown split: a hidden split now keeps its identity and pending restore state,
+            // so arming a captured command would make the next show run it unexpectedly.
             if session.isSplit, let split = session.splitSurface as? GhosttySurfaceView {
                 session.splitForegroundCommand = ForegroundProcess.command(for: split, shellBasename: shellBasename)
                 if session.splitForegroundCommand != nil { captured += 1 }

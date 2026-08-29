@@ -682,8 +682,8 @@ side, and reads `lastAppliedIsDark` when bare. Refuse it outside XCUITest; provi
   None of these commands opts one session out of `live`.
 - Promotion moves persisted and pending right pins to main; split close clears both. Soft-close paths clear
   pending before retaining objects; duplicate copies neither.
-- Seed pending only at the three library bootstrap paths. Seed split only when snapshot restores a shown
-  split. Drop hidden split pins because no pane exists to address or clear them.
+- Seed pending only at the three library bootstrap paths. Seed split pending state when the snapshot restores
+  a shown or hidden split. A hidden split keeps its identity and pin until its pane is shown.
 - Tree reads persisted pins, including empty string, never pending state.
 
 ## Session backgrounds

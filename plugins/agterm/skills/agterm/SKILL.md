@@ -153,6 +153,8 @@ Closing agterm or stopping it with SIGTERM leaves live daemons running. A missin
 reboot or manual zmx kill, restores that pane as a fresh shell. `tree --json` is the only backing indicator:
 primary and split entries report `surfaces[].backedByZmx`, and the session-level `backedByZmx` is true only
 when every existing primary or split is backed. The sidebar has no zmx glyph.
+Switching to Fresh shells or Re-run commands and restarting ends every detached live process in the state
+directory. A launch that still requests Live sessions but cannot use it preserves those processes.
 
 Reattach keeps usable text, TUI state, and normal colors. It does not retain inline images, earlier OSC 133
 prompt markers, program-changed palette entries, or hyperlink metadata already attached to cells. New output

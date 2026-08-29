@@ -11,13 +11,22 @@ final class ZmxLaunchTests: XCTestCase {
 
         XCTAssertEqual(ZmxLaunch.disposition(requested: .rerun, active: .rerun,
                                              configuration: configuration), .ordinary)
-        XCTAssertTrue(ZmxLaunch.Disposition.ordinary.consumesRestoreState)
         XCTAssertEqual(ZmxLaunch.disposition(requested: .live, active: .live,
                                              configuration: configuration), .wrapped(configuration))
-        XCTAssertFalse(ZmxLaunch.Disposition.wrapped(configuration).consumesRestoreState)
         XCTAssertEqual(ZmxLaunch.disposition(requested: .live, active: .none,
                                              configuration: nil), .fallback)
-        XCTAssertFalse(ZmxLaunch.Disposition.fallback.consumesRestoreState)
+    }
+
+    func testFallbackPrimaryPlanRunsOnlyAFreshInitialCommand() {
+        let fresh = ZmxLaunch.fallbackPrimaryPlan(
+            wasRestored: false, initialCommand: "htop", commandWait: true)
+        XCTAssertEqual(fresh.command, "htop")
+        XCTAssertTrue(fresh.waitAfterCommand)
+
+        let restored = ZmxLaunch.fallbackPrimaryPlan(
+            wasRestored: true, initialCommand: "htop", commandWait: true)
+        XCTAssertNil(restored.command)
+        XCTAssertFalse(restored.waitAfterCommand)
     }
 
     func testExecutablePathUsesOnlyDebugOverride() {
@@ -62,11 +71,22 @@ final class ZmxLaunchTests: XCTestCase {
             passwordDatabaseShell: "/bin/zsh", isUITestLaunch: false, allowDebugOverride: true))
     }
 
+    func testLiveUnavailableReasonUsesTheLoginShellRejectionMessage() throws {
+        let bundle = try makeBundleWithZshLoader()
+        defer { try? FileManager.default.removeItem(at: bundle) }
+
+        XCTAssertEqual(ZmxLaunch.liveUnavailableReason(
+            bundleURL: bundle,
+            environment: ["AGTERM_ZMX_PATH": "/bin/echo"],
+            passwordDatabaseShell: "/bin/bash",
+            isUITestLaunch: false,
+            allowDebugOverride: true), "the password-database login shell is not zsh")
+    }
+
     func testWrappedStateIsFixedAtInitialization() {
         let view = GhosttySurfaceView(workingDirectory: "/tmp", backedByZmx: true)
 
         XCTAssertTrue(view.backedByZmx)
-        XCTAssertTrue(view.isZmxWrapped)
     }
 
     private func makeBundleWithZshLoader() throws -> URL {

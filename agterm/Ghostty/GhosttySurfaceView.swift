@@ -48,7 +48,6 @@ final class GhosttySurfaceView: NSView, TerminalSurface {
 
     /// Whether this primary/split pane launched through zmx. Fixed before `createSurface` reads its config.
     let backedByZmx: Bool
-    var isZmxWrapped: Bool { backedByZmx }
 
     /// The session whose visual config this surface inherits when it deliberately has no `session`: the scratch
     /// renders the owner's watermark without its OSC title/PWD reports mutating the session model. Nil for

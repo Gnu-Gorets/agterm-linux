@@ -40,7 +40,7 @@ enum ForegroundProcess {
     static func running(for view: GhosttySurfaceView, shellBasename: String?,
                         zmxResolver: ZmxForegroundResolver? = nil) -> [String]? {
         let pgid: pid_t?
-        if view.isZmxWrapped, let sessionName = view.zmxSessionName {
+        if view.backedByZmx, let sessionName = view.zmxSessionName {
             pgid = zmxResolver?.foregroundPID(sessionName: sessionName)
         } else {
             pgid = view.foregroundPid()

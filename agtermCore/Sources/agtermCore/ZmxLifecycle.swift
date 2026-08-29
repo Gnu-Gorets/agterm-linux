@@ -75,12 +75,14 @@ public struct ZmxRefreshGate: Sendable {
         invalidated = true
     }
 
-    public mutating func shouldRefresh(now: Date) -> Bool {
+    public func shouldRefresh(now: Date) -> Bool {
         let expired = lastRefreshAt.map { now.timeIntervalSince($0) >= Self.reconcileInterval } ?? true
-        guard invalidated || expired else { return false }
+        return invalidated || expired
+    }
+
+    public mutating func didRefresh(now: Date) {
         invalidated = false
         lastRefreshAt = now
-        return true
     }
 }
 
@@ -93,15 +95,16 @@ public enum ZmxForegroundRefreshPolicy {
 }
 
 public enum ZmxReapPolicy {
-    /// Nil means the live inventory was incomplete and no reap is safe. Non-live launches do not claim any
-    /// daemon, so they can ignore the inventory and remove every zero-client agterm session in the namespace.
-    public static func namesToKill(sessions: [ZmxSessionRecord], live: Bool,
+    /// Nil means a requested-live inventory was incomplete and no reap is safe. A deliberate non-live
+    /// request claims no daemon and removes every zero-client agterm session in the namespace.
+    public static func namesToKill(sessions: [ZmxSessionRecord], requestedMode: RestoreMode,
                                    knownNames: Set<String>?) -> [String]? {
-        if live, knownNames == nil { return nil }
+        let liveRequested = requestedMode == .live
+        if liveRequested, knownNames == nil { return nil }
         let claimed = knownNames ?? []
         return sessions.compactMap { session in
             guard session.name.hasPrefix("agterm-"), session.clients == 0 else { return nil }
-            guard !live || !claimed.contains(session.name) else { return nil }
+            guard !liveRequested || !claimed.contains(session.name) else { return nil }
             return session.name
         }
     }

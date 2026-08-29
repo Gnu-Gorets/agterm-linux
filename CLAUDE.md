@@ -53,7 +53,7 @@ C-boundary concurrency before changing the bridge.
 - Xcodegen creates the app project; Xcode 26 builds it. Call `xcodegen`, `xcodebuild`, and `swift`
   directly through repository scripts; `mise` is unused.
 - Swift 6 `agtermCore` uses complete concurrency checking and has no Xcode/libghostty dependency.
-- `scripts/setup.sh` builds pinned libghostty with Homebrew Zig 0.16 and Xcode's Metal Toolchain.
+- `scripts/setup.sh` builds pinned libghostty and zmx with Homebrew `zig@0.16` and Xcode's Metal Toolchain.
   It is idempotent after artifacts exist.
 - Commands:
   - `scripts/run.sh`: setup, generate, Debug build, launch.
@@ -76,10 +76,10 @@ C-boundary concurrency before changing the bridge.
 
 - Fetch `origin master` before creating a native Claude worktree so it forks the current remote tip.
   Do not manually `git worktree add`.
-- Fresh worktrees lack ignored `GhosttyKit.xcframework`, `agterm/Resources/{ghostty,terminfo}` and
-  `.ghostty-build-stamp`. Symlink all four from the main checkout instead of rebuilding; use absolute
-  targets for resources. The stamp is what makes the other three count as current — without it `setup.sh`
-  rebuilds libghostty in every new worktree. They remain untracked and disappear with worktree removal.
+- Fresh worktrees lack ignored `GhosttyKit.xcframework`, `agterm/Resources/{ghostty,terminfo,zmx}`,
+  `.ghostty-build-stamp`, and `.zmx-build-stamp`. Symlink all six from the main checkout instead of rebuilding;
+  use absolute targets for resources. Each stamp makes its staged artifacts count as current. They remain
+  untracked and disappear with worktree removal.
 - After merge, verify the PR merge commit on fetched `origin/master`, then remove the worktree without
   changing the main checkout's branch. Squash/rebase makes removal report unmerged commits; after
   verification, discard the worktree safely. Native removal may leave a renamed branch, which must be
@@ -175,6 +175,10 @@ C-boundary concurrency before changing the bridge.
   teardown, and no SIGHUP reaches the process because the pty's session leader is the surviving `login`, so
   it outlives the app in whatever loop it was in. `hud.sh` takes the app's pid through its input file and
   exits on a builtin `kill -0`.
+- Live-session reap follows the requested restore mode. A requested-live launch preserves claimed daemons
+  when eligibility falls back to fresh shells; a deliberate Fresh shells or Re-run commands launch reaps
+  every detached app daemon in the state directory. Semantic deletion kills the named daemon, while app and
+  reopenable-window close only end attach clients. Run zmx process calls off the main actor.
 
 ## Cross-surface contracts
 

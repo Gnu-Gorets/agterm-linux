@@ -119,6 +119,9 @@ Check these in order:
   are temporary by design.
 - **A missing daemon means a fresh shell.** A reboot, manual zmx kill, or stale/deleted daemon leaves nothing
   to attach. Agterm creates a new daemon under the saved name and opens a fresh shell rather than failing.
+- **Switching modes ends detached live processes.** Selecting Fresh shells or Re-run commands and restarting
+  reaps the live daemons in this state directory. An unavailable launch that still requests Live sessions
+  preserves its claimed daemons for a later eligible launch.
 
 SIGTERM to agterm should leave a backed pane's daemon and process alive for the next launch. Explicitly
 deleting its session, workspace, split, or window kills it after any undo grace period.
