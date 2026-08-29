@@ -592,7 +592,7 @@ Full detail, templates, and the exact `gh` commands are in **troubleshooting.md*
 ## Reference files
 
 - **reference.md** — full per-command detail: every flag, the JSON return shapes
-  (`result.id`/`text`/`exitCode`/`count`/`affected`/`tree`/`windows`/`app`), error strings, the scratch/overlay/split
+  (`result.id`/`text`/`exitCode`/`count`/`affected`/`tree`/`windows`/`app`/`restore`/`zmx`), error strings, the scratch/overlay/split
   lifecycle, and the keymap.conf format (`map` / `command`, chords, leaders, `|` alternatives,
   `{AGT_X}` tokens).
 - **examples.md** — copy-paste agtermctl examples for common tasks (build a layout, run a program in a

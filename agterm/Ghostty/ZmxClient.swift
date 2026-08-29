@@ -129,6 +129,21 @@ final class ZmxClient {
         return .failed(lines.first ?? "no output")
     }
 
+    /// Force-kill ONE daemon and report what zmx actually did.
+    ///
+    /// Separate from `kill(names:)`, which answers a bare Bool because semantic deletion has already
+    /// removed the pane from the model and there is nothing left to be wrong about. Here the caller closes
+    /// or promotes a LIVE pane on the strength of this answer, so an exit status is not enough: zmx exits
+    /// zero after merely unlinking a socket it could not reach, and that daemon may still be running.
+    func killConfirmed(name: String) -> KillOutcome {
+        do {
+            return Self.outcome(of: try invoke(["kill", name, "--force"]), name: name)
+        } catch {
+            Self.logger.error("zmx kill failed for \(name, privacy: .public): \(String(describing: error), privacy: .public)")
+            return .failed(String(describing: error))
+        }
+    }
+
     private func kill(names: [String]) -> Bool {
         var seen: Set<String> = []
         let unique = names.filter { seen.insert($0).inserted }

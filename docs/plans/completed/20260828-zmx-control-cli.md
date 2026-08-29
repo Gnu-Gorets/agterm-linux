@@ -67,7 +67,8 @@ sees an `agterm-3f2a…` process in `ps` can search one word and land on our doc
 - **dispatcher**: every new `ControlActions` member gets a `MockControlActions` entry and a
   `ControlDispatcherTests` case, including the refusal paths
 - **hosted tests are required for the kill path**: store-only tests cannot prove that the queued
-  `onExit` callback was actually suppressed, nor that the dashboard and focus follow-ups ran
+  `onExit` callback was actually suppressed, nor that the dashboard follow-up ran. The refocus stays
+  unproven either way: it needs a first responder no hosted test has
 - **UI tests**: only where a live daemon is genuinely required. `ZmxLiveUITests.swift` already carries the
   opt-in (`AGTERM_UITEST_ENABLE_ZMX=1`); add at most one end-to-end case there and never re-run the whole
   `ControlAPIUITests` suite to verify a narrow change
@@ -509,7 +510,9 @@ before calling the host and name the resolved owner; owner naming belongs where 
       even forced
 - [x] write failing tests for every row of the outcomes table, including the two guarded branches
 - [x] write a failing HOSTED test: after a successful kill the queued `onExit` is a no-op, and primary
-      promotion still rewires the font callback, moves dashboard membership and refocuses
+      promotion still rewires the font callback and moves dashboard membership. The refocus is NOT
+      asserted: `focusAfterReparent` needs a real first responder, which a hosted test has no window for,
+      so it rides `handlePaneExit` unproven rather than being claimed as covered
 - [x] write a failing HOSTED test: a FAILED kill leaves the natural exit path enabled
 - [x] extract the exit coordinator both `handlePaneExit` and the kill path call; mark the exit handled
       through the view's existing `didHandleProcessExit` state AFTER a successful kill, never before

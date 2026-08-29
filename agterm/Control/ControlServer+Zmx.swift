@@ -127,8 +127,17 @@ extension ControlServer {
             return ControlResponse(ok: false, error: refusal)
         }
 
-        guard client.kill(paneIdentities: [claim.paneIdentity]) else {
-            return ControlResponse(ok: false, error: "could not kill \(row.daemon) for \(claim.sessionID)")
+        // only an exact confirmation may close a live pane. zmx exits zero after unlinking a socket it
+        // could not reach, so trusting the status would let this report a kill, tear the pane down, and
+        // leave the daemon running and unreachable by name.
+        switch client.killConfirmed(name: row.daemon) {
+        case .killed:
+            break
+        case .staleSocket:
+            return ControlResponse(ok: false, error: "\(row.daemon) did not confirm the kill; zmx cleaned "
+                + "up a stale socket and the daemon may still be running")
+        case .failed(let reason):
+            return ControlResponse(ok: false, error: "could not kill \(row.daemon): \(reason)")
         }
         applyKilledPaneExit(claim)
         return ControlResponse(ok: true, result: ControlResult(id: claim.sessionID.uuidString,

@@ -126,7 +126,8 @@ paths:
   stale RUNNING process across an upgrade, not a mismatched install. Only an app predating `result.pane`
   omits it from a successful `session.restore`; treat absence as UNKNOWN, never as the default pane.
 - Human output shows IDs only for created session/workspace/window, retains them in JSON, uses
-  `result.affected` for session counts, and reserves `result.count` for diagnostics/search.
+  `result.affected` for session counts and for `zmx.prune`'s killed-daemon count, and reserves
+  `result.count` for diagnostics/search.
   A command that reuses `count` for something else must carry its own `result.text`, which the shared
   formatter prefers over every count spelling; `restore.capture` does, or its pane total would print as
   "N diagnostic(s)".

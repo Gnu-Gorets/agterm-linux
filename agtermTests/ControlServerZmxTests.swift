@@ -285,7 +285,7 @@ final class ControlServerZmxTests: XCTestCase {
         let server = makeServer(runner: { invocation in
             guard invocation.arguments.first == "list" else {
                 killed.append(invocation.arguments)
-                return ""
+                return "killed session \(invocation.arguments[1])\n"
             }
             return "name=\(ZmxSupport.daemonName(for: session.paneIdentity))\tpid=1\tclients=1\tcreated=1"
         })
@@ -320,7 +320,7 @@ final class ControlServerZmxTests: XCTestCase {
         let server = makeServer(runner: { invocation in
             guard invocation.arguments.first == "list" else {
                 killed.append(invocation.arguments[1])
-                return ""
+                return "killed session \(invocation.arguments[1])\n"
             }
             return "name=\(daemon)\tpid=1\tclients=1\tcreated=1"
         })
@@ -342,7 +342,7 @@ final class ControlServerZmxTests: XCTestCase {
         let server = makeServer(runner: { invocation in
             invocation.arguments.first == "list"
                 ? "name=\(ZmxSupport.daemonName(for: session.paneIdentity))\tpid=1\tclients=0\tcreated=1"
-                : ""
+                : "killed session \(invocation.arguments[1])\n"
         })
 
         XCTAssertTrue(server.killZmxDaemon(target: session.id.uuidString, window: nil, pane: .left).ok)
@@ -382,7 +382,7 @@ final class ControlServerZmxTests: XCTestCase {
                   name=\(ZmxSupport.daemonName(for: firstSession.paneIdentity))\tpid=1\tclients=0\tcreated=1
                   name=\(ZmxSupport.daemonName(for: secondSession.paneIdentity))\tpid=2\tclients=0\tcreated=1
                   """
-                : ""
+                : "killed session \(invocation.arguments[1])\n"
         })
 
         let wrongWindow = server.killZmxDaemon(target: secondSession.id.uuidString,
@@ -434,6 +434,52 @@ final class ControlServerZmxTests: XCTestCase {
         let window = server.killZmxDaemon(target: "abc", window: "active", pane: .left)
         XCTAssertFalse(window.ok)
         XCTAssertEqual(window.error, "zmx.kill needs a window id; 'active' is not accepted")
+    }
+
+    func testKillRefusesToCloseAPaneZmxDidNotConfirmKilling() throws {
+        let store = try XCTUnwrap(library.store(for: library.windows[0].id))
+        let session = try XCTUnwrap(store.workspaces.first?.sessions.first)
+        let daemon = ZmxSupport.daemonName(for: session.paneIdentity)
+        let view = attachSurface(to: session, pane: .left)
+
+        // zmx exits ZERO here: it could not reach the daemon and only unlinked the socket, so the process
+        // may still be running. Closing the pane on that would strand it unreachable by name.
+        let server = makeServer(runner: { invocation in
+            invocation.arguments.first == "list"
+                ? "name=\(daemon)\tpid=1\tclients=1\tcreated=1"
+                : "cleaned up stale session \(daemon)\n"
+        })
+
+        let response = server.killZmxDaemon(target: session.id.uuidString, window: nil, pane: .left)
+
+        XCTAssertFalse(response.ok, "an unconfirmed kill must not report success")
+        XCTAssertEqual(response.error, "\(daemon) did not confirm the kill; zmx cleaned up a stale socket "
+            + "and the daemon may still be running")
+        XCTAssertEqual(store.workspaces.first?.sessions.count, 1, "the pane stays until the kill is confirmed")
+
+        view.handleProcessExit()
+        XCTAssertTrue(store.workspaces.first?.sessions.isEmpty ?? false,
+                      "and its own exit path is still armed")
+    }
+
+    func testKillRefusesOnEmptyOutputRatherThanAssumingSuccess() throws {
+        let store = try XCTUnwrap(library.store(for: library.windows[0].id))
+        let session = try XCTUnwrap(store.workspaces.first?.sessions.first)
+        attachSurface(to: session, pane: .left)
+
+        // a broken pipe after the kill was sent returns with nothing printed, which is not a confirmation
+        let server = makeServer(runner: { invocation in
+            invocation.arguments.first == "list"
+                ? "name=\(ZmxSupport.daemonName(for: session.paneIdentity))\tpid=1\tclients=1\tcreated=1"
+                : ""
+        })
+
+        let response = server.killZmxDaemon(target: session.id.uuidString, window: nil, pane: .left)
+
+        XCTAssertFalse(response.ok)
+        XCTAssertEqual(response.error, "could not kill \(ZmxSupport.daemonName(for: session.paneIdentity)): "
+            + "no output")
+        XCTAssertEqual(store.workspaces.first?.sessions.count, 1)
     }
 
     /// A zmx-backed surface for a pane, so the kill path sees a client of the daemon it destroys.

@@ -88,7 +88,13 @@ struct Zmx: ParsableCommand {
         @Option(name: .long, help: "Session id or unique prefix. Required; 'active' is not accepted.")
         var target: String
 
-        @OptionGroup var options: ClientOptions
+        /// Its own option rather than `ClientOptions`, whose help promises `active` and a frontmost
+        /// default. Both are wrong here: omitting it searches EVERY window's claims, including closed and
+        /// unindexed ones the frontmost window knows nothing about.
+        @Option(name: .long, help: "Window id or unique prefix to disambiguate. Omit to search every window; 'active' is not accepted.")
+        var window: String?
+
+        @OptionGroup var options: BasicOptions
 
         func validate() throws {
             guard ZmxPaneRole(controlName: pane) != nil else {
@@ -98,14 +104,14 @@ struct Zmx: ParsableCommand {
             guard target != "active" else {
                 throw ValidationError("--target must name a session; 'active' is not accepted here")
             }
-            guard options.window != "active" else {
+            guard window != "active" else {
                 throw ValidationError("--window must name a window; 'active' is not accepted here")
             }
         }
 
         func makeRequest() throws -> ControlRequest {
             ControlRequest(cmd: .zmxKill, target: target,
-                           args: options.withWindow(ControlArgs(force: true, pane: pane)))
+                           args: ControlArgs(force: true, window: window, pane: pane))
         }
     }
 }
