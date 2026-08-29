@@ -96,7 +96,17 @@ extension ControlServer {
         let inventory = ZmxInventory.join(observed: observed, claims: walk.claims,
                                           inventoryComplete: walk.complete)
 
-        let owned = inventory.rows.filter { $0.claim?.pane == pane }
+        // an explicit --window scopes the claims BEFORE the session resolves, so a prefix ambiguous across
+        // windows can be disambiguated and an exact id in another window is not killed regardless
+        let windowIDs = Array(Set(inventory.rows.compactMap { $0.claim?.windowID }))
+        var owned = inventory.rows.filter { $0.claim?.pane == pane }
+        if let window, !window.isEmpty {
+            guard case .resolved(let windowID) = ControlResolve.resolve(window, candidates: windowIDs,
+                                                                        active: nil) else {
+                return ControlResponse(ok: false, error: "no such window: \(window)")
+            }
+            owned = owned.filter { $0.claim?.windowID == windowID }
+        }
         let candidates = owned.compactMap { $0.claim?.sessionID }
         guard case .resolved(let sessionID) = ControlResolve.resolve(target, candidates: candidates,
                                                                      active: nil),
@@ -127,7 +137,14 @@ extension ControlServer {
         guard let store = library.store(for: claim.windowID),
               let session = store.session(withID: claim.sessionID) else { return }
         let surface = claim.pane == .left ? session.surface : session.splitSurface
-        guard let view = surface as? GhosttySurfaceView, view.claimProcessExit() else { return }
+        // `backedByZmx` is what makes this surface a CLIENT of the daemon just killed. On a requested-live
+        // fallback the launch reap preserves claimed daemons while the pane gets a fresh plain shell, so
+        // without this the kill would close a live pane that never attached to the thing it destroyed.
+        // `backedByZmx` is what makes this surface a CLIENT of the daemon just killed. On a requested-live
+        // fallback the launch reap preserves claimed daemons while the pane gets a fresh plain shell, so
+        // without this the kill would close a live pane that never attached to the thing it destroyed.
+        guard let view = surface as? GhosttySurfaceView, view.backedByZmx,
+              view.claimProcessExit() else { return }
         agtermApp.handlePaneExit(view, store: store, sessionID: claim.sessionID, library: library,
                                  alreadyFinalized: claim.paneIdentity)
     }

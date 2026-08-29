@@ -193,6 +193,12 @@ struct SocketClient {
         if let keymap = response.result?.keymap {
             return formatKeymap(keymap)
         }
+        if let zmx = response.result?.zmx {
+            return formatZmx(zmx)
+        }
+        if let restore = response.result?.restore {
+            return formatRestoreStatus(restore)
+        }
         if let app = response.result?.app {
             guard let commit = app.commit, !commit.isEmpty else { return app.version }
             return "\(app.version) (\(commit))"
@@ -229,6 +235,38 @@ struct SocketClient {
     /// theme(s) marked `* `, with a leading "default ghostty" entry for the no-theme (ghostty built-in)
     /// case. With `sync` on, both the light and dark themes are marked under a header naming the
     /// appearance pair; otherwise the single `current` theme is marked.
+    /// The restore policy as separate lines: "what the next launch will do" and "what this one did" are
+    /// different questions, and collapsing them is what leaves a caller wondering why nothing happened.
+    static func formatRestoreStatus(_ status: ControlRestoreStatus) -> String {
+        var lines = ["configured: \(status.configured) (next launch)",
+                     "this launch: requested \(status.requestedAtLaunch), active \(status.active)"]
+        if status.restartRequired { lines.append("restart agterm to apply the configured mode") }
+        if let reason = status.unavailableReason { lines.append("live unavailable: \(reason)") }
+        return lines.joined(separator: "\n")
+    }
+
+    /// The daemon inventory under the restore header. Owner window state is its own column rather than
+    /// left to the client count: a closed window's panes sit at zero clients normally, and a reader given
+    /// only the count would read that as a leak.
+    static func formatZmx(_ inventory: ControlZmxInventory) -> String {
+        var lines = [formatRestoreStatus(inventory.restore)]
+        if !inventory.inventoryComplete {
+            lines.append("inventory incomplete: some pane is unaccounted for, so nothing can be pruned")
+        }
+        guard !inventory.entries.isEmpty else { return (lines + ["no daemons"]).joined(separator: "\n") }
+        return (lines + [""] + inventory.entries.map(zmxRow)).joined(separator: "\n")
+    }
+
+    private static func zmxRow(_ entry: ControlZmxEntry) -> String {
+        let clients = entry.clients.map { "\($0) client\($0 == 1 ? "" : "s")" } ?? entry.observation
+        let owner = entry.sessionName.map { name in
+            let window = entry.windowName ?? entry.windowState ?? "?"
+            return "\(window) / \(name)\(entry.pane.map { " (\($0))" } ?? "")"
+        } ?? "-"
+        let window = entry.windowState.map { " [\($0) window]" } ?? ""
+        return "\(entry.daemon)  \(entry.state)  \(clients)  \(owner)\(window)"
+    }
+
     static func formatThemes(_ themes: [String], current: String?, sync: Bool = false,
                              light: String? = nil, dark: String? = nil) -> String {
         let active: (String?) -> Bool = sync ? { $0 != nil && ($0 == light || $0 == dark) } : { $0 == current }

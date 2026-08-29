@@ -268,6 +268,138 @@ final class ControlServerZmxTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(response.error).contains("no right pane daemon"))
     }
 
+    func testKillingAnAttachedPrimaryPromotesItsSplitAndSuppressesTheQueuedCallback() throws {
+        let store = try XCTUnwrap(library.store(for: library.windows[0].id))
+        let session = try XCTUnwrap(store.workspaces.first?.sessions.first)
+        store.setSplitVisibility(session.id, shown: true)
+        let splitIdentity = try XCTUnwrap(session.splitPaneIdentity)
+        let primary = attachSurface(to: session, pane: .left)
+        session.splitSurface = GhosttySurfaceView(workingDirectory: "/tmp", backedByZmx: true)
+
+        var killed: [[String]] = []
+        let server = makeServer(runner: { invocation in
+            guard invocation.arguments.first == "list" else {
+                killed.append(invocation.arguments)
+                return ""
+            }
+            return "name=\(ZmxSupport.daemonName(for: session.paneIdentity))\tpid=1\tclients=1\tcreated=1"
+        })
+
+        let response = server.killZmxDaemon(target: session.id.uuidString, window: nil, pane: .left)
+
+        XCTAssertTrue(response.ok, response.error ?? "")
+        XCTAssertEqual(response.result?.pane, "left")
+        XCTAssertFalse(session.hasSplit, "the survivor is promoted into the primary slot")
+        XCTAssertEqual(session.paneIdentity, splitIdentity, "the survivor's identity moves up with it")
+        XCTAssertEqual(killed.count, 1, "the promoted survivor's daemon must not be finalized too")
+
+        primary.handleProcessExit()
+        XCTAssertEqual(store.workspaces.first?.sessions.count, 1,
+                       "the queued callback must be a no-op after the kill already ran the transition")
+    }
+
+    func testKillingAnAttachedPrimaryWithNoSurvivorClosesTheSessionOnce() throws {
+        let store = try XCTUnwrap(library.store(for: library.windows[0].id))
+        let session = try XCTUnwrap(store.workspaces.first?.sessions.first)
+        let daemon = ZmxSupport.daemonName(for: session.paneIdentity)
+        attachSurface(to: session, pane: .left)
+
+        var killed: [String] = []
+        let server = makeServer(runner: { invocation in
+            guard invocation.arguments.first == "list" else {
+                killed.append(invocation.arguments[1])
+                return ""
+            }
+            return "name=\(daemon)\tpid=1\tclients=1\tcreated=1"
+        })
+
+        XCTAssertTrue(server.killZmxDaemon(target: session.id.uuidString, window: nil, pane: .left).ok)
+
+        XCTAssertTrue(store.workspaces.first?.sessions.isEmpty ?? false, "the session closes with its pane")
+        XCTAssertEqual(killed, [daemon], "the identity this command killed must not be finalized again")
+    }
+
+    func testAFallbackPaneIsNeverClosedByKillingThePreservedDaemon() throws {
+        let store = try XCTUnwrap(library.store(for: library.windows[0].id))
+        let session = try XCTUnwrap(store.workspaces.first?.sessions.first)
+        // requested-live that fell back: the launch reap PRESERVES the claimed daemon while the pane comes
+        // up as a plain shell, so this surface never attached to the daemon the command destroys
+        let fresh = GhosttySurfaceView(workingDirectory: "/tmp", backedByZmx: false)
+        session.surface = fresh
+
+        let server = makeServer(runner: { invocation in
+            invocation.arguments.first == "list"
+                ? "name=\(ZmxSupport.daemonName(for: session.paneIdentity))\tpid=1\tclients=0\tcreated=1"
+                : ""
+        })
+
+        XCTAssertTrue(server.killZmxDaemon(target: session.id.uuidString, window: nil, pane: .left).ok)
+
+        XCTAssertEqual(store.workspaces.first?.sessions.count, 1, "a pane that never attached must survive")
+        XCTAssertTrue(session.surface === fresh, "and keep the shell it actually has")
+    }
+
+    func testAFailedKillLeavesTheNaturalExitPathWorking() throws {
+        let store = try XCTUnwrap(library.store(for: library.windows[0].id))
+        let session = try XCTUnwrap(store.workspaces.first?.sessions.first)
+        let view = attachSurface(to: session, pane: .left)
+
+        let server = makeServer(runner: { invocation in
+            guard invocation.arguments.first == "list" else { throw ZmxClient.CommandError.timedOut }
+            return "name=\(ZmxSupport.daemonName(for: session.paneIdentity))\tpid=1\tclients=1\tcreated=1"
+        })
+
+        XCTAssertFalse(server.killZmxDaemon(target: session.id.uuidString, window: nil, pane: .left).ok)
+        XCTAssertEqual(store.workspaces.first?.sessions.count, 1)
+
+        view.handleProcessExit()
+        XCTAssertTrue(store.workspaces.first?.sessions.isEmpty ?? false,
+                      "a failed kill must not have consumed the pane's own exit")
+    }
+
+    func testAnExplicitWindowScopesTheTargetToThatWindow() throws {
+        let first = try XCTUnwrap(library.store(for: library.windows[0].id))
+        let firstSession = try XCTUnwrap(first.workspaces.first?.sessions.first)
+        let other = library.newWindow(name: "second")
+        let second = try XCTUnwrap(library.store(for: other.id))
+        let secondSession = try XCTUnwrap(second.workspaces.first?.sessions.first)
+
+        let server = makeServer(runner: { invocation in
+            invocation.arguments.first == "list"
+                ? """
+                  name=\(ZmxSupport.daemonName(for: firstSession.paneIdentity))\tpid=1\tclients=0\tcreated=1
+                  name=\(ZmxSupport.daemonName(for: secondSession.paneIdentity))\tpid=2\tclients=0\tcreated=1
+                  """
+                : ""
+        })
+
+        let wrongWindow = server.killZmxDaemon(target: secondSession.id.uuidString,
+                                               window: library.windows[0].id.uuidString, pane: .left)
+        XCTAssertFalse(wrongWindow.ok, "an explicit window must not be ignored for an exact id elsewhere")
+
+        let unknown = server.killZmxDaemon(target: firstSession.id.uuidString, window: "nope", pane: .left)
+        XCTAssertFalse(unknown.ok)
+        XCTAssertEqual(unknown.error, "no such window: nope")
+
+        XCTAssertTrue(server.killZmxDaemon(target: secondSession.id.uuidString,
+                                           window: other.id.uuidString, pane: .left).ok)
+    }
+
+    /// A zmx-backed surface for a pane, so the kill path sees a client of the daemon it destroys.
+    @discardableResult
+    private func attachSurface(to session: Session, pane: ZmxPaneRole) -> GhosttySurfaceView {
+        let view = GhosttySurfaceView(workingDirectory: "/tmp", backedByZmx: true)
+        view.session = session
+        let sessionID = session.id
+        let store = library.store(forSession: sessionID)
+        view.onExit = { [weak view] in
+            guard let view, let store else { return }
+            agtermApp.handlePaneExit(view, store: store, sessionID: sessionID, library: self.library)
+        }
+        if pane == .left { session.surface = view } else { session.splitSurface = view }
+        return view
+    }
+
     /// A client whose runner returns `list` output, or throws when it is nil.
     private func makeServer(list output: String?) -> ControlServer {
         makeServer(runner: { _ in
