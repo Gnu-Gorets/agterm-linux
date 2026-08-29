@@ -96,13 +96,19 @@ detached. None of those terms is incidental: a closed-but-remembered window's pa
 clients, which is the normal steady state, so "zero clients" alone can never imply orphan. Explicit
 ownership is the primary guard; the detached check is independently load-bearing on top of it.
 
-The gate is checked, not atomic, and the plan says so rather than implying otherwise. Pinned zmx has no
+The gate is checked and revalidated, not atomic, and the plan says so rather than implying otherwise. Pinned zmx has no
 kill-if-detached operation — `--force` is consulted only when the connection FAILS (`main.zig:1008`), and
 a successful connection sends `.Kill` unconditionally while the daemon breaks its loop with no client
 check (`loop.zig:469-471`). So a client attaching between the listing and the kill is not caught. That
-window is accepted rather than closed, because closing it needs an upstream zmx capability and the
-project pins zmx and runs no fork. It is narrow in practice: prune's candidates are daemons no pane
-claims, so an attacher has to reach an unclaimed daemon by name from outside agterm.
+window is narrowed rather than closed, because closing it needs an upstream zmx capability and the
+project pins zmx and runs no fork. Prune narrows it by re-listing immediately before it mutates anything
+and dropping any candidate no longer observed at zero clients, with model resolution held on the main
+actor so agterm's own claims cannot move underneath the operation.
+
+What remains is an external attach between that second listing and the kill. It is narrow — the
+candidates are daemons no pane claims, so someone must reach an unclaimed daemon by name from outside
+agterm — but it stops being far-fetched once `zmx list` prints daemon names and the docs make the word
+user-facing, so the docs must say plainly that such a client can be terminated.
 
 `kill --force` is the escape hatch, and it requires an explicit target and pane. Not because other close
 commands are recoverable — control `session.close` is already immediate and `session split close` has no
@@ -256,15 +262,21 @@ There is nothing for `ControlServer` to call today. `ZmxClient` must gain a pars
 ```swift
 // ZmxClient
 func listSessions() -> [ZmxSessionRecord]?        // parsed, distinguishing err= rows
-func killUnforced(names: [String]) -> [String: ZmxKillOutcome] // per-name, never passes --force
+func killObservedOrphan(names: [String]) -> [String: ZmxKillOutcome] // per-name, never passes --force
 ```
 
 `kill(paneIdentities:)` keeps `--force`, because semantic deletion means the pane is gone whatever the
 daemon is doing. Prune must NOT reuse it, for a reason that is NOT the detached gate: on a connection
 failure, `--force` unlinks the socket, prints `cleaned up stale session` and exits zero, which can leave a
 live but unresponsive daemon running, orphaned and unreachable by name, while reporting success. So prune
-never passes `--force`, and it parses the result rather than trusting the exit code — `cleaned up stale
-session` is NOT a kill and must be reported as such.
+never passes `--force`, invokes names individually, and counts success ONLY from the exact confirmed
+`killed session <name>` line — which zmx prints after draining the connection to EOF, so it means the
+daemon actually hung up (`main.zig:1042`). `cleaned up stale session`, unresponsive, absent and
+not-found are all NOT kills, and none of them triggers a model change.
+
+The name is `killObservedOrphan`, not `killIfDetached`: it kills what the listing observed as an orphan
+and guarantees nothing about detachment at the moment of the kill. A method name that promises the gate
+zmx cannot provide is how this design got its blocker in the first place.
 
 The per-name outcome matters for the response: a single `Bool` cannot say which names died, so a batch
 either reports per daemon or defines its partial-failure semantics explicitly. An empty namespace is a
@@ -460,8 +472,13 @@ before calling the host and name the resolved owner; owner naming belongs where 
 - [ ] write a failing test: `cleaned up stale session` on stdout is reported as NOT killed, since that
       path unlinks a socket and can leave a live unresponsive daemon running while exiting zero
 - [ ] write a failing test: prune refuses an `unreadable` row rather than forcing it
-- [ ] add `killUnforced(names:)` to `ZmxClient` — never passes `--force`, parses per-name outcomes —
-      leaving `kill(paneIdentities:)` forced for semantic deletion
+- [ ] write a failing test: a candidate that gains a client between the first listing and the
+      revalidation listing is dropped, not killed
+- [ ] add `killObservedOrphan(names:)` to `ZmxClient` — invokes names individually, never passes
+      `--force`, counts only the exact `killed session <name>` line as success — leaving
+      `kill(paneIdentities:)` forced for semantic deletion
+- [ ] re-list immediately before mutating, with model resolution on the main actor so agterm's claims
+      cannot change during the operation
 - [ ] write failing round-trip and dispatcher tests for `zmx.prune`, extending `MockControlActions`
 - [ ] add `case zmxPrune = "zmx.prune"`, the `ControlActions` member and the dispatcher arm
 - [ ] implement the app arm over `ZmxPrunePolicy`, reporting per-daemon outcomes
@@ -543,6 +560,8 @@ before calling the host and name the resolved owner; owner naming belongs where 
 - [ ] replace all five bare "manual zmx kill" mentions with the real mechanism, now that the word is
       user-facing — README included, since it carries the same unsupported escape hatch
 - [ ] document that these commands need a running instance, and why there is no app-down path
+- [ ] state that prune's gate is observed-and-revalidated rather than atomic, and that a client which
+      attaches from outside agterm in the remaining window can be terminated
 - [ ] state the kill outcomes and that the reason for explicit addressing is backend-process destruction,
       not a recovery difference from other close commands
 - [ ] state no total command count on any surface, per the catalog rule
@@ -551,8 +570,9 @@ before calling the host and name the resolved owner; owner naming belongs where 
 - [ ] `zmx list` reports every pane of every window — open, closed and unindexed — joined against the
       observed daemons, with `pendingClose` rows present during a soft close and `foreign` rows visible
 - [ ] a `zmx list` run leaves every `windows/*.json` AND `windows.json` byte-identical
-- [ ] `zmx prune` acts only on complete, conflict-free, unmatched, observed-detached rows, never passes
-      `--force`, reports per daemon, and counts `cleaned up stale session` as not killed
+- [ ] `zmx prune` acts only on complete, conflict-free, unmatched, observed-detached rows, revalidates by
+      re-listing before it mutates, never passes `--force`, reports per daemon, and counts only the exact
+      `killed session <name>` line as a kill
 - [ ] `zmx kill` refuses without explicit target, pane and force, and each row of the outcomes table
       matches; a failed kill leaves the natural exit path working
 - [ ] `restore mode` reads all five fields, reports a save failure as a failure, and rolls memory back
