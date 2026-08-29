@@ -49,6 +49,43 @@ struct ControlDispatcherZmxTests {
         #expect(actions.calls.isEmpty)
     }
 
+    @Test func zmxListRoutesWithNoArgumentsToParse() async throws {
+        let actions = MockControlActions()
+        let response = try #require(await dispatch(ControlRequest(cmd: .zmxList), actions))
+        #expect(response.ok)
+        #expect(actions.calls == [.zmxList])
+    }
+
+    @Test func zmxInventoryRoundTripsEveryRowKind() throws {
+        let pane = UUID()
+        let claim = ZmxPaneClaim(paneIdentity: pane, pane: .right, pendingClose: true, windowID: UUID(),
+                                 windowName: nil, windowState: .unindexed, workspaceID: UUID(),
+                                 workspaceName: "workspace 1", sessionID: UUID(), sessionName: "build")
+        let result = ZmxInventory.join(
+            observed: [ZmxSessionRecord(name: ZmxSupport.daemonName(for: pane), clients: 2, leaderPID: 9),
+                       ZmxSessionRecord(name: "notes", clients: 0, leaderPID: 7)],
+            claims: [claim], inventoryComplete: false)
+        let status = ControlRestoreStatus(configured: .live, requestedAtLaunch: .live, active: .live,
+                                          unavailableReason: nil)
+
+        let payload = ControlZmxInventory(restore: status, result: result)
+        let decoded = try JSONDecoder().decode(ControlZmxInventory.self, from: JSONEncoder().encode(payload))
+
+        #expect(decoded == payload)
+        #expect(!decoded.inventoryComplete)
+        let claimed = try #require(decoded.entries.first { $0.state == "pendingClose" })
+        #expect(claimed.observation == "running")
+        #expect(claimed.clients == 2)
+        #expect(claimed.pane == "right")
+        #expect(claimed.windowName == nil)
+        #expect(claimed.windowState == "unindexed")
+        #expect(claimed.sessionName == "build")
+
+        let foreign = try #require(decoded.entries.first { $0.daemon == "notes" })
+        #expect(foreign.state == "foreign")
+        #expect(foreign.sessionID == nil)
+    }
+
     @Test func restoreStatusHidesAProbedReasonUnlessLiveActuallyFellBack() {
         let asked = ControlRestoreStatus(configured: .live, requestedAtLaunch: .live, active: .none,
                                          unavailableReason: "the password-database login shell is not zsh")
@@ -61,17 +98,46 @@ struct ControlDispatcherZmxTests {
         #expect(!neverAsked.restartRequired)
     }
 
-    @Test func restoreStatusTravelsAsRawStringsSoAFutureModeSurvives() throws {
+    @Test(arguments: [nil, "live"])
+    func restoreModeRequestsSurviveTheWire(mode: String?) throws {
+        let request = ControlRequest(cmd: .restoreMode, args: mode.map { ControlArgs(mode: $0) })
+        let decoded = try JSONDecoder().decode(ControlRequest.self, from: JSONEncoder().encode(request))
+
+        #expect(decoded.cmd == .restoreMode)
+        #expect(decoded.args?.mode == mode)
+
+        let json = try #require(try JSONSerialization
+            .jsonObject(with: JSONEncoder().encode(request)) as? [String: Any])
+        #expect(json["cmd"] as? String == "restore.mode")
+    }
+
+    @Test func theWholeResponseCarriesTheStatusAndKeepsAFutureModeIntact() throws {
         let status = ControlRestoreStatus(configured: .live, requestedAtLaunch: .live, active: .live,
                                           unavailableReason: nil)
-        let data = try JSONEncoder().encode(status)
-        let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
-        #expect(json["configured"] as? String == "live")
+        let response = ControlResponse(ok: true, result: ControlResult(restore: status))
+        let decoded = try JSONDecoder().decode(ControlResponse.self, from: JSONEncoder().encode(response))
+        #expect(decoded.result?.restore == status)
 
-        // a future server's mode must reach a stale CLI intact rather than decoding to `none`
-        let future = Data(#"{"configured":"mirrored","requestedAtLaunch":"live","active":"live","restartRequired":true}"#.utf8)
-        let decoded = try JSONDecoder().decode(ControlRestoreStatus.self, from: future)
-        #expect(decoded.configured == "mirrored")
-        #expect(decoded.unavailableReason == nil)
+        let json = try #require(try JSONSerialization
+            .jsonObject(with: JSONEncoder().encode(response)) as? [String: Any])
+        let result = try #require(json["result"] as? [String: Any])
+        let restore = try #require(result["restore"] as? [String: Any])
+        #expect(restore["configured"] as? String == "live")
+        #expect(restore["unavailableReason"] == nil, "an absent reason must be omitted, not null")
+
+        // a future server's mode must reach a stale CLI intact, nested where a caller actually reads it,
+        // rather than collapsing to `none` the way RestoreMode's own lossy decoder would
+        let future = Data("""
+        {"ok":true,"result":{"restore":{"configured":"mirrored","requestedAtLaunch":"live",\
+        "active":"live","restartRequired":true}}}
+        """.utf8)
+        let fromFuture = try JSONDecoder().decode(ControlResponse.self, from: future)
+        #expect(fromFuture.result?.restore?.configured == "mirrored")
+    }
+
+    @Test func theUnsupportedRefusalNamesTheCommand() {
+        // agtermCore is a library the agterm-linux fork consumes, so every Mac-only ControlActions
+        // requirement ships a default returning this rather than breaking that build
+        #expect(ControlActionsUnsupported.message("zmx.list") == "zmx.list is not supported on this platform")
     }
 }

@@ -131,15 +131,20 @@ final class ControlServer {
     /// Which agterm this is, injected rather than read from `Bundle.main` here: the identity is the app's to
     /// know, and a hosted test would otherwise see its own host bundle.
     let identity: AppIdentity
+    /// Talks to the daemons behind the zmx commands. Nil outside live mode and in hosted tests, where
+    /// every zmx command answers that the backend is unavailable rather than pretending an empty listing.
+    let zmxClient: ZmxClient?
 
     init(library: WindowLibrary, actions: AppActions, settingsModel: SettingsModel, identity: AppIdentity,
          launchRestoreMode: RestoreMode = GhosttyApp.shared.launchRestoreMode,
-         zmxForegroundResolver: ZmxForegroundResolver? = nil, socketPath: String? = nil) {
+         zmxForegroundResolver: ZmxForegroundResolver? = nil, zmxClient: ZmxClient? = nil,
+         socketPath: String? = nil) {
         self.library = library
         self.actions = actions
         self.settingsModel = settingsModel
         self.launchRestoreMode = launchRestoreMode
         self.zmxForegroundResolver = zmxForegroundResolver
+        self.zmxClient = zmxClient
         self.identity = identity
         self.resolver = ControlTargetResolver(library: library)
         self.socketPath = socketPath ?? ControlServer.defaultSocketPath()
@@ -463,7 +468,7 @@ final class ControlServer {
                 .windowNew, .windowList, .windowSelect,
                 .windowClose, .windowRename, .windowDelete, .windowResize, .windowMove, .windowZoom,
                 .windowFullscreen, .windowMinimize,
-                .restoreClear, .restoreCapture, .restoreMode, .dashboard, .version:
+                .restoreClear, .restoreCapture, .restoreMode, .zmxList, .dashboard, .version:
             return ControlResponse(ok: false, error: "control dispatcher did not handle \(request.cmd.rawValue)")
         case .debugAppearance:
             return setDebugAppearance(args: request.args)
@@ -512,6 +517,17 @@ final class ControlServer {
     /// mounts: the socket binds before the later windows' decks do, so a clear arriving in that gap would
     /// answer ok and then watch those windows run the commands anyway. The `session.restore` pins are
     /// deliberately untouched — they are sticky, and this command clears captures.
+    func clearRestoreCommands() -> ControlResponse {
+        for session in library.allOpenSessions() { session.clearCapturedForegroundCommands() }
+        // the ack waits on the write for the same reason `restore.capture`'s does: the save IS the clear, and
+        // the slots are not readable, so an ok over a failed write leaves a stale capture nothing can detect.
+        guard library.saveAllOpenChecked() else {
+            return ControlResponse(ok: false, error: "cleared every open pane but at least one window's save "
+                + "failed; those windows keep their captured commands on disk until they save successfully")
+        }
+        return ControlResponse(ok: true)
+    }
+
     /// The restore-mode policy: settings, this launch's request, and what it got.
     func readRestoreMode() -> ControlResponse {
         ControlResponse(ok: true, result: ControlResult(restore: restoreStatus()))
@@ -527,22 +543,11 @@ final class ControlServer {
         return ControlResponse(ok: true, result: ControlResult(restore: restoreStatus()))
     }
 
-    private func restoreStatus() -> ControlRestoreStatus {
+    func restoreStatus() -> ControlRestoreStatus {
         let decision = GhosttyApp.shared.restoreLaunchDecision
         return ControlRestoreStatus(configured: settingsModel.settings.effectiveRestoreMode,
                                     requestedAtLaunch: decision.requested, active: decision.active,
                                     unavailableReason: decision.liveUnavailableReason)
-    }
-
-    func clearRestoreCommands() -> ControlResponse {
-        for session in library.allOpenSessions() { session.clearCapturedForegroundCommands() }
-        // the ack waits on the write for the same reason `restore.capture`'s does: the save IS the clear, and
-        // the slots are not readable, so an ok over a failed write leaves a stale capture nothing can detect.
-        guard library.saveAllOpenChecked() else {
-            return ControlResponse(ok: false, error: "cleared every open pane but at least one window's save "
-                + "failed; those windows keep their captured commands on disk until they save successfully")
-        }
-        return ControlResponse(ok: true)
     }
 
     /// Capture every open pane's live foreground command NOW, filling the same slots the quit-time capture

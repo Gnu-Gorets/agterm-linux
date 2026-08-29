@@ -83,6 +83,7 @@ public enum Command: String, Codable, Sendable {
     case version = "version"
     case restoreCapture = "restore.capture"
     case restoreMode = "restore.mode"
+    case zmxList = "zmx.list"
     /// UI-TEST-ONLY: forces the app-level appearance (`light`|`dark` via `args.name`) so an XCUITest can
     /// simulate a macOS light/dark flip; with NO name it READS the side the last config feed applied, so a
     /// test can assert the flip drove the reload. Refused outside an XCUITest launch, and EXEMPT from the
@@ -895,6 +896,8 @@ public struct ControlResult: Codable, Sendable, Equatable {
     /// The restore-mode policy for `restore.mode`, and the header `zmx list` repeats so its rows can be
     /// read without a second call.
     public var restore: ControlRestoreStatus?
+    /// The daemon inventory for `zmx list`.
+    public var zmx: ControlZmxInventory?
 
     public init(id: String? = nil, tree: ControlTree? = nil, text: String? = nil,
                 windows: [ControlWindowNode]? = nil, exitCode: Int? = nil, count: Int? = nil,
@@ -903,8 +906,10 @@ public struct ControlResult: Codable, Sendable, Equatable {
                 sync: Bool? = nil, light: String? = nil, dark: String? = nil,
                 events: ControlEventBatch? = nil, keymap: ControlKeymap? = nil,
                 pick: ControlPickResult? = nil, cursor: ControlCursor? = nil,
-                app: AppIdentity? = nil, restore: ControlRestoreStatus? = nil) {
+                app: AppIdentity? = nil, restore: ControlRestoreStatus? = nil,
+                zmx: ControlZmxInventory? = nil) {
         self.restore = restore
+        self.zmx = zmx
         self.id = id
         self.tree = tree
         self.text = text

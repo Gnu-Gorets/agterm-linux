@@ -72,7 +72,8 @@ struct agtermApp: App {
                                            hasPriorState: hadPriorState)
         let controlServer = ControlServer(library: library, actions: actions, settingsModel: settingsModel,
                                           identity: Self.appIdentity,
-                                          zmxForegroundResolver: restored.foregroundResolver)
+                                          zmxForegroundResolver: restored.foregroundResolver,
+                                          zmxClient: restored.zmxClient)
         _controlServer = State(initialValue: controlServer)
         _sessionSwitcher = State(initialValue: SessionSwitcher(library: library, canSwitch: { actions.uiActionsEnabled }))
         _paneShortcuts = State(initialValue: PaneShortcuts(library: library, actions: actions))
@@ -224,13 +225,17 @@ struct agtermApp: App {
     private struct RestoredRuntime {
         let library: WindowLibrary
         let foregroundResolver: ZmxForegroundResolver?
+        /// Handed to `ControlServer` so the zmx commands can list and kill. It used to live only inside the
+        /// finalizer/reap closures, where nothing else could reach it.
+        let zmxClient: ZmxClient?
     }
 
     /// Builds the window library and zmx foreground resolver for the state directory. Bootstrap
     /// migrates/recovers persisted windows and inventories claimed pane identities before surfaces mount.
     private static func restoredRuntime(stateDirectory: URL) -> RestoredRuntime {
         guard !isHostedUnitTest else {
-            return RestoredRuntime(library: WindowLibrary(directory: stateDirectory), foregroundResolver: nil)
+            return RestoredRuntime(library: WindowLibrary(directory: stateDirectory),
+                                   foregroundResolver: nil, zmxClient: nil)
         }
         let ghostty = GhosttyApp.shared
         let environment = ProcessInfo.processInfo.environment
@@ -249,7 +254,7 @@ struct agtermApp: App {
                 _ = client.reap(knownPaneIdentities: $0, launchDecision: ghostty.restoreLaunchDecision)
                 foregroundResolver.noteLifecycleChange()
             })
-        return RestoredRuntime(library: library, foregroundResolver: foregroundResolver)
+        return RestoredRuntime(library: library, foregroundResolver: foregroundResolver, zmxClient: client)
     }
 
     /// Opens the windows open at quit beyond the one SwiftUI auto-opened at launch (which claimed the launch

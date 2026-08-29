@@ -52,6 +52,7 @@ final class MockControlActions: ControlActions {
         case themeList
         case restoreModeRead
         case restoreModeSet(RestoreMode)
+        case zmxList
         case sidebarVisibility(ControlToggleMode)
         case sidebarViewMode(ControlSidebarViewMode)
         case expand(window: String?)
@@ -122,6 +123,7 @@ final class MockControlActions: ControlActions {
     var nextThemeSetResponse = ControlResponse(ok: true)
     var nextThemeListResponse = ControlResponse(ok: true)
     var nextRestoreModeResponse = ControlResponse(ok: true)
+    var nextZmxListResponse = ControlResponse(ok: true)
     var nextQuickResponse = ControlResponse(ok: true)
     var nextQuickTypeResponse = ControlResponse(ok: true)
     var nextQuickTextResponse = ControlResponse(ok: true)
@@ -393,6 +395,11 @@ final class MockControlActions: ControlActions {
     func setRestoreMode(_ mode: RestoreMode) -> ControlResponse {
         calls.append(.restoreModeSet(mode))
         return nextRestoreModeResponse
+    }
+
+    func listZmxDaemons() -> ControlResponse {
+        calls.append(.zmxList)
+        return nextZmxListResponse
     }
 
     func setSidebarVisibility(_ mode: ControlToggleMode) -> ControlResponse {

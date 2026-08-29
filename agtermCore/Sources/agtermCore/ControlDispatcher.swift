@@ -128,12 +128,8 @@ public protocol ControlActions {
     /// Persist the mode for the NEXT launch. The host owns the save and must report a failed write rather
     /// than leaving memory claiming a value the disk rejected.
     func setRestoreMode(_ mode: RestoreMode) -> ControlResponse
-}
-
-public extension ControlActions {
-    func splitSession(_ target: String?, window: String?, mode: String?, axis _: SplitAxis?) -> ControlResponse {
-        splitSession(target, window: window, mode: mode)
-    }
+    /// The daemon inventory: observed daemons joined against the panes that claim them.
+    func listZmxDaemons() -> ControlResponse
 }
 
 public struct ControlSessionTypeOptions: Equatable, Sendable {
@@ -237,7 +233,7 @@ public struct ControlDispatcher {
             return dispatchWorkspaceCommand(request)
         case .quick, .fontInc, .fontDec, .fontReset, .keymapReload, .keymapList,
                 .configReload, .notify, .themeSet, .themeList, .sidebar, .sidebarMode, .sidebarExpand,
-                .sidebarCollapse, .restoreClear, .restoreCapture, .restoreMode, .version:
+                .sidebarCollapse, .restoreClear, .restoreCapture, .restoreMode, .zmxList, .version:
             return dispatchAppCommand(request)
         case .quickType, .quickText:
             return await dispatchQuickCommand(request)
@@ -761,6 +757,8 @@ public struct ControlDispatcher {
                 return ControlResponse(ok: false, error: "invalid restore mode: \(raw)")
             }
             return actions.setRestoreMode(mode)
+        case .zmxList:
+            return actions.listZmxDaemons()
         default:
             preconditionFailure("unexpected app command: \(request.cmd.rawValue)")
         }

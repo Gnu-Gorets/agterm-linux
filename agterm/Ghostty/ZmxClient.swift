@@ -67,6 +67,18 @@ final class ZmxClient {
         kill(names: paneIdentities.map(ZmxSupport.daemonName(for:)))
     }
 
+    /// The parsed listing behind `zmx list`. Nil when the listing could not be read or parsed, which is
+    /// not the same answer as an empty namespace: no daemons at all is a successful empty result, while a
+    /// failure must not read as "nothing to see" and let a caller act on that silence.
+    func listSessions() -> [ZmxSessionRecord]? {
+        do {
+            return try ZmxListParser.parse(invoke(["list"]))
+        } catch {
+            Self.logger.error("zmx list failed: \(String(describing: error), privacy: .public)")
+            return nil
+        }
+    }
+
     func sessionLeaderPIDs() -> [String: pid_t]? {
         do {
             return ZmxLeaderMap.leaders(in: try ZmxListParser.parse(invoke(["list"])))
