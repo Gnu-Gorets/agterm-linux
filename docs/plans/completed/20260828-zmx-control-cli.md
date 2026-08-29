@@ -344,17 +344,17 @@ before calling the host and name the resolved owner; owner naming belongs where 
 - Create: `agtermCore/Sources/agtermCore/ZmxInventory.swift`
 - Create: `agtermCore/Tests/agtermCoreTests/ZmxInventoryTests.swift`
 
-- [ ] write failing tests for `ZmxInventory.join`: claimed, orphan, unknown, conflicted, pendingClose,
+- [x] write failing tests for `ZmxInventory.join`: claimed, orphan, unknown, conflicted, pendingClose,
       foreign, and a claimed pane whose daemon is absent
-- [ ] write failing tests separating the three `ZmxDaemonObservation` cases, especially `unreadable`
+- [x] write failing tests separating the three `ZmxDaemonObservation` cases, especially `unreadable`
       (an `err=` row) from `absent`
-- [ ] write failing tests proving `unknown` rather than `orphan` when `inventoryComplete` is false
-- [ ] write failing tests for duplicate pane identities producing `conflicted` for every row involved,
+- [x] write failing tests proving `unknown` rather than `orphan` when `inventoryComplete` is false
+- [x] write failing tests for duplicate pane identities producing `conflicted` for every row involved,
       never an arbitrary owner
-- [ ] add the state enums, `ZmxPaneClaim`, `ZmxInventoryResult` and `ZmxInventory.join`
-- [ ] add `ZmxPrunePolicy.namesToPrune` with the conjunctive gate, and tests that each term alone blocks,
+- [x] add the state enums, `ZmxPaneClaim`, `ZmxInventoryResult` and `ZmxInventory.join`
+- [x] add `ZmxPrunePolicy.namesToPrune` with the conjunctive gate, and tests that each term alone blocks,
       including that a `foreign` name is never returned
-- [ ] run tests - must pass before task 2
+- [x] run tests - must pass before task 2
 
 ### Task 2: Non-mutating claim walk over windows
 
@@ -362,18 +362,18 @@ before calling the host and name the resolved owner; owner naming belongs where 
 - Modify: `agtermCore/Sources/agtermCore/WindowLibrary.swift`
 - Modify: `agtermCore/Tests/agtermCoreTests/WindowLibraryTests.swift`
 
-- [ ] write a failing test: a valid index missing one `windows/<uuid>.json` yields that file's panes as
+- [x] write a failing test: a valid index missing one `windows/<uuid>.json` yields that file's panes as
       `claimed` with `windowState: .unindexed`
-- [ ] write a failing test: an unreadable extra snapshot marks the inventory incomplete
-- [ ] write a failing test: a snapshot with a missing pane identity marks the inventory incomplete and
+- [x] write a failing test: an unreadable extra snapshot marks the inventory incomplete
+- [x] write a failing test: a snapshot with a missing pane identity marks the inventory incomplete and
       leaves the file byte-identical on disk — the read path mints nothing and saves nothing
-- [ ] write a failing test capturing `windows.json` as well, so a future helper calling `saveIndex()`
+- [x] write a failing test capturing `windows.json` as well, so a future helper calling `saveIndex()`
       cannot satisfy the narrower `windows/*.json` assertion
-- [ ] add a read-only `paneClaims()` that enumerates `windows/*.json`, compares against the index, and
+- [x] add a read-only `paneClaims()` that enumerates `windows/*.json`, compares against the index, and
       returns claims plus a completeness flag, with its own non-mutating walk rather than a flag on
       `PaneIdentityInventory.upgrade`
-- [ ] carry window id and name, and mark each claim's owner window state open, closed or unindexed
-- [ ] run tests - must pass before task 3
+- [x] carry window id and name, and mark each claim's owner window state open, closed or unindexed
+- [x] run tests - must pass before task 3
 
 ### Task 3: Pending-close panes in the claim set
 
@@ -381,11 +381,11 @@ before calling the host and name the resolved owner; owner naming belongs where 
 - Modify: `agtermCore/Sources/agtermCore/AppStore+PendingClose.swift`
 - Create: `agtermCore/Tests/agtermCoreTests/AppStorePendingCloseTests.swift`
 
-- [ ] write a failing test: a soft-closed session's panes appear as `pendingClose` claims, not absent
-- [ ] write a failing test: after the grace expires they are gone from the claim set
-- [ ] add an accessor over the existing `PendingSessionClose` records, which already hold the `Session`
+- [x] write a failing test: a soft-closed session's panes appear as `pendingClose` claims, not absent
+- [x] write a failing test: after the grace expires they are gone from the claim set
+- [x] add an accessor over the existing `PendingSessionClose` records, which already hold the `Session`
       and workspace metadata — no restructuring
-- [ ] run tests - must pass before task 4
+- [x] run tests - must pass before task 4
 
 ### Task 4: ControlRestoreStatus and the restore.mode command
 
@@ -396,14 +396,14 @@ before calling the host and name the resolved owner; owner naming belongs where 
 - Modify: `agtermCore/Tests/agtermCoreTests/ControlDispatcherTests.swift`
 - Modify: `agtermCore/Tests/agtermCoreTests/MockControlActions.swift`
 
-- [ ] write failing round-trip tests for `ControlRestoreStatus` and the `restore.mode` request/response,
+- [x] write failing round-trip tests for `ControlRestoreStatus` and the `restore.mode` request/response,
       proving the wire carries raw strings and that an UNKNOWN mode string decodes without collapsing to
       `none` the way `RestoreMode`'s own lossy decoder would
-- [ ] write failing dispatcher tests for read (no argument) and set (each of the three modes), plus an
+- [x] write failing dispatcher tests for read (no argument) and set (each of the three modes), plus an
       invalid mode string
-- [ ] add `case restoreMode = "restore.mode"` and the `ControlRestoreStatus` payload
-- [ ] add `readRestoreMode()` / `setRestoreMode(_:)` to `ControlActions` and the dispatcher arm
-- [ ] run tests - must pass before task 5
+- [x] add `case restoreMode = "restore.mode"` and the `ControlRestoreStatus` payload
+- [x] add `readRestoreMode()` / `setRestoreMode(_:)` to `ControlActions` and the dispatcher arm
+- [x] run tests - must pass before task 5
 
 ### Task 5: App-side restore mode with rollback on save failure
 
@@ -412,15 +412,15 @@ before calling the host and name the resolved owner; owner naming belongs where 
 - Modify: `agterm/SettingsModel.swift`
 - Modify: `agtermTests/ControlServerRestoreCaptureTests.swift`
 
-- [ ] write a failing test: a settings save failure answers `ok: false` with the reason AND the following
+- [x] write a failing test: a settings save failure answers `ok: false` with the reason AND the following
       read still reports the OLD configured mode — memory must not claim a value the disk rejected
-- [ ] write a failing test: the read reports all five fields from the latch and settings
-- [ ] write a failing test: `unavailableReason` is nil when the requested mode is `none` or `rerun`, even
+- [x] write a failing test: the read reports all five fields from the latch and settings
+- [x] write a failing test: `unavailableReason` is nil when the requested mode is `none` or `rerun`, even
       though `RestoreLaunchDecision` holds a probed reason
-- [ ] rework `SettingsModel.setRestoreMode` on the `AppStore.setRestoreCommand` pattern: keep the old
+- [x] rework `SettingsModel.setRestoreMode` on the `AppStore.setRestoreCommand` pattern: keep the old
       value, save, restore memory on failure, return the result instead of swallowing it
-- [ ] implement both arms on `ControlServer`, reading the latch via `GhosttyApp.restoreLaunchDecision`
-- [ ] run tests - must pass before task 6
+- [x] implement both arms on `ControlServer`, reading the latch via `GhosttyApp.restoreLaunchDecision`
+- [x] run tests - must pass before task 6
 
 ### Task 6: zmx client control surface and zmx.list
 
@@ -437,20 +437,20 @@ before calling the host and name the resolved owner; owner naming belongs where 
 - Create: `agtermCore/Tests/agtermCoreTests/ControlDispatcherZmxTests.swift`
 - Create: `agtermTests/ControlServerZmxTests.swift`
 
-- [ ] write failing `ZmxClient` tests for `listSessions()`, including an `err=` row and an empty
+- [x] write failing `ZmxClient` tests for `listSessions()`, including an `err=` row and an empty
       namespace returning a successful empty list rather than an error
-- [ ] write failing round-trip tests for `ControlZmxEntry` and the `result.zmx` payload
+- [x] write failing round-trip tests for `ControlZmxEntry` and the `result.zmx` payload
       (`restore`, `inventoryComplete`, `entries`)
-- [ ] add `listSessions()` to `ZmxClient`; hand the client to `ControlServer` from `restoredRuntime`
+- [x] add `listSessions()` to `ZmxClient`; hand the client to `ControlServer` from `restoredRuntime`
       instead of leaving it captured only by the finalizer/reap/resolver closures, injected so hosted
       tests can substitute a runner
-- [ ] write a failing dispatcher test for `zmx.list`, conforming `MockControlActions` to the new member —
+- [x] write a failing dispatcher test for `zmx.list`, conforming `MockControlActions` to the new member —
       the shared mock must compile or `swift test` fails for every other suite too
-- [ ] add `case zmxList = "zmx.list"`, the payload, the `ControlActions` member and the dispatcher arm
-- [ ] implement the app arm: listing plus claims from tasks 2 and 3, join from task 1, status header from
+- [x] add `case zmxList = "zmx.list"`, the payload, the `ControlActions` member and the dispatcher arm
+- [x] implement the app arm: listing plus claims from tasks 2 and 3, join from task 1, status header from
       task 4
-- [ ] write a failing test proving a listing failure reports an error rather than an empty inventory
-- [ ] run tests - must pass before task 7
+- [x] write a failing test proving a listing failure reports an error rather than an empty inventory
+- [x] run tests - must pass before task 7
 
 ### Task 7: zmx.prune
 
@@ -465,24 +465,24 @@ before calling the host and name the resolved owner; owner naming belongs where 
 - Modify: `agtermTests/ZmxClientTests.swift`
 - Modify: `agtermTests/ControlServerZmxTests.swift`
 
-- [ ] write a failing test: prune refuses an incomplete inventory and says so, killing nothing
-- [ ] write a failing test: prune refuses when any row is `conflicted`, and never touches a `foreign` or
+- [x] write a failing test: prune refuses an incomplete inventory and says so, killing nothing
+- [x] write a failing test: prune refuses when any row is `conflicted`, and never touches a `foreign` or
       `unreadable` name
-- [ ] write a failing test: prune leaves claimed, pendingClose and attached rows alone
-- [ ] write a failing test: `cleaned up stale session` on stdout is reported as NOT killed, since that
+- [x] write a failing test: prune leaves claimed, pendingClose and attached rows alone
+- [x] write a failing test: `cleaned up stale session` on stdout is reported as NOT killed, since that
       path unlinks a socket and can leave a live unresponsive daemon running while exiting zero
-- [ ] write a failing test: prune refuses an `unreadable` row rather than forcing it
-- [ ] write a failing test: a candidate that gains a client between the first listing and the
+- [x] write a failing test: prune refuses an `unreadable` row rather than forcing it
+- [x] write a failing test: a candidate that gains a client between the first listing and the
       revalidation listing is dropped, not killed
-- [ ] add `killObservedOrphan(names:)` to `ZmxClient` — invokes names individually, never passes
+- [x] add `killObservedOrphan(names:)` to `ZmxClient` — invokes names individually, never passes
       `--force`, counts only the exact `killed session <name>` line as success — leaving
       `kill(paneIdentities:)` forced for semantic deletion
-- [ ] re-list immediately before mutating, with model resolution on the main actor so agterm's claims
+- [x] re-list immediately before mutating, with model resolution on the main actor so agterm's claims
       cannot change during the operation
-- [ ] write failing round-trip and dispatcher tests for `zmx.prune`, extending `MockControlActions`
-- [ ] add `case zmxPrune = "zmx.prune"`, the `ControlActions` member and the dispatcher arm
-- [ ] implement the app arm over `ZmxPrunePolicy`, reporting per-daemon outcomes
-- [ ] run tests - must pass before task 8
+- [x] write failing round-trip and dispatcher tests for `zmx.prune`, extending `MockControlActions`
+- [x] add `case zmxPrune = "zmx.prune"`, the `ControlActions` member and the dispatcher arm
+- [x] implement the app arm over `ZmxPrunePolicy`, reporting per-daemon outcomes
+- [x] run tests - must pass before task 8
 
 ### Task 8: zmx.kill through a shared exit coordinator
 
@@ -500,29 +500,29 @@ before calling the host and name the resolved owner; owner naming belongs where 
 - Modify: `agtermCore/Tests/agtermCoreTests/AppStorePaneTests.swift`
 - Modify: `agtermTests/ControlServerZmxTests.swift`
 
-- [ ] write a failing round-trip test for the `zmx.kill` request and response in `ControlProtocolTests`
-- [ ] write a failing dispatcher test: a missing target, pane or force is refused before the host is
+- [x] write a failing round-trip test for the `zmx.kill` request and response in `ControlProtocolTests`
+- [x] write a failing dispatcher test: a missing target, pane or force is refused before the host is
       called, and the refusal does NOT claim to name an owner
-- [ ] write a failing app test: the owner is named by the inventory resolver, including for a closed or
+- [x] write a failing app test: the owner is named by the inventory resolver, including for a closed or
       unindexed claim that `ControlTargetResolver` cannot see
-- [ ] write a failing test: pendingClose, `unknown`, `conflicted`, `foreign` and `unreadable` rows refuse
+- [x] write a failing test: pendingClose, `unknown`, `conflicted`, `foreign` and `unreadable` rows refuse
       even forced
-- [ ] write failing tests for every row of the outcomes table, including the two guarded branches
-- [ ] write a failing HOSTED test: after a successful kill the queued `onExit` is a no-op, and primary
+- [x] write failing tests for every row of the outcomes table, including the two guarded branches
+- [x] write a failing HOSTED test: after a successful kill the queued `onExit` is a no-op, and primary
       promotion still rewires the font callback, moves dashboard membership and refocuses
-- [ ] write a failing HOSTED test: a FAILED kill leaves the natural exit path enabled
-- [ ] extract the exit coordinator both `handlePaneExit` and the kill path call; mark the exit handled
+- [x] write a failing HOSTED test: a FAILED kill leaves the natural exit path enabled
+- [x] extract the exit coordinator both `handlePaneExit` and the kill path call; mark the exit handled
       through the view's existing `didHandleProcessExit` state AFTER a successful kill, never before
-- [ ] write failing tests for the observation cases: an `absent` row refuses with a failure and runs
+- [x] write failing tests for the observation cases: an `absent` row refuses with a failure and runs
       NEITHER the suppression nor the model transition, since there is no daemon to kill; an
       `unreadable` row is REFUSED in v1, because forcing it can unlink a live daemon's socket and still
       exit zero, leaving the process running and unreachable by name
-- [ ] add a close seam in `AppStore.swift` that accepts a pre-finalized identity, so the no-survivor
+- [x] add a close seam in `AppStore.swift` that accepts a pre-finalized identity, so the no-survivor
       path reaches `closeSession` without `finalizePaneIdentities` re-killing the dead name — and
       without copying the close implementation into `AppStore+Panes.swift`
-- [ ] exclude the already-killed identity from `paneFinalizer` in the store transition
-- [ ] add `case zmxKill = "zmx.kill"`, the `ControlActions` member, the dispatcher arm and the app arm
-- [ ] run tests - must pass before task 9
+- [x] exclude the already-killed identity from `paneFinalizer` in the store transition
+- [x] add `case zmxKill = "zmx.kill"`, the `ControlActions` member, the dispatcher arm and the app arm
+- [x] run tests - must pass before task 9
 
 ### Task 9: agtermctl surface
 
@@ -532,14 +532,14 @@ before calling the host and name the resolved owner; owner naming belongs where 
 - Modify: `agtermCore/Sources/agtermctlKit/MiscCommands.swift`
 - Create: `agtermCore/Tests/agtermctlKitTests/ZmxCommandsTests.swift`
 
-- [ ] write failing tests for the request each subcommand builds, including force and pane validation
-- [ ] add the `Zmx` group with `List`, `Prune` and `Kill`, and register it in `Commands.swift:91`
-- [ ] add `Mode` to the existing `Restore` group for the read/set
-- [ ] implement human output: a status header above the table, with owner window state and observation as
+- [x] write failing tests for the request each subcommand builds, including force and pane validation
+- [x] add the `Zmx` group with `List`, `Prune` and `Kill`, and register it in `Commands.swift:91`
+- [x] add `Mode` to the existing `Restore` group for the read/set
+- [x] implement human output: a status header above the table, with owner window state and observation as
       their own columns so "closed / detached" reads as expected rather than suspicious
-- [ ] document in `Kill`'s help that it destroys a backend process reaching every attached client, and
+- [x] document in `Kill`'s help that it destroys a backend process reaching every attached client, and
       that killing the pane you are typing in can kill the calling `agtermctl` before it reads the reply
-- [ ] run tests - must pass before task 10
+- [x] run tests - must pass before task 10
 
 ### Task 10: Documentation across every mirrored surface
 
@@ -553,36 +553,36 @@ before calling the host and name the resolved owner; owner naming belongs where 
 - Modify: `plugins/agterm/skills/agterm/troubleshooting.md`
 - Modify: `plugins/agterm/skills/agterm/examples.md`
 
-- [ ] add the four commands, their arguments and read-back fields to `control-api.md` and
+- [x] add the four commands, their arguments and read-back fields to `control-api.md` and
       `site/commands.html`
-- [ ] record in `control-api.md` why `restore.mode` reports its result through its own read and the
+- [x] record in `control-api.md` why `restore.mode` reports its result through its own read and the
       `zmx list` header rather than a tree node, as the state-setting read-back rule requires
-- [ ] replace all five bare "manual zmx kill" mentions with the real mechanism, now that the word is
+- [x] replace all five bare "manual zmx kill" mentions with the real mechanism, now that the word is
       user-facing — README included, since it carries the same unsupported escape hatch
-- [ ] document that these commands need a running instance, and why there is no app-down path
-- [ ] state that prune's gate is observed-and-revalidated rather than atomic, and that a client which
+- [x] document that these commands need a running instance, and why there is no app-down path
+- [x] state that prune's gate is observed-and-revalidated rather than atomic, and that a client which
       attaches from outside agterm in the remaining window can be terminated
-- [ ] state the kill outcomes and that the reason for explicit addressing is backend-process destruction,
+- [x] state the kill outcomes and that the reason for explicit addressing is backend-process destruction,
       not a recovery difference from other close commands
-- [ ] state no total command count on any surface, per the catalog rule
+- [x] state no total command count on any surface, per the catalog rule
 
 ### Task 11: Verify acceptance criteria
-- [ ] `zmx list` reports every pane of every window — open, closed and unindexed — joined against the
+- [x] `zmx list` reports every pane of every window — open, closed and unindexed — joined against the
       observed daemons, with `pendingClose` rows present during a soft close and `foreign` rows visible
-- [ ] a `zmx list` run leaves every `windows/*.json` AND `windows.json` byte-identical
-- [ ] `zmx prune` acts only on complete, conflict-free, unmatched, observed-detached rows, revalidates by
+- [x] a `zmx list` run leaves every `windows/*.json` AND `windows.json` byte-identical
+- [x] `zmx prune` acts only on complete, conflict-free, unmatched, observed-detached rows, revalidates by
       re-listing before it mutates, never passes `--force`, reports per daemon, and counts only the exact
       `killed session <name>` line as a kill
-- [ ] `zmx kill` refuses without explicit target, pane and force, and each row of the outcomes table
+- [x] `zmx kill` refuses without explicit target, pane and force, and each row of the outcomes table
       matches; a failed kill leaves the natural exit path working
-- [ ] `restore mode` reads all five fields, reports a save failure as a failure, and rolls memory back
-- [ ] every command fails with a clear "no instance" error when agterm is not running
-- [ ] run the gates once: `make build`, `cd agtermCore && swift test`, `make test-app`, `make lint`
+- [x] `restore mode` reads all five fields, reports a save failure as a failure, and rolls memory back
+- [x] every command fails with a clear "no instance" error when agterm is not running
+- [x] run the gates once: `make build`, `cd agtermCore && swift test`, `make test-app`, `make lint`
 
 ### Task 12: [Final] Update documentation
-- [ ] `README.md` is already updated in task 10; touch it again only if the product synopsis itself changed
-- [ ] update `CLAUDE.md` if a new pattern emerged worth recording
-- [ ] move this plan to `docs/plans/completed/`
+- [x] `README.md` was updated in task 10; the product synopsis itself did not change
+- [x] no new `CLAUDE.md` pattern emerged; the contract lives in `.claude/rules/control-api.md`
+- [x] move this plan to `docs/plans/completed/`
 
 ## Post-Completion
 

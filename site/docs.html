@@ -3052,6 +3052,13 @@ command = "'/Users/you/.config/agterm/agent-status/agterm-codex-status.sh' stop"
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">agtermctl zmx kill</span> destroys a single pane's daemon. A closed window's panes stay
                 claimed with no clients attached, which is their resting state rather than something to clean up. Every one of
                 these needs agterm running: only the app can tell a leaked daemon from a pane that is merely closed.
+                <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">zmx prune</span> re-checks immediately before it kills, but the check is not atomic — zmx offers no
+                kill-if-detached — so a client that attaches from outside agterm in that last moment can still be terminated.
+                <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">zmx kill</span> requires the session, the pane and
+                <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">--force</span> because it destroys a backend process rather than a model object: it reaches a pane no
+                window is showing and takes down every client attached to that daemon. Killing a shown split closes that split;
+                killing a primary promotes its split survivor, or closes the session when there is none. None of these gets the
+                undo grace, and Reopen Closed Item brings the session back with a fresh shell.
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">agtermctl restore mode</span> reads or sets the restore policy without opening Settings, and
                 the mode it sets applies to the next launch for the same reason the picker does.
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">tree --json</span> reports the actual
