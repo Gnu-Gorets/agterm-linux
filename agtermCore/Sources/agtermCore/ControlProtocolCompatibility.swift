@@ -1,5 +1,6 @@
 extension ControlSessionNode {
-    /// Preserves the pre-zmx initializer symbol for source and incremental-build compatibility.
+    /// Keeps the pre-zmx initializer callable for agterm-linux, which may construct these nodes.
+    /// Callers predating `backedByZmx` receive `nil`.
     public init(id: String, name: String, cwd: String, title: String? = nil, active: Bool, split: Bool,
                 hasSplit: Bool? = nil, splitAxis: String? = nil,
                 splitRatio: Double? = nil, splitFocused: Bool? = nil,
