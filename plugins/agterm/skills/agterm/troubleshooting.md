@@ -117,7 +117,11 @@ Check these in order:
   indicator.
 - **Confirm the pane is in scope.** Primary and split panes can survive. Scratch, overlay, and quick terminals
   are temporary by design.
-- **A missing daemon means a fresh shell.** A reboot, manual zmx kill, or stale/deleted daemon leaves nothing
+- **Start from `agtermctl zmx list`.** It reports every daemon and the pane claiming it, with the
+  restore mode as a header. `claimed` with zero clients is a CLOSED window's resting state, not a leak;
+  `orphan` is what `zmx prune` takes. `unknown` means the pane inventory was incomplete, so nothing
+  can be pruned until that is resolved.
+- **A missing daemon means a fresh shell.** A reboot, `agtermctl zmx kill`, or a stale/deleted daemon leaves nothing
   to attach. Agterm creates a new daemon under the saved name and opens a fresh shell rather than failing.
 - **Switching modes ends detached live processes.** Selecting Fresh shells or Re-run commands and restarting
   reaps the live daemons in this state directory. An unavailable launch that still requests Live sessions

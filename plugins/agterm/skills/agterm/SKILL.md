@@ -150,7 +150,7 @@ you open overlays / type into whatever the user has selected, not your own sessi
   zsh as the macOS login shell. Scratch, overlay, and quick terminals stay temporary.
 
 Closing agterm or stopping it with SIGTERM leaves live daemons running. A missing daemon, including after a
-reboot or manual zmx kill, restores that pane as a fresh shell. `tree --json` is the only backing indicator:
+reboot or `agtermctl zmx kill`, restores that pane as a fresh shell. `tree --json` is the only backing indicator:
 primary and split entries report `surfaces[].backedByZmx`, and the session-level `backedByZmx` is true only
 when every existing primary or split is backed. The sidebar has no zmx glyph.
 Switching to Fresh shells or Re-run commands and restarting ends every detached live process in the state
@@ -529,7 +529,19 @@ appearance automatically; `theme set --dark none` stops tracking. The app defaul
 capture fills, so an exit that never reaches a clean quit (a force quit, a crash, a hard reset) still
 restores; prints how many panes were captured and runs only in `rerun` mode, otherwise refusing and naming
 the active mode · `restore clear` - clear every session's saved foreground command in any mode so the next
-restart restores plain shells in rerun mode.
+restart restores plain shells in rerun mode · `restore mode [none|rerun|live]` - read the policy (what
+settings hold, what this launch requested, what it got, whether a restart is needed) or write it for the
+NEXT launch; setting it changes nothing in the running app, because a pane is wrapped in a daemon or not
+at the moment it is created.
+
+**zmx** - `zmx list` - every daemon behind a live session joined against the pane that claims it, under the
+restore status as a header; a CLOSED window's panes are claimed with zero clients, which is a resting
+state rather than a leak · `zmx prune` - kill the daemons no pane claims and nothing is attached to,
+refusing outright on an incomplete or conflicted inventory, and reporting each daemon separately since a
+stale-socket cleanup is not a kill · `zmx kill --target ID --pane left|right --force` - destroy one pane's
+daemon and the process in it; all three are required because this kills a backend process that reaches a
+pane no window is showing and every client attached to it, and none of its outcomes gets the undo grace.
+Every zmx command needs a running agterm.
 
 **version** — `agtermctl version` — which agterm is serving this socket, as `result.app` (`version`, plus
 `commit` when the build recorded one). App-global: no target, no `--window`, no window need be open, so it

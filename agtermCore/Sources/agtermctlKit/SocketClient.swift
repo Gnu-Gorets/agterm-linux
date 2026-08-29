@@ -231,10 +231,6 @@ struct SocketClient {
         return "ok"
     }
 
-    /// Render the `theme.list` payload as one theme name per line (no trailing newline), the active
-    /// theme(s) marked `* `, with a leading "default ghostty" entry for the no-theme (ghostty built-in)
-    /// case. With `sync` on, both the light and dark themes are marked under a header naming the
-    /// appearance pair; otherwise the single `current` theme is marked.
     /// The restore policy as separate lines: "what the next launch will do" and "what this one did" are
     /// different questions, and collapsing them is what leaves a caller wondering why nothing happened.
     static func formatRestoreStatus(_ status: ControlRestoreStatus) -> String {
@@ -257,16 +253,32 @@ struct SocketClient {
         return (lines + [""] + inventory.entries.map(zmxRow)).joined(separator: "\n")
     }
 
+    /// Carries the ids `zmx kill` needs, not just names: a closed or unindexed row may not appear in `tree`
+    /// at all, and kill resolves a session by id or prefix, never by name — so a table of names alone
+    /// cannot get the user to the next command. Observation stays its OWN column beside the client count,
+    /// which only exists for a running daemon.
     private static func zmxRow(_ entry: ControlZmxEntry) -> String {
-        let clients = entry.clients.map { "\($0) client\($0 == 1 ? "" : "s")" } ?? entry.observation
-        let owner = entry.sessionName.map { name in
+        let clients = entry.clients.map { "\($0) client\($0 == 1 ? "" : "s")" } ?? "-"
+        var owner = "-"
+        if let sessionID = entry.sessionID {
+            let name = entry.sessionName ?? "?"
+            let pane = entry.pane.map { " (\($0))" } ?? ""
             let window = entry.windowName ?? entry.windowState ?? "?"
-            return "\(window) / \(name)\(entry.pane.map { " (\($0))" } ?? "")"
-        } ?? "-"
-        let window = entry.windowState.map { " [\($0) window]" } ?? ""
-        return "\(entry.daemon)  \(entry.state)  \(clients)  \(owner)\(window)"
+            let windowID = entry.windowID.map { " win \(shortID($0))" } ?? ""
+            owner = "\(shortID(sessionID)) \(name)\(pane) in \(window)\(windowID)"
+        }
+        let state = entry.windowState.map { "\(entry.state) [\($0) window]" } ?? entry.state
+        return "\(entry.daemon)  \(state)  \(entry.observation)  \(clients)  \(owner)"
     }
 
+    /// The prefix a caller can paste straight into `--target`/`--window`; eight hex digits is well past the
+    /// point where a prefix stops being unique in a real tree.
+    private static func shortID(_ id: String) -> String { String(id.prefix(8)) }
+
+    /// Render the `theme.list` payload as one theme name per line (no trailing newline), the active
+    /// theme(s) marked `* `, with a leading "default ghostty" entry for the no-theme (ghostty built-in)
+    /// case. With `sync` on, both the light and dark themes are marked under a header naming the
+    /// appearance pair; otherwise the single `current` theme is marked.
     static func formatThemes(_ themes: [String], current: String?, sync: Bool = false,
                              light: String? = nil, dark: String? = nil) -> String {
         let active: (String?) -> Bool = sync ? { $0 != nil && ($0 == light || $0 == dark) } : { $0 == current }

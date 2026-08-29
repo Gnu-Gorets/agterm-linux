@@ -33,6 +33,14 @@ struct ZmxCommandsTests {
         #expect(throws: (any Error).self) {
             try Zmx.Kill.parse(["--target", "abc", "--pane", "scratch", "--force"])
         }
+        // no --target at all: it must not default to the active session the way every other command does
+        #expect(throws: (any Error).self) { try Zmx.Kill.parse(["--pane", "left", "--force"]) }
+        #expect(throws: (any Error).self) {
+            try Zmx.Kill.parse(["--target", "active", "--pane", "left", "--force"])
+        }
+        #expect(throws: (any Error).self) {
+            try Zmx.Kill.parse(["--target", "abc", "--window", "active", "--pane", "left", "--force"])
+        }
     }
 
     @Test func restoreModeReadsWithNoArgumentAndSetsWithOne() throws {
@@ -68,7 +76,11 @@ struct ZmxCommandsTests {
         #expect(rendered.contains("0 clients"))
         // the count alone would read as an orphan; the window state is what says otherwise
         #expect(rendered.contains("[closed window]"))
-        #expect(rendered.contains("work / build (left)"))
+        #expect(rendered.contains("running"), "observation stays its own column beside the count")
+        #expect(rendered.contains("build (left) in work"))
+        // kill resolves by id, never by name, and a closed row may not appear in `tree` at all
+        #expect(rendered.contains(String(claim.sessionID.uuidString.prefix(8))))
+        #expect(rendered.contains("win \(claim.windowID.uuidString.prefix(8))"))
     }
 
     @Test func anIncompleteInventorySaysSoBeforeItsRows() {

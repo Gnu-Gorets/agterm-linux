@@ -1205,7 +1205,7 @@ started with, so a change applies after restarting agterm.
   must be the macOS login shell. Scratch, overlay, and quick terminals remain temporary.
 
 Closing agterm or sending it SIGTERM ends the attach clients and leaves live daemons running. A missing
-daemon, including after a reboot or manual zmx kill, comes back as a fresh shell under the same name. A
+daemon, including after a reboot or `agtermctl zmx kill`, comes back as a fresh shell under the same name. A
 session or split that is explicitly deleted has its daemon killed after the undo grace period.
 Switching to Fresh shells or Re-run commands and restarting ends every detached live process in the state
 directory. A launch that still requests Live sessions but cannot use it preserves those processes.
@@ -1241,6 +1241,42 @@ command at a clean quit and starts it again on relaunch; `restore clear` wipes t
 (also closing the force-quit re-fire window). App-global (no `--window`), prints `ok`. Like `restore capture`
 it acknowledges only a save that landed: if any window's write fails it reports that at least one window
 failed to save, since those captures are still on disk and nothing reads those slots back.
+
+`agtermctl restore mode [none|rerun|live]` — read the restore policy, or write it for the NEXT launch.
+Bare, it reports five things: `configured` (what settings hold, so what the next launch asks for),
+`requestedAtLaunch` and `active` (what THIS launch asked for and what it got), `restartRequired`, and
+`unavailableReason` when live was requested and refused. The two requested values differ once the mode has
+changed since this instance started, which is exactly when a caller wonders why nothing happened.
+
+Setting it changes nothing in the running app, and no flag makes it: a pane is wrapped in a zmx daemon or
+not at the moment it is created, so a running shell cannot be retrofitted either way. A failed write is
+reported as a failure rather than acknowledged.
+
+`agtermctl zmx list` — every daemon and every pane expecting one, joined, under the restore status as a
+header. `state` is `claimed`, `orphan`, `unknown`, `conflicted`, `pendingClose` or `foreign`;
+`observation` is `running`, `unreadable` or `absent`, separate from the client count because a daemon that
+is gone and one zmx could not read are different answers. A CLOSED window's panes are `claimed` with zero
+clients — the resting state after you close a window, not a leak, which is why the owner's window state is
+its own column. `unknown` means the pane inventory was incomplete, so no row can be called an orphan.
+
+`agtermctl zmx prune` — kill the daemons no pane claims and nothing is attached to. It refuses outright on
+an incomplete or conflicted inventory. The gate is checked and revalidated rather than atomic: zmx has no
+kill-if-detached, so prune re-lists immediately before killing and drops anything that gained a client,
+but a client attaching from outside agterm in the remaining gap can still be terminated. It reports each
+daemon separately, and a "cleaned up a stale socket" line is NOT a kill — zmx unlinked a socket it could
+not reach and that daemon may still be running.
+
+`agtermctl zmx kill --target ID --pane left|right --force` — destroy one pane's daemon and the process in
+it. All three are required: this kills a backend process, reaches a pane no window is showing, and takes
+down every client attached to that daemon, so there is no sensible default for who is affected. Killing a
+shown split closes that split; killing a primary promotes its split survivor, or closes the session when
+there is none; a pane whose window is closed simply comes back as a fresh shell. None of these gets the
+three-second undo. It refuses a daemon already gone, one zmx could not read (forcing that can unlink a
+live daemon's socket and leave it running unreachable), and a session inside its undo window. Killing the
+daemon of the pane you are typing in can kill the calling `agtermctl` before it reads the reply.
+
+Every zmx command needs a running agterm: only the app can join its live windows, its pending closes and
+its persisted snapshots against what zmx reports. With agterm stopped there is nothing to ask.
 
 Which programs are NOT re-run is controlled by `restore-denylist.conf` in the config directory (one
 command name per line, seeded with the terminal multiplexers `tmux`/`screen`/`zellij`). It is a plain

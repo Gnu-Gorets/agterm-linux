@@ -83,7 +83,11 @@ struct Zmx: ParsableCommand {
         @Flag(name: .long, help: "Required. Confirms destroying the process running in that pane.")
         var force = false
 
-        @OptionGroup var target: TargetOptions
+        /// Required and never defaulted, unlike every other command's `--target`: the whole contract here
+        /// is that nothing about this destruction falls back to whatever is in front of you.
+        @Option(name: .long, help: "Session id or unique prefix. Required; 'active' is not accepted.")
+        var target: String
+
         @OptionGroup var options: ClientOptions
 
         func validate() throws {
@@ -91,10 +95,16 @@ struct Zmx: ParsableCommand {
                 throw ValidationError("--pane must be left/primary/top or right/split/bottom")
             }
             guard force else { throw ValidationError("--force is required to destroy a running process") }
+            guard target != "active" else {
+                throw ValidationError("--target must name a session; 'active' is not accepted here")
+            }
+            guard options.window != "active" else {
+                throw ValidationError("--window must name a window; 'active' is not accepted here")
+            }
         }
 
         func makeRequest() throws -> ControlRequest {
-            ControlRequest(cmd: .zmxKill, target: target.target,
+            ControlRequest(cmd: .zmxKill, target: target,
                            args: options.withWindow(ControlArgs(force: true, pane: pane)))
         }
     }

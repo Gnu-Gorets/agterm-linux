@@ -154,7 +154,8 @@ renumbering. Do not reintroduce a count anywhere.
 - `window.new`, `.list`, `.select`, `.close`, `.rename`, `.delete`, `.resize`, `.move`, `.zoom`,
   `.fullscreen`, `.minimize`
 - `keymap.reload`, `keymap.list`, `config.reload`, `theme.set`, `theme.list`, `restore.capture`,
-  `restore.clear`, `version`
+  `restore.clear`, `restore.mode`, `version`
+- `zmx.list`, `zmx.prune`, `zmx.kill`
 
 `debug.appearance` is a private `Command` case, absent from the list above, used only by `AppearanceFlipUITests`.
 It accepts light/dark, sets `NSApp.appearance`, posts `.agtermSystemAppearanceChanged`, echoes the effective
@@ -685,6 +686,67 @@ side, and reads `lastAppliedIsDark` when bare. Refuse it outside XCUITest; provi
 - Seed pending only at the three library bootstrap paths. Seed split pending state when the snapshot restores
   a shown or hidden split. A hidden split keeps its identity and pin until its pane is shown.
 - Tree reads persisted pins, including empty string, never pending state.
+
+## Restore mode and the zmx group
+
+- `restore.mode` reads the policy bare and writes it with a mode argument. The status carries five fields
+  because two "requested" values exist once the mode can change mid-run: `configured` is what the NEXT
+  launch will ask for, `requestedAtLaunch` what THIS one did, `active` what it got. `restartRequired` is
+  derived from the first two rather than reported separately, so no producer can disagree with it.
+  `unavailableReason` appears ONLY when live was actually requested and refused — `RestoreLaunchDecision`
+  carries a probed reason even under `none`/`rerun`, and reporting it there tells a rerun user their shell
+  is unsupported for a mode they never chose.
+- Modes and every zmx enum travel as raw STRINGS. `RestoreMode`'s decoder is deliberately lossy so a
+  settings file from a newer build is not discarded, and reusing it on the wire would make a stale CLI
+  print a future mode as `none` — the mode whose next launch reaps every daemon. The dispatcher parses
+  strictly instead and refuses an unknown mode by name. Same reason the zmx states are strings: a strict
+  enum would make one future value fail the WHOLE response.
+- Setting the mode changes nothing this launch, and that is not a shortcut: a pane is wrapped in a daemon
+  or not at the moment it is created, so no setting can retrofit a running shell. The host rolls memory
+  back on a failed write, following `AppStore.setRestoreCommand` — acknowledging a policy the disk
+  rejected promises a next launch that is not coming.
+- `restore.mode` is a deliberate read-back EXEMPTION from the state-setting rule: it reports through its
+  own bare read and as `zmx list`'s header, not through a tree or window node. The mode is app-global and
+  latched per process, so a per-window node would repeat one constant on every row.
+- The zmx commands need a running instance. Only the app can join live stores, pending-close records,
+  checked closed-window snapshots, the directory-versus-index comparison and the observed daemons into one
+  answer; a standalone reader sees neither pending-close nor live-model state. There is no app-down path
+  and no hybrid fallback, which would report a weaker truth under the same command name.
+- `zmx list` is the primitive; `prune` and `kill` act on rows it has already explained. Rows are the UNION
+  of observed daemons and expected claims, so a leaked daemon and a pane whose daemon vanished are both
+  visible. `state` is claimed/orphan/unknown/conflicted/pendingClose/foreign and `observation` is
+  running/unreadable/absent — separate, because `clients == nil` alone cannot tell a gone daemon from one
+  zmx failed to read. A closed window's panes are claimed with ZERO clients: that is the resting state,
+  not a leak, so the client count alone never implies an orphan.
+- The claim walk never writes. It is its own non-mutating pass rather than `PaneIdentityInventory.upgrade`,
+  which mints missing identities and whose every caller saves; a missing identity makes the walk incomplete
+  instead. It enumerates `windows/*.json` and compares against the index, because `bootstrap()` only scans
+  the directory when `loadIndex()` returns nil — a valid-but-stale `windows.json` would otherwise leave a
+  surviving window file unread and its panes reading as orphans. A directory it cannot enumerate is
+  incomplete, never empty.
+- `prune` is conjunctive: complete inventory, conflict-free ownership, an identity no pane claims, and a
+  daemon observed detached. It is CHECKED AND REVALIDATED, never atomic — pinned zmx has no
+  kill-if-detached, `--force` is consulted only when the connection fails, and a successful connection
+  kills regardless of clients. So it re-lists immediately before mutating and drops anything that gained a
+  client; a client attaching from outside agterm in the remaining gap can still be terminated, and the docs
+  say so. It never passes `--force`, whose failed-connection branch unlinks a socket and exits zero,
+  possibly leaving a live unresponsive daemon unreachable by name. Success counts ONLY the exact
+  `killed session NAME` line, which zmx prints after draining to EOF.
+- `zmx kill` requires an explicit target, pane and `--force`, and the dispatcher refuses without any of
+  them before the host is called. Not because other close commands are recoverable — `session.close` is
+  already immediate and `session.split.close` has no Reopen path — but because this destroys a backend
+  process reaching a claim no window shows and every client attached to it. Resolution runs against the
+  INVENTORY rather than `ControlTargetResolver`, which searches open stores only; `--window` scopes the
+  claims before the session resolves. `absent`, `unreadable`, `pendingClose`, `unknown`, `conflicted` and
+  `foreign` rows are all refused.
+- After a successful kill the app marks the surface's exit handled through the existing
+  `didHandleProcessExit`, never a parallel flag, and only AFTER the kill so a failed one leaves the natural
+  path working. It then runs `agtermApp.handlePaneExit`, which owns the model transition plus the promoted
+  survivor's font callback, its dashboard membership and the refocus — a store-only transition skips all
+  three. `alreadyFinalized` threads down the close chain so the teardown does not ask zmx to kill a name
+  already gone. The suppression is gated on `backedByZmx`: a requested-live launch that fell back keeps its
+  claimed daemons while each pane runs a plain shell, so an ungated kill would close a pane that never
+  attached to what it destroyed.
 
 ## Session backgrounds
 

@@ -96,6 +96,16 @@ extension ControlServer {
         let inventory = ZmxInventory.join(observed: observed, claims: walk.claims,
                                           inventoryComplete: walk.complete)
 
+        // `active` is refused on BOTH selectors rather than resolved: the contract is that nothing about
+        // this destruction falls back to whatever is in front of the user, and a window selector that
+        // silently means "frontmost" would reintroduce exactly that
+        guard target != "active" else {
+            return ControlResponse(ok: false, error: "zmx.kill needs a session id; 'active' is not accepted")
+        }
+        guard window != "active" else {
+            return ControlResponse(ok: false, error: "zmx.kill needs a window id; 'active' is not accepted")
+        }
+
         // an explicit --window scopes the claims BEFORE the session resolves, so a prefix ambiguous across
         // windows can be disambiguated and an exact id in another window is not killed regardless
         let windowIDs = Array(Set(inventory.rows.compactMap { $0.claim?.windowID }))
@@ -137,9 +147,6 @@ extension ControlServer {
         guard let store = library.store(for: claim.windowID),
               let session = store.session(withID: claim.sessionID) else { return }
         let surface = claim.pane == .left ? session.surface : session.splitSurface
-        // `backedByZmx` is what makes this surface a CLIENT of the daemon just killed. On a requested-live
-        // fallback the launch reap preserves claimed daemons while the pane gets a fresh plain shell, so
-        // without this the kill would close a live pane that never attached to the thing it destroyed.
         // `backedByZmx` is what makes this surface a CLIENT of the daemon just killed. On a requested-live
         // fallback the launch reap preserves claimed daemons while the pane gets a fresh plain shell, so
         // without this the kill would close a live pane that never attached to the thing it destroyed.

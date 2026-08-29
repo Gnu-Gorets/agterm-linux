@@ -112,6 +112,31 @@ struct ControlDispatcherZmxTests {
         #expect(actions.calls == [.zmxKill(target: "abc", window: "w1", pane: role)])
     }
 
+    @Test func theKillRequestAndItsAnswerBothSurviveTheWire() throws {
+        let request = ControlRequest(cmd: .zmxKill, target: "3f2a",
+                                     args: ControlArgs(force: true, window: "w1", pane: "right"))
+        let encoded = try JSONEncoder().encode(request)
+        let json = try #require(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        #expect(json["cmd"] as? String == "zmx.kill")
+        #expect(json["target"] as? String == "3f2a")
+        let args = try #require(json["args"] as? [String: Any])
+        #expect(args["force"] as? Bool == true)
+        #expect(args["pane"] as? String == "right")
+
+        let decoded = try JSONDecoder().decode(ControlRequest.self, from: encoded)
+        #expect(decoded.args?.force == true)
+        #expect(decoded.args?.pane == "right")
+        #expect(decoded.args?.window == "w1")
+
+        let answer = ControlResponse(ok: true, result: ControlResult(id: "session-1",
+                                                                     text: "killed agterm-3f2a",
+                                                                     pane: "right"))
+        let back = try JSONDecoder().decode(ControlResponse.self, from: JSONEncoder().encode(answer))
+        #expect(back.result?.id == "session-1")
+        #expect(back.result?.pane == "right", "the pane it acted on is the read-back a caller checks")
+        #expect(back.result?.text == "killed agterm-3f2a")
+    }
+
     @Test func zmxInventoryReachesACallerThroughTheWholeResponse() throws {
         let pane = UUID()
         let claim = ZmxPaneClaim(paneIdentity: pane, pane: .right, pendingClose: true, windowID: UUID(),

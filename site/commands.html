@@ -2678,6 +2678,59 @@
             </div>
           </section>
 
+            <div style="background: #22272b; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 11px; padding: 18px 20px; margin-bottom: 12px">
+              <div style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13.5px; color: #6d82f3; line-height: 1.6; word-break: break-word">
+                agtermctl restore mode [none|rerun|live]
+              </div>
+              <div style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11.5px; color: #6b727a; margin-top: 6px">restore.mode</div>
+              <p style="font-size: 15px; line-height: 1.65; color: #cbc6bc; margin: 10px 0 0">
+                Read the restore policy, or write it for the <em>next</em> launch. Bare, it reports what settings hold, what this launch requested, what it actually got, whether a restart is needed, and why live was refused when it was.
+              </p>
+              <p style="font-size: 13.5px; line-height: 1.6; color: #949ba4; margin: 8px 0 0">
+                Setting it changes nothing in the running app, and no flag makes it: a pane is wrapped in a zmx daemon or not at the moment it is created, so a running shell cannot be retrofitted. A failed write is reported as a failure rather than acknowledged.
+              </p>
+            </div>
+            <p style="font-size: 13.5px; line-height: 1.6; color: #949ba4; margin: 0 0 12px">
+              Every zmx command needs a running agterm: only the app can join its live windows, its pending
+              closes and its persisted snapshots against what zmx reports.
+            </p>
+            <div style="background: #22272b; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 11px; padding: 18px 20px; margin-bottom: 12px">
+              <div style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13.5px; color: #6d82f3; line-height: 1.6; word-break: break-word">
+                agtermctl zmx list
+              </div>
+              <div style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11.5px; color: #6b727a; margin-top: 6px">zmx.list</div>
+              <p style="font-size: 15px; line-height: 1.65; color: #cbc6bc; margin: 10px 0 0">
+                Every daemon behind a live session and every pane expecting one, joined, under the restore status as a header. Shows who owns each daemon, how many clients are attached, and which are left over.
+              </p>
+              <p style="font-size: 13.5px; line-height: 1.6; color: #949ba4; margin: 8px 0 0">
+                A <em>closed</em> window's panes are claimed with zero clients: that is the resting state after you close a window, not a leak, which is why the owner's window state is its own column. <span style="font-family: &quot;JetBrains Mono&quot;, monospace">unknown</span> means the pane inventory was incomplete, so no row can be called an orphan and nothing can be pruned.
+              </p>
+            </div>
+            <div style="background: #22272b; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 11px; padding: 18px 20px; margin-bottom: 12px">
+              <div style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13.5px; color: #6d82f3; line-height: 1.6; word-break: break-word">
+                agtermctl zmx prune
+              </div>
+              <div style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11.5px; color: #6b727a; margin-top: 6px">zmx.prune</div>
+              <p style="font-size: 15px; line-height: 1.65; color: #cbc6bc; margin: 10px 0 0">
+                Kill the daemons no pane claims and nothing is attached to. Refuses outright when the pane inventory is incomplete or two panes claim one daemon.
+              </p>
+              <p style="font-size: 13.5px; line-height: 1.6; color: #949ba4; margin: 8px 0 0">
+                The check is not atomic. zmx has no kill-if-detached, so this re-lists immediately before killing and drops anything that gained a client; a client attaching from outside agterm in the remaining gap can still be terminated. Each daemon is reported separately, and a stale-socket cleanup is not a kill.
+              </p>
+            </div>
+            <div style="background: #22272b; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 11px; padding: 18px 20px; margin-bottom: 12px">
+              <div style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13.5px; color: #6d82f3; line-height: 1.6; word-break: break-word">
+                agtermctl zmx kill --target ID --pane left|right --force
+              </div>
+              <div style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11.5px; color: #6b727a; margin-top: 6px">zmx.kill</div>
+              <p style="font-size: 15px; line-height: 1.65; color: #cbc6bc; margin: 10px 0 0">
+                Destroy one pane's daemon and the process running in it. Target, pane and force are all required.
+              </p>
+              <p style="font-size: 13.5px; line-height: 1.6; color: #949ba4; margin: 8px 0 0">
+                This kills a backend process. It reaches a pane no window is showing and takes down every client attached to that daemon, so there is no sensible default for who is affected. Killing a shown split closes that split; killing a primary promotes its split survivor, or closes the session when there is none. None of these gets the three-second undo. It refuses a daemon already gone, one zmx could not read, and a session inside its undo window.
+              </p>
+            </div>
+
           <section id="version" style="scroll-margin-top: 88px; padding-top: 56px">
             <h2
               style="

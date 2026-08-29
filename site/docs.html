@@ -3043,10 +3043,17 @@ command = "'/Users/you/.config/agterm/agent-status/agterm-codex-status.sh' stop"
                 ><strong style="color: #e6e1d7">Live mode reattaches the running process.</strong> Every primary and split pane
                 starts through zmx. Scratch, overlay, and quick terminals stay temporary. Closing agterm or stopping it with SIGTERM
                 ends the attach client while the daemon and its process continue; the next launch attaches to the same name. A reboot,
-                manual zmx kill, or another missing daemon creates a fresh shell under that name instead of failing the restore.
+                <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">agtermctl zmx kill</span>, or another missing daemon creates a fresh shell under that name instead of failing the restore.
                 Deleting a session, workspace, split, or window kills the corresponding daemon after any undo grace expires.
                 Switching to Fresh shells or Re-run commands and restarting ends every detached live process in this state directory.
                 A launch that still requests Live sessions but cannot use it preserves those processes for a later eligible launch.
+                <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">agtermctl zmx list</span> shows every daemon and the pane that claims it,
+                <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">agtermctl zmx prune</span> clears the ones nothing claims, and
+                <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">agtermctl zmx kill</span> destroys a single pane's daemon. A closed window's panes stay
+                claimed with no clients attached, which is their resting state rather than something to clean up. Every one of
+                these needs agterm running: only the app can tell a leaked daemon from a pane that is merely closed.
+                <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">agtermctl restore mode</span> reads or sets the restore policy without opening Settings, and
+                the mode it sets applies to the next launch for the same reason the picker does.
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">tree --json</span> reports the actual
                 state as <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">surfaces[].backedByZmx</span>
                 and a session-level <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">backedByZmx</span>,

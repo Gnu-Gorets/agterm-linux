@@ -35,6 +35,38 @@ agtermctl restore capture
 Use a keybind or a scheduled job rather than typing it at a prompt: run by hand it records ITSELF, being
 that pane's foreground process while it runs, and `restore clear` is app-global so it is no per-pane undo.
 
+## See and clean up the daemons behind live sessions
+
+In `live` mode each primary and split pane runs inside a zmx daemon that outlives the app. List them with
+the pane that claims each one:
+
+```bash
+agtermctl zmx list
+```
+
+A `claimed` row with zero clients is a CLOSED window's pane, which is its resting state, not a leak. Only
+`orphan` rows are eligible for cleanup, and prune refuses entirely if the pane inventory is incomplete:
+
+```bash
+agtermctl zmx prune
+```
+
+To destroy one pane's daemon and the process in it, name the session and the pane and confirm. All three
+are required because this kills a backend process, reaching a pane no window is showing and every client
+attached to it:
+
+```bash
+agtermctl zmx kill --target 3f2a --pane left --force
+```
+
+Read or change the restore policy without opening Settings. A mode you set applies to the NEXT launch,
+because a pane is wrapped in a daemon or not at the moment it is created:
+
+```bash
+agtermctl restore mode          # what settings hold, what this launch asked for, what it got
+agtermctl restore mode live     # for the next launch
+```
+
 ## Pin what a pane restores (per-session override)
 
 `session restore` pins a shell line that a pane re-runs on the NEXT launch, overriding the captured

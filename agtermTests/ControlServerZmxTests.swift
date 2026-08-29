@@ -292,6 +292,12 @@ final class ControlServerZmxTests: XCTestCase {
         XCTAssertFalse(session.hasSplit, "the survivor is promoted into the primary slot")
         XCTAssertEqual(session.paneIdentity, splitIdentity, "the survivor's identity moves up with it")
         XCTAssertEqual(killed.count, 1, "the promoted survivor's daemon must not be finalized too")
+        // the follow-ups a store-only transition would have skipped
+        let promoted = try XCTUnwrap(session.surface as? GhosttySurfaceView)
+        XCTAssertNotNil(promoted.onFontSizeChange,
+                        "the survivor is the sole pane now and must persist its own font size")
+        XCTAssertFalse(promoted.isSplitPane, "promoteToPrimaryPane clears its split role")
+        XCTAssertFalse(session.splitFocused, "focus moves off the pane that is gone")
 
         primary.handleProcessExit()
         XCTAssertEqual(store.workspaces.first?.sessions.count, 1,
@@ -383,6 +389,45 @@ final class ControlServerZmxTests: XCTestCase {
 
         XCTAssertTrue(server.killZmxDaemon(target: secondSession.id.uuidString,
                                            window: other.id.uuidString, pane: .left).ok)
+    }
+
+    func testKillReachesAClosedWindowsPaneThatNoStoreCanResolve() throws {
+        let closedWindowID = UUID()
+        let pane = UUID()
+        let session = UUID()
+        let snapshot = Snapshot(workspaces: [WorkspaceSnapshot(
+            id: UUID(), name: "workspace 1",
+            sessions: [SessionSnapshot(id: session, paneIdentity: pane, customName: "build", cwd: "/tmp")])])
+        try PersistenceStore(directory: stateDir.appendingPathComponent("windows"),
+                             fileName: "\(closedWindowID.uuidString).json").save(snapshot)
+
+        // no index entry, so the window is UNINDEXED: ControlTargetResolver cannot see it at all
+        var killed: [String] = []
+        let server = makeServer(runner: { invocation in
+            guard invocation.arguments.first == "list" else {
+                killed.append(invocation.arguments[1])
+                return "killed session \(invocation.arguments[1])\n"
+            }
+            return "name=\(ZmxSupport.daemonName(for: pane))\tpid=1\tclients=0\tcreated=1"
+        })
+
+        let response = server.killZmxDaemon(target: session.uuidString, window: nil, pane: .left)
+
+        XCTAssertTrue(response.ok, response.error ?? "")
+        XCTAssertEqual(killed, [ZmxSupport.daemonName(for: pane)])
+        XCTAssertEqual(response.result?.id, session.uuidString)
+    }
+
+    func testKillRefusesActiveOnEitherSelector() throws {
+        let server = makeServer(runner: { _ in "" })
+
+        let target = server.killZmxDaemon(target: "active", window: nil, pane: .left)
+        XCTAssertFalse(target.ok)
+        XCTAssertEqual(target.error, "zmx.kill needs a session id; 'active' is not accepted")
+
+        let window = server.killZmxDaemon(target: "abc", window: "active", pane: .left)
+        XCTAssertFalse(window.ok)
+        XCTAssertEqual(window.error, "zmx.kill needs a window id; 'active' is not accepted")
     }
 
     /// A zmx-backed surface for a pane, so the kill path sees a client of the daemon it destroys.
