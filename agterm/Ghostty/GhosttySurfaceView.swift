@@ -160,6 +160,10 @@ final class GhosttySurfaceView: NSView, TerminalSurface {
     /// because the nonisolated `deinit` safety net reads them.
     nonisolated(unsafe) private var focusObservers: [NSObjectProtocol] = []
     private var pendingSurfaceCreation = false
+    var rendererVisibilityTask: Task<Void, Never>?
+    var rendererVisible = true
+    /// Sweeps the hidden layer's retained frame on a slow cadence; exits itself on reveal or teardown.
+    var hiddenJanitorTask: Task<Void, Never>?
     /// After `destroySurface()` the view is retired: never recreate a surface (a stray viewDidMoveToWindow).
     private var isDestroyed = false
 
@@ -196,6 +200,16 @@ final class GhosttySurfaceView: NSView, TerminalSurface {
             updateDropRegistration()
             updatePointerTracking()
             postAccessibilityExposureChange() // one of the `axExposed` terms; tell AX if the element came or went
+        }
+    }
+
+    /// Whether this surface actually paints on screen. Wider than `deckVisible`: dashboard cells and
+    /// passive HUDs are visible while deliberately non-interactive, and a pane stays on screen while the
+    /// quick terminal merely holds key.
+    var deckOnScreen = true {
+        didSet {
+            guard deckOnScreen != oldValue else { return }
+            updateRendererVisibility()
         }
     }
 
@@ -610,6 +624,7 @@ final class GhosttySurfaceView: NSView, TerminalSurface {
             ghostty_surface_set_display_id(surface, displayID)
         }
         updateGhosttyFocus()
+        updateRendererVisibility(delayHide: false)
         // the `surface != nil` term of `axExposed` just flipped: a pane whose creation was DEFERRED
         // (`pendingSurfaceCreation`, a window still being presented) was absent from the a11y tree until
         // now, so the first window after launch never announced its Terminal element.
@@ -711,6 +726,9 @@ final class GhosttySurfaceView: NSView, TerminalSurface {
     }
 
     func destroySurface() {
+        cancelPendingRendererVisibility()
+        hiddenJanitorTask?.cancel()
+        hiddenJanitorTask = nil
         isDestroyed = true
         focusObservers.forEach { NotificationCenter.default.removeObserver($0) }
         focusObservers = []
@@ -799,6 +817,7 @@ final class GhosttySurfaceView: NSView, TerminalSurface {
         // only site that can clear the latch — below the guard it never ran, and the re-show then compared
         // equal and stayed silent too.
         postAccessibilityExposureChange()
+        updateRendererVisibility()
         guard let window else { return }
         if surface == nil {
             createSurface()
