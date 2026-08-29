@@ -56,6 +56,18 @@ public struct ZmxPaneClaim: Equatable, Sendable {
     }
 }
 
+/// The panes that expect a daemon, and whether the walk could account for everything it found.
+/// Incomplete means some pane is unaccounted for, so nothing may be pruned against this answer.
+public struct ZmxClaimWalk: Equatable, Sendable {
+    public let claims: [ZmxPaneClaim]
+    public let complete: Bool
+
+    public init(claims: [ZmxPaneClaim], complete: Bool) {
+        self.claims = claims
+        self.complete = complete
+    }
+}
+
 /// One row of the runtime inventory: a daemon, a pane, or both.
 public struct ZmxInventoryRow: Equatable, Sendable {
     public let daemon: String
