@@ -463,7 +463,7 @@ final class ControlServer {
                 .windowNew, .windowList, .windowSelect,
                 .windowClose, .windowRename, .windowDelete, .windowResize, .windowMove, .windowZoom,
                 .windowFullscreen, .windowMinimize,
-                .restoreClear, .restoreCapture, .dashboard, .version:
+                .restoreClear, .restoreCapture, .restoreMode, .dashboard, .version:
             return ControlResponse(ok: false, error: "control dispatcher did not handle \(request.cmd.rawValue)")
         case .debugAppearance:
             return setDebugAppearance(args: request.args)
@@ -512,6 +512,28 @@ final class ControlServer {
     /// mounts: the socket binds before the later windows' decks do, so a clear arriving in that gap would
     /// answer ok and then watch those windows run the commands anyway. The `session.restore` pins are
     /// deliberately untouched — they are sticky, and this command clears captures.
+    /// The restore-mode policy: settings, this launch's request, and what it got.
+    func readRestoreMode() -> ControlResponse {
+        ControlResponse(ok: true, result: ControlResult(restore: restoreStatus()))
+    }
+
+    /// Persist the mode for the NEXT launch; a pane is wrapped or not at creation, so this process keeps
+    /// the mode it started with.
+    func setRestoreMode(_ mode: RestoreMode) -> ControlResponse {
+        guard settingsModel.setRestoreMode(mode) else {
+            return ControlResponse(ok: false, error: "could not save the restore mode; settings keep "
+                + settingsModel.settings.effectiveRestoreMode.rawValue)
+        }
+        return ControlResponse(ok: true, result: ControlResult(restore: restoreStatus()))
+    }
+
+    private func restoreStatus() -> ControlRestoreStatus {
+        let decision = GhosttyApp.shared.restoreLaunchDecision
+        return ControlRestoreStatus(configured: settingsModel.settings.effectiveRestoreMode,
+                                    requestedAtLaunch: decision.requested, active: decision.active,
+                                    unavailableReason: decision.liveUnavailableReason)
+    }
+
     func clearRestoreCommands() -> ControlResponse {
         for session in library.allOpenSessions() { session.clearCapturedForegroundCommands() }
         // the ack waits on the write for the same reason `restore.capture`'s does: the save IS the clear, and

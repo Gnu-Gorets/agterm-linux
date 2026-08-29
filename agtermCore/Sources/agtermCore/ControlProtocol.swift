@@ -82,6 +82,7 @@ public enum Command: String, Codable, Sendable {
     case restoreClear = "restore.clear"
     case version = "version"
     case restoreCapture = "restore.capture"
+    case restoreMode = "restore.mode"
     /// UI-TEST-ONLY: forces the app-level appearance (`light`|`dark` via `args.name`) so an XCUITest can
     /// simulate a macOS light/dark flip; with NO name it READS the side the last config feed applied, so a
     /// test can assert the flip drove the reload. Refused outside an XCUITest launch, and EXEMPT from the
@@ -891,6 +892,9 @@ public struct ControlResult: Codable, Sendable, Equatable {
     public var cursor: ControlCursor?
     /// The app serving this socket, for `version`. The same value `tree` carries.
     public var app: AppIdentity?
+    /// The restore-mode policy for `restore.mode`, and the header `zmx list` repeats so its rows can be
+    /// read without a second call.
+    public var restore: ControlRestoreStatus?
 
     public init(id: String? = nil, tree: ControlTree? = nil, text: String? = nil,
                 windows: [ControlWindowNode]? = nil, exitCode: Int? = nil, count: Int? = nil,
@@ -899,7 +903,8 @@ public struct ControlResult: Codable, Sendable, Equatable {
                 sync: Bool? = nil, light: String? = nil, dark: String? = nil,
                 events: ControlEventBatch? = nil, keymap: ControlKeymap? = nil,
                 pick: ControlPickResult? = nil, cursor: ControlCursor? = nil,
-                app: AppIdentity? = nil) {
+                app: AppIdentity? = nil, restore: ControlRestoreStatus? = nil) {
+        self.restore = restore
         self.id = id
         self.tree = tree
         self.text = text
@@ -919,23 +924,6 @@ public struct ControlResult: Codable, Sendable, Equatable {
         self.pick = pick
         self.cursor = cursor
         self.app = app
-    }
-}
-
-/// `surface.cursor`'s payload, nested so a `row` could join it additively rather than by a rename.
-///
-/// There is no row: `tl_px_y` is the text BASELINE against an IME point at the cell bottom, leaving a term
-/// no probe separates from the row, and `adjust-font-baseline = 30` was measured reporting row 5 for a caret
-/// on row 4. `GhosttySurfaceView.readCursorColumn` owns why the horizontal twin is exact.
-///
-/// A column is a signal, not an assertion about content: past the prompt it proves the line is not empty,
-/// AT the prompt it proves nothing, the caret having possibly moved back over text.
-public struct ControlCursor: Codable, Sendable, Equatable {
-    /// Zero-based, counted from the left edge of the grid.
-    public let column: Int
-
-    public init(column: Int) {
-        self.column = column
     }
 }
 

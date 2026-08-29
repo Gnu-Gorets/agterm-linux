@@ -219,10 +219,24 @@ final class SettingsModel {
         persistAndApply()
     }
     /// Persist the policy for the next launch. The current process keeps `GhosttyApp.launchRestoreMode`.
-    func setRestoreMode(_ value: RestoreMode) {
+    ///
+    /// Rolls memory back on a failed write, like `AppStore.setRestoreCommand`: a Settings picker or a
+    /// `restore.mode` read that reported the new mode while disk kept the old one would promise a next
+    /// launch nothing is going to deliver. Returns whether it reached disk.
+    @discardableResult
+    func setRestoreMode(_ value: RestoreMode) -> Bool {
+        let previousMode = settings.restoreMode
+        let previousLegacy = settings.restoreRunningCommand
         settings.restoreMode = value
         settings.restoreRunningCommand = nil
-        try? settingsStore.save(settings)
+        do {
+            try settingsStore.save(settings)
+            return true
+        } catch {
+            settings.restoreMode = previousMode
+            settings.restoreRunningCommand = previousLegacy
+            return false
+        }
     }
     // chrome flag, not a ghostty key: persistAndApply() no-ops the config but rides .agtermAppearanceChanged.
     func setAttentionButtonEnabled(_ value: Bool?) { settings.attentionButtonEnabled = value; persistAndApply() }

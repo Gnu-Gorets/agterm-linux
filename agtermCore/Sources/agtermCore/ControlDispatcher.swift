@@ -123,6 +123,11 @@ public protocol ControlActions {
     /// Capture every open pane's foreground command now, the same read `applicationWillTerminate` does. The
     /// host owns the `sysctl` read, the save, and the count it reports back.
     func captureRestoreCommands() -> ControlResponse
+    /// The restore-mode policy: what settings hold, what this launch requested, and what it got.
+    func readRestoreMode() -> ControlResponse
+    /// Persist the mode for the NEXT launch. The host owns the save and must report a failed write rather
+    /// than leaving memory claiming a value the disk rejected.
+    func setRestoreMode(_ mode: RestoreMode) -> ControlResponse
 }
 
 public extension ControlActions {
@@ -232,7 +237,7 @@ public struct ControlDispatcher {
             return dispatchWorkspaceCommand(request)
         case .quick, .fontInc, .fontDec, .fontReset, .keymapReload, .keymapList,
                 .configReload, .notify, .themeSet, .themeList, .sidebar, .sidebarMode, .sidebarExpand,
-                .sidebarCollapse, .restoreClear, .restoreCapture, .version:
+                .sidebarCollapse, .restoreClear, .restoreCapture, .restoreMode, .version:
             return dispatchAppCommand(request)
         case .quickType, .quickText:
             return await dispatchQuickCommand(request)
@@ -748,6 +753,14 @@ public struct ControlDispatcher {
             return actions.clearRestoreCommands()
         case .restoreCapture:
             return actions.captureRestoreCommands()
+        case .restoreMode:
+            guard let raw = request.args?.mode else { return actions.readRestoreMode() }
+            // parsed strictly, unlike `RestoreMode`'s lossy decoder: a typo must not silently select
+            // `none`, the one mode whose next launch reaps every detached daemon
+            guard let mode = RestoreMode(rawValue: raw) else {
+                return ControlResponse(ok: false, error: "invalid restore mode: \(raw)")
+            }
+            return actions.setRestoreMode(mode)
         default:
             preconditionFailure("unexpected app command: \(request.cmd.rawValue)")
         }
