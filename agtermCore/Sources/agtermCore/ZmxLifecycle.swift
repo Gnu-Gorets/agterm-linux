@@ -57,7 +57,7 @@ public enum ZmxListParser {
 public enum ZmxLeaderMap {
     public static func leaders(in sessions: [ZmxSessionRecord]) -> [String: Int32] {
         Dictionary(uniqueKeysWithValues: sessions.compactMap { session in
-            guard session.name.hasPrefix("agterm-"), let leaderPID = session.leaderPID else { return nil }
+            guard ZmxSupport.isDaemonName(session.name), let leaderPID = session.leaderPID else { return nil }
             return (session.name, leaderPID)
         })
     }
@@ -94,14 +94,17 @@ public enum ZmxForegroundRefreshPolicy {
 
 public enum ZmxReapPolicy {
     /// Nil means a requested-live inventory was incomplete and no reap is safe. A deliberate non-live
-    /// request claims no daemon and removes every zero-client agterm session in the namespace.
+    /// request claims no daemon and removes every zero-client daemon this app could have emitted.
+    ///
+    /// `isDaemonName` rather than the prefix alone, matching prune and kill: the namespace is a shared
+    /// /tmp directory and this is the one path that destroys without the user asking.
     public static func namesToKill(sessions: [ZmxSessionRecord], requestedMode: RestoreMode,
                                    knownNames: Set<String>?) -> [String]? {
         let liveRequested = requestedMode == .live
         if liveRequested, knownNames == nil { return nil }
         let claimed = knownNames ?? []
         return sessions.compactMap { session in
-            guard session.name.hasPrefix("agterm-"), session.clients == 0 else { return nil }
+            guard ZmxSupport.isDaemonName(session.name), session.clients == 0 else { return nil }
             guard !liveRequested || !claimed.contains(session.name) else { return nil }
             return session.name
         }

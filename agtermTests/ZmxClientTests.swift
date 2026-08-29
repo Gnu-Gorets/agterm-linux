@@ -150,15 +150,17 @@ final class ZmxClientTests: XCTestCase {
 
     func testLeaderRefreshUsesOneFullListingAndParsesOnlyAppSessions() {
         var invocations: [ZmxClient.Invocation] = []
+        let ours = ZmxSupport.daemonName(for: UUID())
         let client = ZmxClient(executablePath: "/tmp/zmx", socketDirectory: "/tmp/zmx-dir") {
             invocations.append($0)
             return """
-            name=agterm-a\tpid=10\tclients=1\tcreated=1
+            name=\(ours)\tpid=10\tclients=1\tcreated=1
             name=other\tpid=11\tclients=0\tcreated=1
+            name=agterm-notes\tpid=12\tclients=0\tcreated=1
             """
         }
 
-        XCTAssertEqual(client.sessionLeaderPIDs(), ["agterm-a": 10])
+        XCTAssertEqual(client.sessionLeaderPIDs(), [ours: 10])
         XCTAssertEqual(invocations.map(\.arguments), [["list"]])
     }
 }

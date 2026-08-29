@@ -763,6 +763,26 @@ public final class WindowLibrary {
                 log("pane inventory could not read or upgrade closed window \(window.id): \(error)")
             }
         }
+        // `bootstrap()` rebuilds the index from the directory only when `loadIndex()` returns nil, so a
+        // stale index hides a surviving window's file and the reap destroys exactly its panes. A readable
+        // stray is claimed rather than marked incomplete, which would make a live launch reap nothing.
+        guard let strays = strayWindowFileIDs(indexed: Set(windows.map(\.id))) else {
+            launchInventoryComplete = false
+            log("pane inventory could not enumerate the windows directory")
+            return nil
+        }
+        for stray in strays {
+            let persistence = persistenceStore(for: stray)
+            do {
+                var snapshot = try persistence.loadChecked()
+                let upgrade = PaneIdentityInventory.upgrade(&snapshot)
+                if upgrade.changed { try persistence.save(snapshot) }
+                identities.formUnion(upgrade.identities)
+            } catch {
+                launchInventoryComplete = false
+                log("pane inventory could not read or upgrade unindexed window \(stray): \(error)")
+            }
+        }
         return launchInventoryComplete ? identities : nil
     }
 

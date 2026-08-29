@@ -33,14 +33,17 @@ struct ZmxLifecycleTests {
     }
 
     @Test func leaderMapUsesOnlyAppNamesWithReadablePositivePids() throws {
+        let app = ZmxSupport.daemonName(for: UUID())
+        let noPID = ZmxSupport.daemonName(for: UUID())
+        let unreachable = ZmxSupport.daemonName(for: UUID())
         let records = try ZmxListParser.parse("""
-        name=agterm-a\tpid=10\tclients=0
+        name=\(app)\tpid=10\tclients=0
         name=other\tpid=11\tclients=0
-        name=agterm-no-pid\tclients=0
-        name=agterm-busy\terr=Timeout\tstatus=unreachable
+        name=\(noPID)\tclients=0
+        name=\(unreachable)\terr=Timeout\tstatus=unreachable
         """)
 
-        #expect(ZmxLeaderMap.leaders(in: records) == ["agterm-a": 10])
+        #expect(ZmxLeaderMap.leaders(in: records) == [app: 10])
     }
 
     @Test func foregroundRefreshGateInvalidatesAndReconcilesSlowly() {
@@ -76,19 +79,51 @@ struct ZmxLifecycleTests {
     }
 
     @Test func reapPolicyUsesCompleteLiveInventoryAndZeroClientAppNamesOnly() {
+        let known = ZmxSupport.daemonName(for: UUID())
+        let orphan = ZmxSupport.daemonName(for: UUID())
         let sessions = [
-            ZmxSessionRecord(name: "agterm-known", clients: 0),
-            ZmxSessionRecord(name: "agterm-orphan", clients: 0),
-            ZmxSessionRecord(name: "agterm-attached", clients: 1),
+            ZmxSessionRecord(name: known, clients: 0),
+            ZmxSessionRecord(name: orphan, clients: 0),
+            ZmxSessionRecord(name: ZmxSupport.daemonName(for: UUID()), clients: 1),
             ZmxSessionRecord(name: "other", clients: 0),
-            ZmxSessionRecord(name: "agterm-busy", clients: nil),
+            ZmxSessionRecord(name: ZmxSupport.daemonName(for: UUID()), clients: nil),
         ]
 
         #expect(ZmxReapPolicy.namesToKill(sessions: sessions, requestedMode: .live,
-                                          knownNames: ["agterm-known"]) == ["agterm-orphan"])
+                                          knownNames: [known]) == [orphan])
         #expect(ZmxReapPolicy.namesToKill(sessions: sessions, requestedMode: .live, knownNames: nil) == nil)
         #expect(ZmxReapPolicy.namesToKill(sessions: sessions, requestedMode: .none,
-                                          knownNames: nil) == ["agterm-known", "agterm-orphan"])
+                                          knownNames: nil) == [known, orphan])
+    }
+
+    /// pins the reap against a user's own zmx session: `ZMX_DIR` is exported into every wrapped pane, so
+    /// `zmx new agterm-notes` typed in one lands in the namespace the reaper sweeps
+    @Test func reapRefusesEveryNameOutsideTheGeneratedDaemonShape() {
+        let ours = ZmxSupport.daemonName(for: UUID())
+        let sessions = [
+            ZmxSessionRecord(name: ours, clients: 0),
+            ZmxSessionRecord(name: "agterm-notes", clients: 0),
+            ZmxSessionRecord(name: ZmxSupport.namePrefix, clients: 0),
+            ZmxSessionRecord(name: ZmxSupport.namePrefix + String(repeating: "a", count: 31), clients: 0),
+            ZmxSessionRecord(name: ZmxSupport.namePrefix + String(repeating: "a", count: 33), clients: 0),
+            ZmxSessionRecord(name: ZmxSupport.namePrefix + String(repeating: "A", count: 32), clients: 0),
+            ZmxSessionRecord(name: ours + "-2", clients: 0),
+        ]
+
+        #expect(ZmxReapPolicy.namesToKill(sessions: sessions, requestedMode: .live, knownNames: []) == [ours])
+        #expect(ZmxReapPolicy.namesToKill(sessions: sessions, requestedMode: .rerun,
+                                          knownNames: nil) == [ours])
+        #expect(ZmxReapPolicy.namesToKill(sessions: sessions, requestedMode: .none, knownNames: nil) == [ours])
+    }
+
+    @Test func leaderMapKeepsOnlyGeneratedDaemonNames() {
+        let ours = ZmxSupport.daemonName(for: UUID())
+        let leaders = ZmxLeaderMap.leaders(in: [
+            ZmxSessionRecord(name: ours, clients: 0, leaderPID: 41),
+            ZmxSessionRecord(name: "agterm-notes", clients: 0, leaderPID: 42),
+        ])
+
+        #expect(leaders == [ours: 41])
     }
 
     @Test func immediateSessionAndWorkspaceCloseFinalizeEveryOwnedPane() throws {
@@ -249,6 +284,75 @@ struct ZmxLifecycleTests {
         restored.restore(from: snapshot, launchRestore: true)
         let restoredSession = try #require(restored.workspaces.first?.sessions.first)
         #expect(ZmxSupport.daemonName(for: restoredSession.paneIdentity) == expected)
+    }
+
+    @Test func launchInventoryClaimsWindowFilesMissingFromAStaleIndex() throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let indexed = UUID(), stray = UUID()
+        let indexedPane = UUID(), strayPane = UUID()
+        try writeIndex(WindowsIndex(windows: [WindowEntry(id: indexed, name: "indexed", isOpen: true)]),
+                       directory: directory)
+        try writeWindow(paneSnapshot(indexedPane), id: indexed, directory: directory)
+        try writeWindow(paneSnapshot(strayPane), id: stray, directory: directory)
+        var inventories: [Set<UUID>?] = []
+
+        let library = WindowLibrary(directory: directory, paneFinalizer: nil,
+                                    launchInventorySink: { inventories.append($0) })
+
+        #expect(inventories == [Set([indexedPane, strayPane])])
+        #expect(library.windows.map(\.id) == [indexed])
+        #expect(library.store(for: stray) == nil)
+    }
+
+    @Test func unreadableUnindexedWindowFileMakesLaunchInventoryIncomplete() throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let indexed = UUID(), stray = UUID()
+        try writeIndex(WindowsIndex(windows: [WindowEntry(id: indexed, name: "indexed", isOpen: true)]),
+                       directory: directory)
+        try writeWindow(paneSnapshot(UUID()), id: indexed, directory: directory)
+        try writeWindow(paneSnapshot(UUID()), id: stray, directory: directory)
+        try Data("{".utf8).write(to: directory.appendingPathComponent("windows/\(stray.uuidString).json"))
+        var inventories: [Set<UUID>?] = []
+
+        _ = WindowLibrary(directory: directory, paneFinalizer: nil,
+                          launchInventorySink: { inventories.append($0) })
+
+        #expect(inventories == [nil])
+    }
+
+    @Test func unsavableStrayIdentityUpgradeMakesLaunchInventoryIncomplete() throws {
+        let directory = temporaryDirectory()
+        let windowsDirectory = directory.appendingPathComponent("windows")
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700],
+                                                   ofItemAtPath: windowsDirectory.path)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let indexed = UUID(), stray = UUID()
+        try writeIndex(WindowsIndex(windows: [WindowEntry(id: indexed, name: "indexed", isOpen: true)]),
+                       directory: directory)
+        try writeWindow(paneSnapshot(UUID()), id: indexed, directory: directory)
+        try writeWindow(Snapshot(workspaces: [WorkspaceSnapshot(id: UUID(), name: "work", sessions: [
+            SessionSnapshot(id: UUID(), customName: nil, cwd: "/repo"),
+        ])]), id: stray, directory: directory)
+        // read-only directory: `save(_:)` writes atomically through a sibling temp file, so the minted
+        // identity cannot persist and an unpersisted claim must not be trusted by the reap
+        try FileManager.default.setAttributes([.posixPermissions: 0o500],
+                                              ofItemAtPath: windowsDirectory.path)
+        var inventories: [Set<UUID>?] = []
+
+        _ = WindowLibrary(directory: directory, paneFinalizer: nil,
+                          launchInventorySink: { inventories.append($0) })
+
+        #expect(inventories == [nil])
+    }
+
+    private func paneSnapshot(_ pane: UUID) -> Snapshot {
+        Snapshot(workspaces: [WorkspaceSnapshot(id: UUID(), name: "work", sessions: [
+            SessionSnapshot(id: UUID(), paneIdentity: pane, customName: nil, cwd: "/repo"),
+        ])])
     }
 
     private func temporaryDirectory() -> URL {
