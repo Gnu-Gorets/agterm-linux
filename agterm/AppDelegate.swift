@@ -356,7 +356,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     if session.foregroundCommand != nil { captured += 1 }
                 }
             }
-            // capture only a shown split: a hidden split now keeps its identity and pending restore state,
+            // capture only a shown split: a hidden split keeps its identity and pending restore state,
             // so arming a captured command would make the next show run it unexpectedly.
             if session.isSplit, let split = session.splitSurface as? GhosttySurfaceView {
                 session.splitForegroundCommand = ForegroundProcess.command(for: split, shellBasename: shellBasename)

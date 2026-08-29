@@ -62,9 +62,10 @@ final class GhosttyApp {
     /// The persisted choice and effective mode frozen before the first surface. An ineligible live request
     /// falls back to fresh shells without releasing its daemon claims. Settings changes never mutate either
     /// latch, so later sessions, reap, and reopened windows use the same launch policy.
-    let requestedRestoreMode: RestoreMode
-    let launchRestoreMode: RestoreMode
-    let liveRestoreUnavailableReason: String?
+    let restoreLaunchDecision: RestoreLaunchDecision
+    var requestedRestoreMode: RestoreMode { restoreLaunchDecision.requested }
+    var launchRestoreMode: RestoreMode { restoreLaunchDecision.active }
+    var liveRestoreUnavailableReason: String? { restoreLaunchDecision.liveUnavailableReason }
     var restoreRunningCommand: Bool { launchRestoreMode == .rerun }
     /// Whether the window title bar shows the attention bell icon; off by default. The title bar reads it via
     /// `WindowContentView`'s mirrored chrome state; settings-mirrored like `toolbarMode`.
@@ -119,9 +120,7 @@ final class GhosttyApp {
         let initialSettings = Self.settingsStore().load()
         let restoreDecision = initialSettings.effectiveRestoreMode.launchDecision(
             liveUnavailableReason: ZmxLaunch.liveUnavailableReason())
-        requestedRestoreMode = restoreDecision.requested
-        launchRestoreMode = restoreDecision.active
-        liveRestoreUnavailableReason = restoreDecision.liveUnavailableReason
+        restoreLaunchDecision = restoreDecision
         resourcesDir = resolvedResources
         guard ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) == GHOSTTY_SUCCESS else {
             logger.error("ghostty_init failed")

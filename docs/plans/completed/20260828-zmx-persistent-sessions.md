@@ -160,7 +160,8 @@ checking only that the socket exists.
 - [x] use the bundled binary and launch mode; keep `AGTERM_ZMX_PATH` as a Debug-only override
 - [x] wrap primary and split panes and leave scratch, overlay and quick terminals unchanged
 - [x] set wrapped state before surface creation and use native `command` plus `initial_input`
-- [x] on fallback, start a plain shell without consuming capture or restore-override state
+- [x] on fallback, a restored pane starts a plain shell without consuming capture or restore-override state;
+      a fresh pane still runs its creation `--command` with its wait policy
 - [x] add per-surface `backedByZmx`, a session aggregate, and pane-specific logging for attach failure; add no
       sidebar element
 - [x] bypass zmx in default UI tests with the UI-test sentinel; add one explicit real-zmx test with cleanup

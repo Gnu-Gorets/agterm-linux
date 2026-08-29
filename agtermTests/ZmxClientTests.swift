@@ -20,7 +20,9 @@ final class ZmxClientTests: XCTestCase {
             return ""
         }
 
-        XCTAssertTrue(client.reap(knownPaneIdentities: [known], requestedMode: .live))
+        XCTAssertTrue(client.reap(
+            knownPaneIdentities: [known],
+            launchDecision: RestoreMode.live.launchDecision(liveUnavailableReason: nil)))
         XCTAssertEqual(invocations.map(\.arguments), [["list"], ["kill", orphan, "--force"]])
         XCTAssertEqual(invocations.map(\.timeout), [1.5, 1.5])
         XCTAssertEqual(invocations[0].environment["ZMX_DIR"], "/tmp/zmx-dir")
@@ -34,7 +36,9 @@ final class ZmxClientTests: XCTestCase {
             return ""
         }
 
-        XCTAssertTrue(client.reap(knownPaneIdentities: nil, requestedMode: .live))
+        XCTAssertTrue(client.reap(
+            knownPaneIdentities: nil,
+            launchDecision: RestoreMode.live.launchDecision(liveUnavailableReason: nil)))
         XCTAssertEqual(calls, 0)
     }
 
@@ -46,7 +50,9 @@ final class ZmxClientTests: XCTestCase {
             return "name=\(ZmxSupport.daemonName(for: known))\tpid=1\tclients=0\tcreated=1"
         }
 
-        XCTAssertTrue(client.reap(knownPaneIdentities: [known], requestedMode: .live))
+        let fallback = RestoreMode.live.launchDecision(liveUnavailableReason: "login shell is not zsh")
+        XCTAssertEqual(fallback.active, .none)
+        XCTAssertTrue(client.reap(knownPaneIdentities: [known], launchDecision: fallback))
         XCTAssertEqual(invocations, [["list"]])
     }
 

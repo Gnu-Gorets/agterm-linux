@@ -75,14 +75,12 @@ public struct ZmxRefreshGate: Sendable {
         invalidated = true
     }
 
-    public func shouldRefresh(now: Date) -> Bool {
+    public mutating func shouldRefresh(now: Date) -> Bool {
         let expired = lastRefreshAt.map { now.timeIntervalSince($0) >= Self.reconcileInterval } ?? true
-        return invalidated || expired
-    }
-
-    public mutating func didRefresh(now: Date) {
+        guard invalidated || expired else { return false }
         invalidated = false
         lastRefreshAt = now
+        return true
     }
 }
 

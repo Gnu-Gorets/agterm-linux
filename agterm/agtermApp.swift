@@ -241,18 +241,13 @@ struct agtermApp: App {
         let foregroundResolver = ZmxForegroundResolver(leaderProvider: { client.sessionLeaderPIDs() })
         let library = WindowLibrary(
             directory: stateDirectory,
-            paneFinalizer: { paneIdentities in
+            paneFinalizer: {
+                _ = client.kill(paneIdentities: $0)
                 foregroundResolver.noteLifecycleChange()
-                Task.detached(priority: .utility) {
-                    _ = client.kill(paneIdentities: paneIdentities)
-                }
             },
-            launchInventorySink: { knownPaneIdentities in
+            launchInventorySink: {
+                _ = client.reap(knownPaneIdentities: $0, launchDecision: ghostty.restoreLaunchDecision)
                 foregroundResolver.noteLifecycleChange()
-                let requestedMode = ghostty.requestedRestoreMode
-                Task.detached(priority: .utility) {
-                    _ = client.reap(knownPaneIdentities: knownPaneIdentities, requestedMode: requestedMode)
-                }
             })
         return RestoredRuntime(library: library, foregroundResolver: foregroundResolver)
     }
@@ -315,13 +310,16 @@ struct agtermApp: App {
             waitAfterCommand = session.commandWait
             surfaceEnv = env
         case .fallback:
-            let plan = ZmxLaunch.fallbackPrimaryPlan(
+            let plan = CommandRestore.restorePlan(.init(
                 wasRestored: session.wasRestored,
+                restoreEnabled: false,
+                hadForeground: false,
+                foregroundInput: nil,
                 initialCommand: session.initialCommand,
-                commandWait: session.commandWait)
+                restoreOverride: nil))
             command = plan.command
-            initialInput = nil
-            waitAfterCommand = plan.waitAfterCommand
+            initialInput = plan.initialInput
+            waitAfterCommand = plan.command != nil && session.commandWait
             surfaceEnv = env
         }
         let view = GhosttySurfaceView(workingDirectory: session.initialCwd, fontSize: session.fontSize.map(Float.init),

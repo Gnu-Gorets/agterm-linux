@@ -17,18 +17,6 @@ final class ZmxLaunchTests: XCTestCase {
                                              configuration: nil), .fallback)
     }
 
-    func testFallbackPrimaryPlanRunsOnlyAFreshInitialCommand() {
-        let fresh = ZmxLaunch.fallbackPrimaryPlan(
-            wasRestored: false, initialCommand: "htop", commandWait: true)
-        XCTAssertEqual(fresh.command, "htop")
-        XCTAssertTrue(fresh.waitAfterCommand)
-
-        let restored = ZmxLaunch.fallbackPrimaryPlan(
-            wasRestored: true, initialCommand: "htop", commandWait: true)
-        XCTAssertNil(restored.command)
-        XCTAssertFalse(restored.waitAfterCommand)
-    }
-
     func testExecutablePathUsesOnlyDebugOverride() {
         let bundle = URL(fileURLWithPath: "/Applications/agterm.app", isDirectory: true)
         let environment = ["AGTERM_ZMX_PATH": "/tmp/debug-zmx"]

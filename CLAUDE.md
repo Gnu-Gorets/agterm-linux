@@ -178,7 +178,8 @@ C-boundary concurrency before changing the bridge.
 - Live-session reap follows the requested restore mode. A requested-live launch preserves claimed daemons
   when eligibility falls back to fresh shells; a deliberate Fresh shells or Re-run commands launch reaps
   every detached app daemon in the state directory. Semantic deletion kills the named daemon, while app and
-  reopenable-window close only end attach clients. Run zmx process calls off the main actor.
+  reopenable-window close only end attach clients. Keep reap, semantic kill, and leader refresh synchronous:
+  launch ordering, termination finalization, and same-call tree foreground depend on their completion.
 
 ## Cross-surface contracts
 
