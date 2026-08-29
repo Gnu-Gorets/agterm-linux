@@ -448,6 +448,9 @@ public final class WindowLibrary {
         // its registration (window.new immediately followed by window.close).
         pendingClaim.removeAll { $0 == id }
         guard let store = stores[id] else { return }
+        // the undo window dies with the store, so a soft-closed session left pending here would keep its
+        // daemon with nothing able to finalize it. `WindowAccessor` already does this, so it is idempotent.
+        store.finalizeAllPendingCloses()
         for workspace in store.workspaces {
             for session in workspace.sessions { store.emitSessionClosed(session, workspace: workspace.id) }
         }
@@ -482,6 +485,9 @@ public final class WindowLibrary {
     /// persists. No-ops on the last window. Clears `frontmostWindowID` if it pointed at the removed one.
     public func removeWindow(_ id: UUID) {
         guard canRemoveWindow, let index = windows.firstIndex(where: { $0.id == id }) else { return }
+        // before the pane inventory below, which reads `workspaces` and so cannot see a soft-closed
+        // session; without this its daemon outlives the window with nothing left to finalize it
+        stores[id]?.finalizeAllPendingCloses()
         finalizeWindowPanes(id)
         if let store = stores[id] {
             for workspace in store.workspaces {
@@ -837,29 +843,44 @@ public final class WindowLibrary {
         let workspaceName: String
         let sessionID: UUID
         let sessionName: String?
+        /// True for a soft-closed session waiting out its grace: hidden from the tree, daemon still owned.
+        var pendingClose = false
 
         func claim(_ pane: ZmxPaneRole, identity: UUID) -> ZmxPaneClaim {
-            ZmxPaneClaim(paneIdentity: identity, pane: pane, pendingClose: false, windowID: origin.id,
+            ZmxPaneClaim(paneIdentity: identity, pane: pane, pendingClose: pendingClose, windowID: origin.id,
                          windowName: origin.name, windowState: origin.state, workspaceID: workspaceID,
                          workspaceName: workspaceName, sessionID: sessionID, sessionName: sessionName)
         }
     }
 
     private func liveClaims(_ store: AppStore, origin: ClaimOrigin) -> ZmxClaimWalk {
-        var claims: [ZmxPaneClaim] = []
-        var complete = true
+        var pairs: [(site: ClaimSite, session: Session)] = []
         for workspace in store.workspaces {
             for session in workspace.sessions {
-                let site = ClaimSite(origin: origin, workspaceID: workspace.id, workspaceName: workspace.name,
-                                     sessionID: session.id, sessionName: session.displayName)
-                claims.append(site.claim(.left, identity: session.paneIdentity))
-                guard session.hasSplit else { continue }
-                guard let split = session.splitPaneIdentity else {
-                    complete = false
-                    continue
-                }
-                claims.append(site.claim(.right, identity: split))
+                pairs.append((ClaimSite(origin: origin, workspaceID: workspace.id,
+                                        workspaceName: workspace.name, sessionID: session.id,
+                                        sessionName: session.displayName), session))
             }
+        }
+        // a soft close removes the session from `workspaces` for the grace window while its surfaces, and
+        // so its daemons, stay alive; omitting these would report a claimed pane as an orphan
+        for member in store.pendingCloseMembers() {
+            pairs.append((ClaimSite(origin: origin, workspaceID: member.workspaceID,
+                                    workspaceName: member.workspaceName, sessionID: member.session.id,
+                                    sessionName: member.session.displayName, pendingClose: true),
+                          member.session))
+        }
+
+        var claims: [ZmxPaneClaim] = []
+        var complete = true
+        for (site, session) in pairs {
+            claims.append(site.claim(.left, identity: session.paneIdentity))
+            guard session.hasSplit else { continue }
+            guard let split = session.splitPaneIdentity else {
+                complete = false
+                continue
+            }
+            claims.append(site.claim(.right, identity: split))
         }
         return ZmxClaimWalk(claims: claims, complete: complete)
     }

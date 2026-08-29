@@ -49,8 +49,36 @@ struct PendingWorkspaceClose {
     let focusMember: Bool
 }
 
+/// One soft-closed session still inside its undo window, paired with the workspace it came from. Its
+/// panes are hidden from `workspaces` but still own their daemons, so a runtime inventory that omitted
+/// them would report a live claim as an orphan.
+struct PendingCloseMember {
+    let session: Session
+    let workspaceID: UUID
+    let workspaceName: String
+}
+
 extension AppStore {
     public static let pendingCloseGraceInterval: TimeInterval = 3
+
+    /// Every session hidden by an undoable close, oldest first. Reads the existing records rather than
+    /// tracking its own list, so it cannot drift from what an undo would restore.
+    func pendingCloseMembers() -> [PendingCloseMember] {
+        pendingCloseOrder.compactMap { pendingCloseRecords[$0] }.flatMap { record -> [PendingCloseMember] in
+            switch record {
+            case .sessions(let close):
+                return close.sessions.map {
+                    PendingCloseMember(session: $0.session, workspaceID: $0.workspaceID,
+                                       workspaceName: $0.workspaceName)
+                }
+            case .workspace(let close):
+                return close.workspace.sessions.map {
+                    PendingCloseMember(session: $0, workspaceID: close.workspace.id,
+                                       workspaceName: close.workspace.name)
+                }
+            }
+        }
+    }
 
     /// Hide a session from the visible tree but keep its surfaces alive for a short undo window.
     /// If the grace expires, `finalizePendingClose` performs the same teardown as `closeSession`.

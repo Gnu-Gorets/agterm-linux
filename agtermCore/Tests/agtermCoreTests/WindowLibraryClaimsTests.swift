@@ -180,6 +180,74 @@ final class WindowLibraryClaimsTests {
         #expect(claim.sessionName == live.displayName)
     }
 
+    @Test func aSoftClosedSessionStaysClaimedForItsGraceWindow() throws {
+        let library = WindowLibrary(directory: directory)
+        let store = try #require(library.store(for: library.windows[0].id))
+        let live = try #require(store.workspaces.first?.sessions.first)
+        let before = try stateFingerprint()
+
+        #expect(store.softCloseSession(live.id))
+        let walk = library.paneClaims()
+        let claim = try #require(walk.claims.first { $0.paneIdentity == live.paneIdentity })
+        #expect(claim.pendingClose)
+        #expect(claim.windowState == .open)
+        #expect(walk.complete)
+        #expect(try stateFingerprint() == before)
+
+        store.finalizeAllPendingCloses()
+        #expect(!library.paneClaims().claims.contains { $0.paneIdentity == live.paneIdentity })
+    }
+
+    @Test func undoingASoftCloseReturnsAnOrdinaryClaim() throws {
+        let library = WindowLibrary(directory: directory)
+        let store = try #require(library.store(for: library.windows[0].id))
+        let live = try #require(store.workspaces.first?.sessions.first)
+
+        #expect(store.softCloseSession(live.id))
+        #expect(store.undoPendingClose())
+        let claim = try #require(library.paneClaims().claims.first { $0.paneIdentity == live.paneIdentity })
+        #expect(!claim.pendingClose)
+    }
+
+    /// Records what the library asks to have killed, so a test can prove a pending claim is finalized
+    /// exactly once rather than dropped with its store.
+    private final class FinalizerSpy {
+        var identities: [UUID] = []
+    }
+
+    private func libraryWithSpy() -> (WindowLibrary, FinalizerSpy) {
+        let spy = FinalizerSpy()
+        let library = WindowLibrary(directory: directory, paneFinalizer: { spy.identities.append(contentsOf: $0) })
+        return (library, spy)
+    }
+
+    @Test func closingAWindowFinalizesItsPendingClosesRatherThanDroppingThem() throws {
+        let (library, spy) = libraryWithSpy()
+        let first = library.windows[0].id
+        library.newWindow(name: "second")
+        let store = try #require(library.store(for: first))
+        let live = try #require(store.workspaces.first?.sessions.first)
+
+        #expect(store.softCloseSession(live.id))
+        library.closeWindow(first)
+
+        #expect(spy.identities == [live.paneIdentity])
+        #expect(store.pendingCloseMembers().isEmpty)
+    }
+
+    @Test func deletingAWindowFinalizesItsPendingClosesExactlyOnce() throws {
+        let (library, spy) = libraryWithSpy()
+        let first = library.windows[0].id
+        library.newWindow(name: "second")
+        let store = try #require(library.store(for: first))
+        let live = try #require(store.workspaces.first?.sessions.first)
+
+        #expect(store.softCloseSession(live.id))
+        library.removeWindow(first)
+
+        #expect(spy.identities == [live.paneIdentity])
+    }
+
     @Test func theWalkLeavesEveryStateFileByteIdentical() throws {
         let closed = UUID()
         let stray = UUID()
