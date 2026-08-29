@@ -261,18 +261,21 @@ struct SocketClient {
         let clients = entry.clients.map { "\($0) client\($0 == 1 ? "" : "s")" } ?? "-"
         var owner = "-"
         if let sessionID = entry.sessionID {
-            let name = entry.sessionName ?? "?"
-            let pane = entry.pane.map { " (\($0))" } ?? ""
+            // the full window/workspace/session/pane path: one session name can appear in two workspaces,
+            // and the daemon name alone says nothing about which
             let window = entry.windowName ?? entry.windowState ?? "?"
+            let path = [window, entry.workspaceName ?? "?", entry.sessionName ?? "?"].joined(separator: " / ")
+            let pane = entry.pane.map { " (\($0))" } ?? ""
             let windowID = entry.windowID.map { " win \(shortID($0))" } ?? ""
-            owner = "\(shortID(sessionID)) \(name)\(pane) in \(window)\(windowID)"
+            owner = "\(shortID(sessionID)) \(path)\(pane)\(windowID)"
         }
         let state = entry.windowState.map { "\(entry.state) [\($0) window]" } ?? entry.state
         return "\(entry.daemon)  \(state)  \(entry.observation)  \(clients)  \(owner)"
     }
 
-    /// The prefix a caller can paste straight into `--target`/`--window`; eight hex digits is well past the
-    /// point where a prefix stops being unique in a real tree.
+    /// The prefix a caller pastes into `--target`/`--window`. Eight hex digits is not GUARANTEED unique,
+    /// so an ambiguous one is refused by the resolver rather than resolved wrongly; `--json` carries the
+    /// full ids for that case.
     private static func shortID(_ id: String) -> String { String(id.prefix(8)) }
 
     /// Render the `theme.list` payload as one theme name per line (no trailing newline), the active

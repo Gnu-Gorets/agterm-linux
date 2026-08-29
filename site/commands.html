@@ -203,6 +203,7 @@
             <a href="#keymap" style="color: #bfbab0; padding: 7px 12px; border-radius: 7px" class="hv9">keymap</a>
             <a href="#config" style="color: #bfbab0; padding: 7px 12px; border-radius: 7px" class="hv9">config</a>
             <a href="#restore" style="color: #bfbab0; padding: 7px 12px; border-radius: 7px" class="hv9">restore</a>
+            <a href="#zmx" style="color: #bfbab0; padding: 7px 12px; border-radius: 7px" class="hv9">zmx</a>
             <a href="#version" style="color: #bfbab0; padding: 7px 12px; border-radius: 7px" class="hv9">version</a>
             <div style="height: 16px"></div>
             <span style="color: #4a5158; font-size: 11px; letter-spacing: 0.12em; padding: 4px 12px">HELP</span>
@@ -2676,7 +2677,6 @@
                 windows keep their captured commands until a later save succeeds.
               </p>
             </div>
-          </section>
 
             <div style="background: #22272b; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 11px; padding: 18px 20px; margin-bottom: 12px">
               <div style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13.5px; color: #6d82f3; line-height: 1.6; word-break: break-word">
@@ -2690,10 +2690,28 @@
                 Setting it changes nothing in the running app, and no flag makes it: a pane is wrapped in a zmx daemon or not at the moment it is created, so a running shell cannot be retrofitted. A failed write is reported as a failure rather than acknowledged.
               </p>
             </div>
+          </section>
+
+          <section id="zmx" style="scroll-margin-top: 88px; padding-top: 56px">
+            <h2
+              style="
+                font-family: &quot;JetBrains Mono&quot;, monospace;
+                font-weight: 700;
+                font-size: 28px;
+                letter-spacing: -0.02em;
+                margin: 0 0 16px;
+                padding-bottom: 12px;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+              "
+            >
+              zmx
+            </h2>
+
             <p style="font-size: 13.5px; line-height: 1.6; color: #949ba4; margin: 0 0 12px">
               Every zmx command needs a running agterm: only the app can join its live windows, its pending
               closes and its persisted snapshots against what zmx reports.
             </p>
+
             <div style="background: #22272b; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 11px; padding: 18px 20px; margin-bottom: 12px">
               <div style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 13.5px; color: #6d82f3; line-height: 1.6; word-break: break-word">
                 agtermctl zmx list
@@ -2730,6 +2748,7 @@
                 This kills a backend process. It reaches a pane no window is showing and takes down every client attached to that daemon, so there is no sensible default for who is affected. Killing a shown split closes that split; killing a primary promotes its split survivor, or closes the session when there is none. None of these gets the three-second undo. It refuses a daemon already gone, one zmx could not read, and a session inside its undo window.
               </p>
             </div>
+          </section>
 
           <section id="version" style="scroll-margin-top: 88px; padding-top: 56px">
             <h2

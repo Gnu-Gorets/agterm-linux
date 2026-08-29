@@ -1256,15 +1256,15 @@ reported as a failure rather than acknowledged.
 header. `state` is `claimed`, `orphan`, `unknown`, `conflicted`, `pendingClose` or `foreign`;
 `observation` is `running`, `unreadable` or `absent`, separate from the client count because a daemon that
 is gone and one zmx could not read are different answers. A CLOSED window's panes are `claimed` with zero
-clients — the resting state after you close a window, not a leak, which is why the owner's window state is
-its own column. `unknown` means the pane inventory was incomplete, so no row can be called an orphan.
+clients. That is the resting state after you close a window, not a leak, which is why the owner's window
+state is its own column. `unknown` means the pane inventory was incomplete, so no row can be called an orphan.
 
 `agtermctl zmx prune` — kill the daemons no pane claims and nothing is attached to. It refuses outright on
 an incomplete or conflicted inventory. The gate is checked and revalidated rather than atomic: zmx has no
 kill-if-detached, so prune re-lists immediately before killing and drops anything that gained a client,
 but a client attaching from outside agterm in the remaining gap can still be terminated. It reports each
-daemon separately, and a "cleaned up a stale socket" line is NOT a kill — zmx unlinked a socket it could
-not reach and that daemon may still be running.
+daemon separately, and a "cleaned up a stale socket" line is NOT a kill: zmx unlinked a socket it could
+not reach, and that daemon may still be running.
 
 `agtermctl zmx kill --target ID --pane left|right --force` — destroy one pane's daemon and the process in
 it. All three are required: this kills a backend process, reaches a pane no window is showing, and takes

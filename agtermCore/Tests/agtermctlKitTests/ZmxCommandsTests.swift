@@ -77,7 +77,8 @@ struct ZmxCommandsTests {
         // the count alone would read as an orphan; the window state is what says otherwise
         #expect(rendered.contains("[closed window]"))
         #expect(rendered.contains("running"), "observation stays its own column beside the count")
-        #expect(rendered.contains("build (left) in work"))
+        #expect(rendered.contains("work / workspace 1 / build (left)"),
+                "one session name can appear in two workspaces, so the path carries all three")
         // kill resolves by id, never by name, and a closed row may not appear in `tree` at all
         #expect(rendered.contains(String(claim.sessionID.uuidString.prefix(8))))
         #expect(rendered.contains("win \(claim.windowID.uuidString.prefix(8))"))

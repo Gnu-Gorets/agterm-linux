@@ -273,6 +273,11 @@ final class ControlServerZmxTests: XCTestCase {
         let session = try XCTUnwrap(store.workspaces.first?.sessions.first)
         store.setSplitVisibility(session.id, shown: true)
         let splitIdentity = try XCTUnwrap(session.splitPaneIdentity)
+        // reconcile cannot tell a promotion from a split's own exit, so only this path rewrites the cell
+        let dashboard = DashboardController()
+        dashboard.open(members: [DashboardMember(session: session.id, surface: .split)])
+        DashboardControllerRegistry.shared.register(library.windows[0].id, controller: dashboard)
+        defer { DashboardControllerRegistry.shared.unregister(library.windows[0].id) }
         let primary = attachSurface(to: session, pane: .left)
         session.splitSurface = GhosttySurfaceView(workingDirectory: "/tmp", backedByZmx: true)
 
@@ -297,7 +302,8 @@ final class ControlServerZmxTests: XCTestCase {
         XCTAssertNotNil(promoted.onFontSizeChange,
                         "the survivor is the sole pane now and must persist its own font size")
         XCTAssertFalse(promoted.isSplitPane, "promoteToPrimaryPane clears its split role")
-        XCTAssertFalse(session.splitFocused, "focus moves off the pane that is gone")
+        XCTAssertEqual(dashboard.members, [DashboardMember(session: session.id, surface: .primary)],
+                       "the dashboard cell watching :right follows the survivor into the primary slot")
 
         primary.handleProcessExit()
         XCTAssertEqual(store.workspaces.first?.sessions.count, 1,
