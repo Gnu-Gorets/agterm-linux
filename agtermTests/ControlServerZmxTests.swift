@@ -83,16 +83,119 @@ final class ControlServerZmxTests: XCTestCase {
         XCTAssertEqual(response.error, ControlZmxError.unavailable)
     }
 
+    func testPruneNeverPassesForceAndCountsOnlyAConfirmedKill() throws {
+        let orphan = "agterm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        var invocations: [[String]] = []
+        let server = makeServer(runner: { invocation in
+            invocations.append(invocation.arguments)
+            guard invocation.arguments.first == "kill" else {
+                return "name=\(orphan)\tpid=2\tclients=0\tcreated=1"
+            }
+            return "killed session \(orphan)\n"
+        })
+
+        let response = server.pruneZmxDaemons()
+
+        XCTAssertTrue(response.ok)
+        XCTAssertEqual(response.result?.affected, 1)
+        XCTAssertEqual(response.result?.text, "killed \(orphan)")
+        XCTAssertEqual(invocations, [["list"], ["list"], ["kill", orphan]],
+                       "prune lists, re-lists to revalidate, then kills unforced")
+    }
+
+    func testAStaleSocketCleanupIsNotCountedAsAKill() throws {
+        let orphan = "agterm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        let server = makeServer(runner: { invocation in
+            guard invocation.arguments.first == "kill" else {
+                return "name=\(orphan)\tpid=2\tclients=0\tcreated=1"
+            }
+            return "cleaned up stale session \(orphan)\n"
+        })
+
+        let response = server.pruneZmxDaemons()
+
+        XCTAssertTrue(response.ok)
+        XCTAssertEqual(response.result?.affected, 0, "an unlinked socket may leave the daemon running")
+        XCTAssertEqual(response.result?.text,
+                       "\(orphan): cleaned up a stale socket, the daemon may still be running")
+    }
+
+    func testACandidateThatGainsAClientBeforeTheKillIsDropped() throws {
+        let orphan = "agterm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        var listings = 0
+        let server = makeServer(runner: { invocation in
+            guard invocation.arguments.first == "list" else {
+                XCTFail("a revalidated-away candidate must never be killed")
+                return ""
+            }
+            listings += 1
+            // someone attached between the two listings, which is the window zmx cannot close for us
+            return "name=\(orphan)\tpid=2\tclients=\(listings == 1 ? 0 : 1)\tcreated=1"
+        })
+
+        let response = server.pruneZmxDaemons()
+
+        XCTAssertTrue(response.ok)
+        XCTAssertEqual(response.result?.affected, 0)
+        XCTAssertEqual(response.result?.text, "no orphan daemons left to prune")
+    }
+
+    func testPruneRefusesAnIncompleteInventoryAndKillsNothing() throws {
+        let stray = UUID()
+        let snapshot = Snapshot(workspaces: [WorkspaceSnapshot(
+            id: UUID(), name: "workspace 1",
+            sessions: [SessionSnapshot(id: UUID(), paneIdentity: nil, customName: nil, cwd: "/tmp")])])
+        try PersistenceStore(directory: stateDir.appendingPathComponent("windows"),
+                             fileName: "\(stray.uuidString).json").save(snapshot)
+
+        let orphan = "agterm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        let server = makeServer(runner: { invocation in
+            guard invocation.arguments.first == "list" else {
+                XCTFail("nothing may be killed against an inventory that cannot account for every pane")
+                return ""
+            }
+            return "name=\(orphan)\tpid=2\tclients=0\tcreated=1"
+        })
+
+        let response = server.pruneZmxDaemons()
+
+        XCTAssertFalse(response.ok)
+        XCTAssertEqual(response.error, ControlZmxError.incompleteInventory)
+    }
+
+    func testPruneLeavesClaimedAndForeignDaemonsAlone() throws {
+        let live = try XCTUnwrap(library.allOpenSessions().first)
+        let server = makeServer(runner: { invocation in
+            guard invocation.arguments.first == "list" else {
+                XCTFail("a claimed pane's daemon and a foreign session are both off limits")
+                return ""
+            }
+            return """
+            name=\(ZmxSupport.daemonName(for: live.paneIdentity))\tpid=1\tclients=0\tcreated=1
+            name=notes\tpid=3\tclients=0\tcreated=1
+            """
+        })
+
+        let response = server.pruneZmxDaemons()
+
+        XCTAssertTrue(response.ok)
+        XCTAssertEqual(response.result?.affected, 0)
+        XCTAssertEqual(response.result?.text, "no orphan daemons")
+    }
+
     /// A client whose runner returns `list` output, or throws when it is nil.
     private func makeServer(list output: String?) -> ControlServer {
-        let client = ZmxClient(executablePath: "/tmp/zmx", socketDirectory: "/tmp/zmx-dir") { _ in
+        makeServer(runner: { _ in
             guard let output else { throw ZmxClient.CommandError.timedOut }
             return output
-        }
-        return ControlServer(
+        })
+    }
+
+    private func makeServer(runner: @escaping ZmxClient.Runner) -> ControlServer {
+        ControlServer(
             library: library, actions: AppActions(library: library), settingsModel: settingsModel,
             identity: AppIdentity(version: "9.9.9", commit: "testsha"),
-            zmxClient: client,
+            zmxClient: ZmxClient(executablePath: "/tmp/zmx", socketDirectory: "/tmp/zmx-dir", runner: runner),
             socketPath: stateDir.appendingPathComponent("control-\(UUID().uuidString).sock").path)
     }
 }

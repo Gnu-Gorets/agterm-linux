@@ -18,6 +18,10 @@ public extension ControlActions {
         ControlResponse(ok: false, error: ControlActionsUnsupported.message("zmx.list"))
     }
 
+    func pruneZmxDaemons() -> ControlResponse {
+        ControlResponse(ok: false, error: ControlActionsUnsupported.message("zmx.prune"))
+    }
+
     func splitSession(_ target: String?, window: String?, mode: String?, axis _: SplitAxis?) -> ControlResponse {
         splitSession(target, window: window, mode: mode)
     }

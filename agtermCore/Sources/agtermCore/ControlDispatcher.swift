@@ -130,6 +130,8 @@ public protocol ControlActions {
     func setRestoreMode(_ mode: RestoreMode) -> ControlResponse
     /// The daemon inventory: observed daemons joined against the panes that claim them.
     func listZmxDaemons() -> ControlResponse
+    /// Kill the daemons no pane claims and nothing is attached to.
+    func pruneZmxDaemons() -> ControlResponse
 }
 
 public struct ControlSessionTypeOptions: Equatable, Sendable {
@@ -233,7 +235,7 @@ public struct ControlDispatcher {
             return dispatchWorkspaceCommand(request)
         case .quick, .fontInc, .fontDec, .fontReset, .keymapReload, .keymapList,
                 .configReload, .notify, .themeSet, .themeList, .sidebar, .sidebarMode, .sidebarExpand,
-                .sidebarCollapse, .restoreClear, .restoreCapture, .restoreMode, .zmxList, .version:
+                .sidebarCollapse, .restoreClear, .restoreCapture, .restoreMode, .zmxList, .zmxPrune, .version:
             return dispatchAppCommand(request)
         case .quickType, .quickText:
             return await dispatchQuickCommand(request)
@@ -759,6 +761,8 @@ public struct ControlDispatcher {
             return actions.setRestoreMode(mode)
         case .zmxList:
             return actions.listZmxDaemons()
+        case .zmxPrune:
+            return actions.pruneZmxDaemons()
         default:
             preconditionFailure("unexpected app command: \(request.cmd.rawValue)")
         }

@@ -56,6 +56,25 @@ struct ControlDispatcherZmxTests {
         #expect(actions.calls == [.zmxList])
     }
 
+    @Test func zmxPruneRoutesWithNoArgumentsToParse() async throws {
+        let actions = MockControlActions()
+        let response = try #require(await dispatch(ControlRequest(cmd: .zmxPrune), actions))
+        #expect(response.ok)
+        #expect(actions.calls == [.zmxPrune])
+    }
+
+    @Test(arguments: [Command.zmxList, .zmxPrune])
+    func zmxCommandsKeepTheirWireNames(command: Command) throws {
+        let request = ControlRequest(cmd: command)
+        let json = try #require(try JSONSerialization
+            .jsonObject(with: JSONEncoder().encode(request)) as? [String: Any])
+        #expect(json["cmd"] as? String == command.rawValue)
+        #expect(command.rawValue.hasPrefix("zmx."))
+
+        let decoded = try JSONDecoder().decode(ControlRequest.self, from: JSONEncoder().encode(request))
+        #expect(decoded.cmd == command)
+    }
+
     @Test func zmxInventoryRoundTripsEveryRowKind() throws {
         let pane = UUID()
         let claim = ZmxPaneClaim(paneIdentity: pane, pane: .right, pendingClose: true, windowID: UUID(),

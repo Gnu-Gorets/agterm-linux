@@ -88,6 +88,36 @@ final class ZmxClient {
         }
     }
 
+    /// What a single unforced kill actually did. `staleSocket` is its own case because zmx prints
+    /// `cleaned up stale session` and exits ZERO after merely unlinking a socket it could not connect to —
+    /// the daemon may still be running, unreachable by name, so counting that as a kill would report a
+    /// process gone that is not.
+    enum KillOutcome: Equatable {
+        case killed
+        case staleSocket
+        case failed(String)
+    }
+
+    /// Kills daemons the caller's listing observed as unclaimed and detached, one invocation each so the
+    /// result can be reported per name.
+    ///
+    /// Never passes `--force`. Pinned zmx has no kill-if-detached, so this does NOT recheck the client
+    /// count — the caller must re-list immediately before calling. What `--force` would add is the
+    /// stale-socket unlink above, which is exactly the outcome that cannot be distinguished from success.
+    func killObservedOrphan(names: [String]) -> [String: KillOutcome] {
+        var outcomes: [String: KillOutcome] = [:]
+        for name in Set(names) {
+            do {
+                let output = try invoke(["kill", name])
+                outcomes[name] = output.contains("killed session \(name)") ? .killed : .staleSocket
+            } catch {
+                Self.logger.error("zmx kill failed for \(name, privacy: .public): \(String(describing: error), privacy: .public)")
+                outcomes[name] = .failed(String(describing: error))
+            }
+        }
+        return outcomes
+    }
+
     private func kill(names: [String]) -> Bool {
         var seen: Set<String> = []
         let unique = names.filter { seen.insert($0).inserted }
