@@ -2,6 +2,8 @@ import Foundation
 
 /// Host-free validation and configuration for a zmx-backed terminal surface.
 public enum ZmxSupport {
+    static let namePrefix = "agterm-"
+
     public enum LaunchDisposition: Equatable, Sendable {
         case ordinary
         case wrapped(Configuration)
@@ -127,7 +129,21 @@ public enum ZmxSupport {
     }
 
     public static func daemonName(for paneIdentity: UUID) -> String {
-        "agterm-" + compactUUID(paneIdentity)
+        namePrefix + compactUUID(paneIdentity)
+    }
+
+    /// Whether `name` is one of OUR daemons: the exact shape `daemonName(for:)` emits. A prefix test is
+    /// not enough — the namespace is a shared /tmp directory, so a user session called `agterm-notes`
+    /// would otherwise read as an unclaimed app daemon and be pruned.
+    public static func isDaemonName(_ name: String) -> Bool {
+        guard name.hasPrefix(namePrefix) else { return false }
+        // ASCII bytes, not `Character.isHexDigit`, which is Unicode-aware: 32 fullwidth digits satisfy it
+        // and are neither uppercase nor anything `daemonName(for:)` can emit.
+        let body = name.utf8.dropFirst(namePrefix.utf8.count)
+        return body.count == 32 && body.allSatisfy {
+            ($0 >= UInt8(ascii: "0") && $0 <= UInt8(ascii: "9")) ||
+                ($0 >= UInt8(ascii: "a") && $0 <= UInt8(ascii: "f"))
+        }
     }
 
     private static func compactUUID(_ id: UUID) -> String {
