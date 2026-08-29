@@ -75,6 +75,43 @@ struct ControlDispatcherZmxTests {
         #expect(decoded.cmd == command)
     }
 
+    /// One refusal case: the request shape and the exact error it must produce before the host is called.
+    struct KillRefusal {
+        let target: String?
+        let pane: String?
+        let force: Bool
+        let error: String
+    }
+
+    @Test(arguments: [
+        KillRefusal(target: nil, pane: "left", force: true, error: "zmx.kill requires an explicit --target"),
+        KillRefusal(target: "abc", pane: nil, force: true, error: "zmx.kill requires --pane left|right"),
+        KillRefusal(target: "abc", pane: "scratch", force: true, error: "zmx.kill requires --pane left|right"),
+        KillRefusal(target: "abc", pane: "left", force: false, error: "zmx.kill requires --force"),
+    ])
+    func zmxKillRefusesBeforeTheHostIsCalled(refusal: KillRefusal) async throws {
+        let actions = MockControlActions()
+        let args = ControlArgs(force: refusal.force ? true : nil, pane: refusal.pane)
+        let request = ControlRequest(cmd: .zmxKill, target: refusal.target, args: args)
+
+        let response = try #require(await dispatch(request, actions))
+        #expect(!response.ok)
+        #expect(response.error == refusal.error)
+        // the refusal names no owner: the dispatcher cannot resolve one, the inventory can
+        #expect(actions.calls.isEmpty)
+    }
+
+    @Test(arguments: [("left", ZmxPaneRole.left), ("primary", .left), ("right", .right), ("split", .right)])
+    func zmxKillPassesTheResolvedPaneToTheHost(spelling: String, role: ZmxPaneRole) async throws {
+        let actions = MockControlActions()
+        let args = ControlArgs(force: true, window: "w1", pane: spelling)
+        let request = ControlRequest(cmd: .zmxKill, target: "abc", args: args)
+
+        let response = try #require(await dispatch(request, actions))
+        #expect(response.ok)
+        #expect(actions.calls == [.zmxKill(target: "abc", window: "w1", pane: role)])
+    }
+
     @Test func zmxInventoryReachesACallerThroughTheWholeResponse() throws {
         let pane = UUID()
         let claim = ZmxPaneClaim(paneIdentity: pane, pane: .right, pendingClose: true, windowID: UUID(),

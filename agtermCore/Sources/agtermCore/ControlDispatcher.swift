@@ -132,6 +132,9 @@ public protocol ControlActions {
     func listZmxDaemons() -> ControlResponse
     /// Kill the daemons no pane claims and nothing is attached to.
     func pruneZmxDaemons() -> ControlResponse
+    /// Destroy ONE pane's daemon. The host resolves the owner against the inventory rather than the open
+    /// stores, since this reaches closed and unindexed claims the target resolver cannot see.
+    func killZmxDaemon(target: String, window: String?, pane: ZmxPaneRole) -> ControlResponse
 }
 
 public struct ControlSessionTypeOptions: Equatable, Sendable {
@@ -235,7 +238,7 @@ public struct ControlDispatcher {
             return dispatchWorkspaceCommand(request)
         case .quick, .fontInc, .fontDec, .fontReset, .keymapReload, .keymapList,
                 .configReload, .notify, .themeSet, .themeList, .sidebar, .sidebarMode, .sidebarExpand,
-                .sidebarCollapse, .restoreClear, .restoreCapture, .restoreMode, .zmxList, .zmxPrune, .version:
+                .sidebarCollapse, .restoreClear, .restoreCapture, .restoreMode, .zmxList, .zmxPrune, .zmxKill, .version:
             return dispatchAppCommand(request)
         case .quickType, .quickText:
             return await dispatchQuickCommand(request)
@@ -751,18 +754,8 @@ public struct ControlDispatcher {
             return actions.clearRestoreCommands()
         case .restoreCapture:
             return actions.captureRestoreCommands()
-        case .restoreMode:
-            guard let raw = request.args?.mode else { return actions.readRestoreMode() }
-            // parsed strictly, unlike `RestoreMode`'s lossy decoder: a typo must not silently select
-            // `none`, the one mode whose next launch reaps every detached daemon
-            guard let mode = RestoreMode(rawValue: raw) else {
-                return ControlResponse(ok: false, error: "invalid restore mode: \(raw)")
-            }
-            return actions.setRestoreMode(mode)
-        case .zmxList:
-            return actions.listZmxDaemons()
-        case .zmxPrune:
-            return actions.pruneZmxDaemons()
+        case .restoreMode, .zmxList, .zmxPrune, .zmxKill:
+            return dispatchZmxCommand(request)
         default:
             preconditionFailure("unexpected app command: \(request.cmd.rawValue)")
         }

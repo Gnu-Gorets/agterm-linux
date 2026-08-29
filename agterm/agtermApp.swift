@@ -362,12 +362,12 @@ struct agtermApp: App {
     /// run `closePrimaryPane`, or a re-split then a main-pane exit fires the stale `closeSplitPane` — its guard now
     /// passes with both slots live — tearing down the fresh right pane, stranding the session on the dead left.
     @MainActor
-    private static func handlePaneExit(_ view: GhosttySurfaceView, store: AppStore, sessionID: UUID,
-                                       library: WindowLibrary) {
+    static func handlePaneExit(_ view: GhosttySurfaceView, store: AppStore, sessionID: UUID,
+                               library: WindowLibrary, alreadyFinalized: UUID? = nil) {
         if view.isSplitPane {
-            store.closeSplitPane(sessionID)
+            store.closeSplitPane(sessionID, alreadyFinalized: alreadyFinalized)
         } else {
-            store.closePrimaryPane(sessionID)
+            store.closePrimaryPane(sessionID, alreadyFinalized: alreadyFinalized)
             // makeSplitSurface omits onFontSizeChange, but a promoted survivor is the sole pane and must persist
             // its own cmd +/-. no-op when the session closed instead (`surface` nil).
             if let promoted = store.session(withID: sessionID)?.surface as? GhosttySurfaceView {

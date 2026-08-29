@@ -183,6 +183,91 @@ final class ControlServerZmxTests: XCTestCase {
         XCTAssertEqual(response.result?.text, "no orphan daemons")
     }
 
+    func testPruneSpareASoftClosedPaneAndAnUnreadableRowWhileTakingTheOrphan() throws {
+        let store = try XCTUnwrap(library.store(for: library.windows[0].id))
+        let pending = try XCTUnwrap(store.workspaces.first?.sessions.first)
+        XCTAssertTrue(store.softCloseSession(pending.id), "precondition: a live undo window")
+
+        let orphan = "agterm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        let unreadable = "agterm-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        var killed: [String] = []
+        let server = makeServer(runner: { invocation in
+            guard invocation.arguments.first == "list" else {
+                killed.append(invocation.arguments[1])
+                return "killed session \(invocation.arguments[1])\n"
+            }
+            return """
+            name=\(ZmxSupport.daemonName(for: pending.paneIdentity))\tpid=1\tclients=0\tcreated=1
+            name=\(orphan)\tpid=2\tclients=0\tcreated=1
+            name=\(unreadable)\terr=Timeout\tstatus=unreachable
+            """
+        })
+
+        let response = server.pruneZmxDaemons()
+
+        XCTAssertTrue(response.ok)
+        XCTAssertEqual(killed, [orphan],
+                       "a soft-closed pane still owns its daemon, and an unreadable row is not an orphan")
+        XCTAssertEqual(response.result?.affected, 1)
+    }
+
+    func testKillRefusesEveryRowItCannotSafelyDestroy() throws {
+        let store = try XCTUnwrap(library.store(for: library.windows[0].id))
+        let session = try XCTUnwrap(store.workspaces.first?.sessions.first)
+        let absentServer = makeServer(runner: { invocation in
+            guard invocation.arguments.first == "list" else {
+                XCTFail("a daemon that is not running has nothing to kill")
+                return ""
+            }
+            return ""
+        })
+
+        let absent = absentServer.killZmxDaemon(target: session.id.uuidString, window: nil, pane: .left)
+        XCTAssertFalse(absent.ok)
+        XCTAssertEqual(absent.error, "\(ZmxSupport.daemonName(for: session.paneIdentity)) is not running")
+
+        let unreadableServer = makeServer(runner: { invocation in
+            guard invocation.arguments.first == "list" else {
+                XCTFail("an unreadable row must not be forced: the kill can orphan a live daemon")
+                return ""
+            }
+            return "name=\(ZmxSupport.daemonName(for: session.paneIdentity))\terr=Timeout\tstatus=unreachable"
+        })
+        let unreadable = unreadableServer.killZmxDaemon(target: session.id.uuidString, window: nil, pane: .left)
+        XCTAssertFalse(unreadable.ok)
+        XCTAssertTrue(try XCTUnwrap(unreadable.error).contains("unreadable"))
+    }
+
+    func testKillRefusesAPaneWaitingOutItsUndoWindow() throws {
+        let store = try XCTUnwrap(library.store(for: library.windows[0].id))
+        let session = try XCTUnwrap(store.workspaces.first?.sessions.first)
+        XCTAssertTrue(store.softCloseSession(session.id))
+
+        let server = makeServer(runner: { invocation in
+            guard invocation.arguments.first == "list" else {
+                XCTFail("an undo window is still the user's session")
+                return ""
+            }
+            return "name=\(ZmxSupport.daemonName(for: session.paneIdentity))\tpid=1\tclients=1\tcreated=1"
+        })
+
+        let response = server.killZmxDaemon(target: session.id.uuidString, window: nil, pane: .left)
+        XCTAssertFalse(response.ok)
+        XCTAssertTrue(try XCTUnwrap(response.error).contains("undo window"))
+    }
+
+    func testKillRefusesAPaneTheTargetDoesNotOwn() throws {
+        let store = try XCTUnwrap(library.store(for: library.windows[0].id))
+        let session = try XCTUnwrap(store.workspaces.first?.sessions.first)
+        let server = makeServer(runner: { _ in
+            "name=\(ZmxSupport.daemonName(for: session.paneIdentity))\tpid=1\tclients=1\tcreated=1"
+        })
+
+        let response = server.killZmxDaemon(target: session.id.uuidString, window: nil, pane: .right)
+        XCTAssertFalse(response.ok, "the session has no split, so no right pane daemon exists")
+        XCTAssertTrue(try XCTUnwrap(response.error).contains("no right pane daemon"))
+    }
+
     /// A client whose runner returns `list` output, or throws when it is nil.
     private func makeServer(list output: String?) -> ControlServer {
         makeServer(runner: { _ in

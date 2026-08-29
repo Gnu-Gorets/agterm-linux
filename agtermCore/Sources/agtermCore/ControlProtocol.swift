@@ -85,6 +85,7 @@ public enum Command: String, Codable, Sendable {
     case restoreMode = "restore.mode"
     case zmxList = "zmx.list"
     case zmxPrune = "zmx.prune"
+    case zmxKill = "zmx.kill"
     /// UI-TEST-ONLY: forces the app-level appearance (`light`|`dark` via `args.name`) so an XCUITest can
     /// simulate a macOS light/dark flip; with NO name it READS the side the last config feed applied, so a
     /// test can assert the flip drove the reload. Refused outside an XCUITest launch, and EXEMPT from the
@@ -122,6 +123,9 @@ public struct ControlArgs: Codable, Sendable, Equatable {
     /// presents it. Read back as the `window.list` node's `minimized`. The new window also hands frontmost
     /// to a still-visible one, so untargeted commands do not route into the Dock.
     public var minimized: Bool?
+    /// `zmx kill`'s explicit confirmation. The command destroys a backend process that can reach detached
+    /// claims and every client attached to it, so it has no useful default for who is affected.
+    public var force: Bool?
     /// For `session.new`: create in the background without selecting or focusing (the CLI's `--no-select`);
     /// omitted/`false` keeps select-and-focus. Read back via the `tree` `active` flag — the new node is not it.
     public var noSelect: Bool?
@@ -311,6 +315,7 @@ public struct ControlArgs: Codable, Sendable, Equatable {
     public init(name: String? = nil, cwd: String? = nil, targets: [String]? = nil,
                 workspace: String? = nil, workspaceName: String? = nil,
                 createWorkspace: Bool? = nil, collapsed: Bool? = nil, minimized: Bool? = nil,
+                force: Bool? = nil,
                 noSelect: Bool? = nil,
                 text: String? = nil, select: Bool? = nil, mode: String? = nil, axis: String? = nil,
                 command: String? = nil, wait: Bool? = nil, sizePercent: Int? = nil, full: Bool? = nil,
@@ -337,6 +342,7 @@ public struct ControlArgs: Codable, Sendable, Equatable {
         self.createWorkspace = createWorkspace
         self.collapsed = collapsed
         self.minimized = minimized
+        self.force = force
         self.noSelect = noSelect
         self.text = text
         self.select = select

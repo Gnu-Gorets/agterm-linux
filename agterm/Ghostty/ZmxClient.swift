@@ -108,14 +108,25 @@ final class ZmxClient {
         var outcomes: [String: KillOutcome] = [:]
         for name in Set(names) {
             do {
-                let output = try invoke(["kill", name])
-                outcomes[name] = output.contains("killed session \(name)") ? .killed : .staleSocket
+                outcomes[name] = Self.outcome(of: try invoke(["kill", name]), name: name)
             } catch {
                 Self.logger.error("zmx kill failed for \(name, privacy: .public): \(String(describing: error), privacy: .public)")
                 outcomes[name] = .failed(String(describing: error))
             }
         }
         return outcomes
+    }
+
+    /// Classifies a kill by EXACT output line, because zmx exits zero on more than the two happy answers:
+    /// a non-refused connect failure prints `is unresponsive` and succeeds, and a broken pipe after the
+    /// kill was sent returns with nothing printed at all. Anything unrecognized is a failure, so a daemon
+    /// whose fate is unknown is never reported as gone — and a substring test would let a line merely
+    /// CONTAINING `killed session <name>` count as a confirmation.
+    static func outcome(of output: String, name: String) -> KillOutcome {
+        let lines = output.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+        if lines.contains("killed session \(name)") { return .killed }
+        if lines.contains("cleaned up stale session \(name)") { return .staleSocket }
+        return .failed(lines.first ?? "no output")
     }
 
     private func kill(names: [String]) -> Bool {

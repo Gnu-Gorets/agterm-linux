@@ -506,6 +506,17 @@ final class GhosttySurfaceView: NSView, TerminalSurface {
         }
     }
 
+    /// Marks this surface's exit as handled WITHOUT running `onExit`, so a queued callback for a process
+    /// the caller has already destroyed becomes a no-op. Returns false when the exit had already been
+    /// handled, which is the caller's signal that the pane's own teardown has run and it must not drive a
+    /// second one. Reuses `didHandleProcessExit` rather than adding a parallel flag that could drift.
+    @discardableResult
+    func claimProcessExit() -> Bool {
+        guard !didHandleProcessExit else { return false }
+        didHandleProcessExit = true
+        return true
+    }
+
     func handleProcessExit() {
         // already on the main actor (the close callbacks hop via DispatchQueue.main.async). idempotent: the
         // SHOW_CHILD_EXITED action and close_surface_cb can both fire for one exit.

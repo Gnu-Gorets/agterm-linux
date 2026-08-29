@@ -16,8 +16,10 @@ extension AppStore {
         min(splitRatioMax, max(splitRatioMin, ratio))
     }
 
-    func finalizePaneIdentities(_ sessions: [Session]) {
-        let identities = PaneIdentityInventory.identities(in: sessions)
+    /// `alreadyFinalized` names a pane whose daemon the CALLER has destroyed, so the teardown does not ask
+    /// the finalizer to kill a name that is already gone. Only `zmx kill` passes one.
+    func finalizePaneIdentities(_ sessions: [Session], alreadyFinalized: UUID? = nil) {
+        let identities = PaneIdentityInventory.identities(in: sessions).filter { $0 != alreadyFinalized }
         if !identities.isEmpty { paneFinalizer?(identities) }
     }
 
@@ -90,9 +92,11 @@ extension AppStore {
     /// Closes the split pane: hides it AND tears down its surface, so a later split starts a fresh shell.
     /// Reached by the split shell's own exit, by the palette's Close Split and by `session.split.close`;
     /// resets `splitFocused`, else it points the collapsed view at the gone pane.
-    public func closeSplit(_ sessionID: UUID) {
+    public func closeSplit(_ sessionID: UUID, alreadyFinalized: UUID? = nil) {
         guard let session = session(withID: sessionID) else { return }
-        if let splitPaneIdentity = session.splitPaneIdentity { paneFinalizer?([splitPaneIdentity]) }
+        if let splitPaneIdentity = session.splitPaneIdentity, splitPaneIdentity != alreadyFinalized {
+            paneFinalizer?([splitPaneIdentity])
+        }
         session.isSplit = false
         session.hasSplit = false
         session.splitFocused = false
@@ -129,10 +133,10 @@ extension AppStore {
     /// addressable as the MAIN/left pane everywhere: `session.type`/`session.text --pane left` (and omitted)
     /// reach it, `{AGT_PANE}` reports `left`, and a later `session.split` opens a fresh RIGHT pane instead of
     /// displacing it. Called by the primary surface's `onExit`.
-    public func closePrimaryPane(_ sessionID: UUID) {
+    public func closePrimaryPane(_ sessionID: UUID, alreadyFinalized: UUID? = nil) {
         guard let session = session(withID: sessionID) else { return }
         guard let survivor = session.splitSurface else {
-            closeSession(sessionID)
+            closeSession(sessionID, alreadyFinalized: alreadyFinalized)
             return
         }
         let priorPrimary = session.surface // the exiting pane, torn down below; scopes the search reset
@@ -200,13 +204,13 @@ extension AppStore {
     /// exit routes here — and closing rather than collapsing a gone split is what avoids a zombie session.
     /// The `surface == nil` half of the guard is defensive: `closePrimaryPane` always promotes the survivor
     /// INTO `surface`. Called by the split surface's `onExit`.
-    public func closeSplitPane(_ sessionID: UUID) {
+    public func closeSplitPane(_ sessionID: UUID, alreadyFinalized: UUID? = nil) {
         guard let session = session(withID: sessionID) else { return }
         guard session.surface != nil, session.splitSurface != nil else {
-            closeSession(sessionID)
+            closeSession(sessionID, alreadyFinalized: alreadyFinalized)
             return
         }
-        closeSplit(sessionID)
+        closeSplit(sessionID, alreadyFinalized: alreadyFinalized)
     }
 
     /// Opens an ephemeral overlay terminal on a session running `command` (e.g. a TUI). The surface is

@@ -22,6 +22,16 @@ public enum ZmxOwnerWindowState: String, Codable, Sendable {
 /// handle and no producer can create.
 public enum ZmxPaneRole: String, Codable, Sendable {
     case left, right
+
+    /// Accepts the same spellings the rest of the API takes for a pane, so `--pane primary` means here what
+    /// it means everywhere else. Read-back stays `left`/`right`.
+    public init?(controlName: String) {
+        switch controlName.lowercased() {
+        case "left", "top", "primary": self = .left
+        case "right", "bottom", "split": self = .right
+        default: return nil
+        }
+    }
 }
 
 /// One pane that expects a daemon, with the names and ids needed to explain and address it.

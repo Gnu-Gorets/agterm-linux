@@ -59,6 +59,31 @@ final class ZmxClientTests: XCTestCase {
                        "--force would unlink a live daemon's socket and still exit zero")
     }
 
+    func testKillOutcomeTrustsOnlyAnExactConfirmationLine() {
+        let name = "agterm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+        XCTAssertEqual(ZmxClient.outcome(of: "killed session \(name)\n", name: name), .killed)
+        XCTAssertEqual(ZmxClient.outcome(of: "cleaned up stale session \(name)\n", name: name), .staleSocket)
+
+        // zmx exits ZERO here too, after merely reporting it could not reach the daemon
+        let unresponsive = """
+        session \(name) is unresponsive (Timeout)
+        daemon may be busy: try again, add `--force` flag, or kill the process directly
+        """
+        XCTAssertEqual(ZmxClient.outcome(of: unresponsive, name: name),
+                       .failed("session \(name) is unresponsive (Timeout)"))
+
+        // a broken pipe after the kill was sent returns with nothing printed
+        XCTAssertEqual(ZmxClient.outcome(of: "", name: name), .failed("no output"))
+
+        XCTAssertEqual(ZmxClient.outcome(of: "not killed session \(name)\n", name: name),
+                       .failed("not killed session \(name)"),
+                       "a line merely containing the confirmation must not count as one")
+        XCTAssertEqual(ZmxClient.outcome(of: "killed session agterm-other\n", name: name),
+                       .failed("killed session agterm-other"),
+                       "another daemon's confirmation is not this one's")
+    }
+
     func testLiveReapListsThenKillsOnlyUnclaimedZeroClientNames() {
         let known = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
         let orphan = "agterm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
