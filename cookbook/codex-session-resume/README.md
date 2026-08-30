@@ -15,12 +15,13 @@ The key difference is in the mechanism. Codex will not accept a session id at la
 - agterm 0.3.1 or later, with **Restore running commands on restart** turned on under Settings ▸ General ▸ Sessions. Both `AGTERM_SESSION_ID` and that setting predate the repository's earliest tagged release, so 0.3.1 is the first version that can be named, not the version the behavior arrived in.
 - `zsh`
 - Codex CLI, with its conversations in the default `~/.codex/sessions/`. The function creates `~/.codex/agterm/` for its own mapping files.
+- Python 3.8 or later, only to run the bundled `test_codex_resume.py`. Using the recipe needs no Python.
 
 ## Setup
 
-The function has to be defined in `~/.zshrc`, the config your interactive login zsh reads. That matters: agterm feeds the restored command into that shell, so `.zshenv` and `.zprofile` are too early to intercept it.
+The functions have to be defined in `~/.zshrc`, the config your interactive login zsh reads. That matters: agterm feeds the restored command into that shell, so `.zshenv` and `.zprofile` are too early to intercept it.
 
-Either paste the function from `codex-resume.zsh` into `~/.zshrc`, or keep the file and source it from there:
+Either paste both functions from `codex-resume.zsh` into `~/.zshrc`, or keep the file and source it from there:
 
 ```sh
 mkdir -p ~/.zsh
@@ -37,9 +38,9 @@ The file is sourced, never run, so it does not need the executable bit and is co
 
 Turn on **Restore running commands on restart** in Settings ▸ General, under Sessions. Without it agterm brings a tab back as a plain shell and there is nothing for the function to intercept.
 
-New tabs and shells pick the function up on their own. In an already-open shell, run `source ~/.zshrc`.
+New tabs and shells pick the functions up on their own. In an already-open shell, run `source ~/.zshrc`.
 
-To remove it, delete the function block, or the `source` line, from `~/.zshrc`, and `~/.codex/agterm/` with it.
+To remove it, delete the two function blocks, or the `source` line, from `~/.zshrc`, and `~/.codex/agterm/` with it.
 
 ## Usage
 

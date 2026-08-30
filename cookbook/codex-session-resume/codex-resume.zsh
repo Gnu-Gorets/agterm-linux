@@ -1,5 +1,5 @@
 #!/usr/bin/env zsh
-# Sourced, not executed: paste this function into ~/.zshrc, or source this file from there.
+# Sourced, not executed: paste both functions into ~/.zshrc, or source this file from there.
 # See README.md.
 
 # Codex CLI: per-agterm-tab session resume.
