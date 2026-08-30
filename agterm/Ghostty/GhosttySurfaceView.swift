@@ -167,6 +167,8 @@ final class GhosttySurfaceView: NSView, TerminalSurface {
     var rendererVisible = true
     /// Sweeps the hidden layer's retained frame on a slow cadence; exits itself on reveal or teardown.
     var hiddenJanitorTask: Task<Void, Never>?
+    /// Sanitized OSC 7 value expected back as libghostty's synthetic title while this pane has no real title.
+    private var pendingPwdFallbackTitle: String?
     /// After `destroySurface()` the view is retired: never recreate a surface (a stray viewDidMoveToWindow).
     private var isDestroyed = false
 
@@ -486,6 +488,13 @@ final class GhosttySurfaceView: NSView, TerminalSurface {
         // no save(): OSC 7 fires on every cd/prompt redraw and would thrash the disk. live cwd is persisted on
         // quit and on structural mutations, so a crash loses only cwd changes since the last save. the
         // equality guard matters likewise: an equal write still notifies observers and churns the reconcile.
+        if let session {
+            let modelTitle = isSplitPane ? session.splitTitle : session.oscTitle
+            let titleIsBlank = modelTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
+            pendingPwdFallbackTitle = titleIsBlank ? pwd : nil
+        } else {
+            pendingPwdFallbackTitle = nil
+        }
         if isSplitPane {
             if session?.splitCwd != pwd { session?.splitCwd = pwd }
         } else {
@@ -499,6 +508,11 @@ final class GhosttySurfaceView: NSView, TerminalSurface {
         // redraw — and sanitizes: the title flows unquoted into a /bin/sh -c line via {AGT_SESSION_NAME}.
         logger.debug("terminal title pane=\(self.paneToken, privacy: .public) split=\(self.isSplitPane) cwd=\(self.workingDirectory, privacy: .public) title=\(rawTitle, privacy: .public)")
         let title = TerminalText.sanitized(rawTitle)
+        if pendingPwdFallbackTitle == title {
+            pendingPwdFallbackTitle = nil
+            return
+        }
+        pendingPwdFallbackTitle = nil
 
         if isSplitPane {
             if session?.splitTitle != title { session?.splitTitle = title }
