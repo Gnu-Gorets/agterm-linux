@@ -497,6 +497,7 @@ final class GhosttySurfaceView: NSView, TerminalSurface {
         // already on the main actor; `oscTitle`/`splitTitle` are observed, so the sidebar row and window
         // title refresh live. like applyPwd this does NOT save() — OSC set-title re-fires on every prompt
         // redraw — and sanitizes: the title flows unquoted into a /bin/sh -c line via {AGT_SESSION_NAME}.
+        logger.debug("terminal title pane=\(self.paneToken, privacy: .public) split=\(self.isSplitPane) cwd=\(self.workingDirectory, privacy: .public) title=\(rawTitle, privacy: .public)")
         let title = TerminalText.sanitized(rawTitle)
 
         if isSplitPane {

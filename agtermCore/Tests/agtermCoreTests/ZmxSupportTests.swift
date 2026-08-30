@@ -40,6 +40,22 @@ struct ZmxSupportTests {
         #expect(ZmxSupport.configuration(for: inputs).failure == .unsupportedLoginShell)
     }
 
+    @Test func configurationClearsInheritedZmxSessionContext() throws {
+        let resources = try makeResources(withLoader: true)
+        defer { try? FileManager.default.removeItem(at: resources) }
+        let inputs = makeInputs(resources: resources, baseEnvironment: [
+            "AGTERM_ENABLED": "1",
+            "ZMX_SESSION": "parent-session",
+            "ZMX_SESSION_PREFIX": "parent.",
+        ])
+
+        let configuration = try #require(ZmxSupport.configuration(for: inputs).value)
+
+        #expect(configuration.environment["AGTERM_ENABLED"] == "1")
+        #expect(configuration.environment["ZMX_SESSION"] == "")
+        #expect(configuration.environment["ZMX_SESSION_PREFIX"] == "")
+    }
+
     @Test func missingZshLoaderIsRejected() throws {
         let resources = try makeResources(withLoader: false)
         defer { try? FileManager.default.removeItem(at: resources) }

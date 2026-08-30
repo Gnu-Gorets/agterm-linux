@@ -104,6 +104,8 @@ public enum ZmxSupport {
             environment["GHOSTTY_ZSH_ZDOTDIR"] = inheritedZdotdir
         }
         environment["ZMX_DIR"] = socketDirectory
+        environment["ZMX_SESSION"] = ""
+        environment["ZMX_SESSION_PREFIX"] = ""
         environment["ZMX_NO_DETACH_KEY"] = "1"
 
         return .success(Configuration(
