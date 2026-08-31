@@ -1035,6 +1035,20 @@ struct ControlDispatcherTests {
         ])
     }
 
+    @Test func sessionSwapRoutesTargetAndWindow() async {
+        let actions = MockControlActions()
+        actions.nextSessionSwapResponse = ControlResponse(ok: true, result: ControlResult(id: "session-id"))
+
+        let response = await ControlDispatcher(actions: actions).dispatch(ControlRequest(
+            cmd: .sessionSwap,
+            target: "session",
+            args: ControlArgs(window: "win")
+        ))
+
+        #expect(response == ControlResponse(ok: true, result: ControlResult(id: "session-id")))
+        #expect(actions.calls == [.sessionSwap(target: "session", window: "win")])
+    }
+
     @Test func splitRejectsAnUnknownAxisBeforeDispatch() async {
         let actions = MockControlActions()
         let response = await ControlDispatcher(actions: actions).dispatch(ControlRequest(
@@ -1465,13 +1479,14 @@ struct ControlDispatcherTests {
         let response = await dispatcher.dispatch(ControlRequest(
             cmd: .sessionText,
             target: "session",
-            args: ControlArgs(window: "win", pane: "scratch", lines: 10)
+            args: ControlArgs(window: "win", pane: "scratch", paneID: "stable-token", lines: 10)
         ))
 
         #expect(response == ControlResponse(ok: true, result: ControlResult(text: "line\n")))
         #expect(actions.calls == [
             .sessionText(target: "session", window: "win",
-                         ControlSessionTextOptions(pane: "scratch", all: false, lines: 10))
+                         ControlSessionTextOptions(pane: "scratch", paneID: "stable-token",
+                                                   all: false, lines: 10))
         ])
     }
 

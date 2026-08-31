@@ -29,4 +29,8 @@ public extension ControlActions {
     func splitSession(_ target: String?, window: String?, mode: String?, axis _: SplitAxis?) -> ControlResponse {
         splitSession(target, window: window, mode: mode)
     }
+
+    func swapSessionPanes(_: String?, window _: String?) async -> ControlResponse {
+        ControlResponse(ok: false, error: "session.swap is not supported by this host")
+    }
 }
