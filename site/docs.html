@@ -3048,9 +3048,12 @@ command = "'/Users/you/.config/agterm/agent-status/agterm-codex-status.sh' stop"
                   style="position: absolute; left: 0; top: 2px; color: #6d82f3; font-family: &quot;JetBrains Mono&quot;, monospace"
                   >›</span
                 ><strong style="color: #e6e1d7">Live mode reattaches the running process.</strong> Every primary and split pane
-                starts through zmx. Scratch, overlay, and quick terminals stay temporary. Closing agterm or stopping it with SIGTERM
-                ends the attach client while the daemon and its process continue; the next launch attaches to the same name. A reboot,
-                <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">agtermctl zmx kill</span>, or another missing daemon creates a fresh shell under that name instead of failing the restore.
+                starts through zmx. Scratch, overlay, and quick terminals stay temporary. A clean quit ends the attach client while
+                the daemon and its process continue, and captures each open pane's foreground command as a fallback. The next launch
+                attaches to the same name. A surviving daemon ignores the fallback payload; if an orderly machine restart removed the
+                daemon, zmx creates it with the captured command and later launches reattach normally. A pane starts a fresh shell
+                instead when its window was closed before quit, a hard power loss or force quit skipped capture, or the captured
+                command is denylisted or carries a control character. SIGTERM leaves the daemon running but skips capture.
                 Deleting a session, workspace, split, or window kills the corresponding daemon after any undo grace expires.
                 Switching to Fresh shells or Re-run commands and restarting ends every detached live process in this state directory.
                 A launch that still requests Live sessions but cannot use it preserves those processes for a later eligible launch.
@@ -3077,8 +3080,9 @@ command = "'/Users/you/.config/agterm/agent-status/agterm-codex-status.sh' stop"
                 New output after reattach behaves normally. In live mode,
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">session new --command</span> types the
                 command into the persistent shell only when the pane is first created. The session stays open when that command exits,
-                so <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">--wait</span> adds no hold prompt, and
-                a missing daemon restores a fresh shell without replaying the command.
+                so <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">--wait</span> adds no hold prompt. After
+                a clean quit, a missing daemon replays the captured running command inside a new persistent shell; the exclusions above
+                start a fresh shell.
               </li>
               <li style="font-size: 15px; line-height: 1.65; color: #cbc6bc; padding-left: 22px; position: relative">
                 <span

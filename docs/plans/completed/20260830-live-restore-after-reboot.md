@@ -98,6 +98,11 @@ one-second per-socket probe. That fixture must **accept and then never answer**;
 refuses is cleaned up quickly and proves nothing. Slots captured before expiry are kept; only the remaining
 ones go nil.
 
+Measured on 2026-08-30, a full refresh across 55 healthy daemons took 10-30 ms cold and about 10 ms warm.
+The accept-but-never-answer fixture took 1.01 s without a capture override; the 100 ms invocation timeout
+cut it off in 109 ms before the 250 ms termination grace. The implemented 350 ms refresh ceiling leaves
+150 ms of the 500 ms exit budget for per-pane sysctl reads.
+
 **Policy flag.** Capture eligibility gets its own `capturesForegroundOnExit` rather than widening
 `restoreRunningCommand`, which also governs rerun eligibility elsewhere. `restore.capture` stays rerun-only.
 
@@ -105,6 +110,25 @@ ones go nil.
 is built only after `.wrapped` is established and `pendingForegroundCommand` is consumed exactly once there;
 sticky restore overrides are left alone. Taking the capture earlier would make `.fallback` consume state it
 currently preserves.
+
+## Verification Record
+
+The isolated run used `AGTERM_STATE_DIR=/tmp/agtr3` and private zmx namespace
+`/private/tmp/agterm-zmx-a53bf053842b803b`. A clean Cocoa quit used
+`NSRunningApplication.terminate()`; POSIX SIGTERM does not run the quit callbacks and was excluded.
+
+| Case | Result |
+| --- | --- |
+| Captured replay | The snapshot stored the foreground argv. After the old daemon was killed, the marker grew from 1 to 2 and the leader changed from 79657 to 85598. |
+| Surviving daemon | The marker stayed at 1 and the leader stayed at 80728. The attach payload did not run. |
+| Failed replay | Removing the executable before relaunch produced a shell with no foreground process; the shell accepted a verification command. |
+| Denylisted replay | The marker stayed at 1. The new daemon had no foreground process and opened a shell. |
+| Hidden split | The right pane stayed absent until shown. Showing it grew the marker from 1 to 2 and replaced leader 81113 with 86340. |
+| Closed window | Its snapshot had no foreground command. Reopening kept the marker at 1, created leader 89948, and accepted a shell command. |
+
+The final login shell contained `_ghostty_precmd` and `_ghostty_preexec`. A replay-created primary shell
+reported `/tmp/agtr3/osc7-dir` through OSC 7 to the control tree and the private zmx listing. Teardown left
+no app process, zmx session, private namespace, or state directory.
 
 ## Implementation Steps
 
@@ -116,16 +140,16 @@ currently preserves.
 - Create: `agtermCore/Tests/agtermCoreTests/ZmxReplayScriptTests.swift`
 - Modify: `agtermCore/Tests/agtermCoreTests/ZmxSupportTests.swift`
 
-- [ ] failing tests first: custom original `ZDOTDIR`, nil original, argv needing quoting, denied basename,
+- [x] failing tests first: custom original `ZDOTDIR`, nil original, argv needing quoting, denied basename,
       control character, U+FFFD, empty argv0
-- [ ] build the script from captured argv, integration dir, original `ZDOTDIR` and absolute shell, emitting
+- [x] build the script from captured argv, integration dir, original `ZDOTDIR` and absolute shell, emitting
       QUOTED `'builtin' 'export'` / `'builtin' 'unset'` / `'builtin' 'exec' --` and `;` separators
-- [ ] gate payload construction behind `CommandRestore.shouldRestore(argv:denylist:)`; a refusal yields bare
+- [x] gate payload construction behind `CommandRestore.shouldRestore(argv:denylist:)`; a refusal yields bare
       attach
-- [ ] compose the attach argv as `[shell, "-lic", script]`, outer-quoted exactly once
-- [ ] test with a hostile alias for `builtin`, `export` and `exec`, proving the script still re-arms and execs
-- [ ] test that a failed replay still reaches the final shell, and that quoting survives a shell round trip
-- [ ] run tests — must pass before task 2
+- [x] compose the attach argv as `[shell, "-lic", script]`, outer-quoted exactly once
+- [x] test with a hostile alias for `builtin`, `export` and `exec`, proving the script still re-arms and execs
+- [x] test that a failed replay still reaches the final shell, and that quoting survives a shell round trip
+- [x] run tests — must pass before task 2
 
 ### Task 2: Capture at both exits
 
@@ -141,32 +165,32 @@ currently preserves.
 - Create: `agtermTests/AppDelegateCaptureTests.swift`
 - Modify: `agtermTests/ZmxClientTests.swift`
 
-- [ ] benchmark first: time a full refresh plus per-pane reads against ~55 healthy daemons, cold and warm,
+- [x] benchmark first: time a full refresh plus per-pane reads against ~55 healthy daemons, cold and warm,
       repeated; build the accept-but-never-answer fixture and confirm the chosen cap cuts zmx's one-second
       probe; pick the cap from the healthy trials plus headroom, replacing the 250/500 ms candidates if the
       measurement disagrees
-- [ ] settle Task 2's first design decision before writing code: `freshSnapshot` either takes a
+- [x] settle Task 2's first design decision before writing code: `freshSnapshot` either takes a
       capture-specific provider or `LeaderProvider` gains a deadline — otherwise the "fresh" API still
       invokes the fixed three-second closure and the budget is unenforceable
-- [ ] add the fresh-snapshot entry point reporting failure instead of falling back to `leaders`; leave
+- [x] add the fresh-snapshot entry point reporting failure instead of falling back to `leaders`; leave
       `refreshIfNeeded` unchanged for existing callers
-- [ ] add a capture-specific timeout to `ZmxClient` so capture stops inheriting the 3 s lifecycle default
-- [ ] add a `capturesForegroundOnExit` policy rather than widening `restoreRunningCommand`; keep
+- [x] add a capture-specific timeout to `ZmxClient` so capture stops inheriting the 3 s lifecycle default
+- [x] add a `capturesForegroundOnExit` policy rather than widening `restoreRunningCommand`; keep
       `restore.capture` rerun-only
-- [ ] route the resolver to both capture sites by INJECTION through the chain above, not a global or an
+- [x] route the resolver to both capture sites by INJECTION through the chain above, not a global or an
       app-delegate lookup
-- [ ] read primary and split through the resolver when the surface is `backedByZmx`; keep `ForegroundProcess`
+- [x] read primary and split through the resolver when the surface is `backedByZmx`; keep `ForegroundProcess`
       for everything else; no process-group descent
-- [ ] bypass `session.isSplit` ONLY for a backed live hidden split; a hidden ordinary or rerun split keeps
+- [x] bypass `session.isSplit` ONLY for a backed live hidden split; a hidden ordinary or rerun split keeps
       today's nil behaviour
-- [ ] enforce the wall-clock deadline between panes: keep slots already captured, nil the rest
-- [ ] tests: live primary and split captured via resolver, hidden LIVE split captured, hidden non-live split
+- [x] enforce the wall-clock deadline between panes: keep slots already captured, nil the rest
+- [x] tests: live primary and split captured via resolver, hidden LIVE split captured, hidden non-live split
       still nil, non-live path unchanged, refresh failure and mid-loop expiry produce nil not stale
-- [ ] test in `ZmxClientTests` that the wall-clock timeout INCLUDES the 250 ms grace, so a cap cannot be
+- [x] test in `ZmxClientTests` that the wall-clock timeout INCLUDES the 250 ms grace, so a cap cannot be
       "honoured" while the call returns at twice the budget
-- [ ] hosted regression driving a real `willClose`: start with a non-nil live foreground, close the last
+- [x] hosted regression driving a real `willClose`: start with a non-nil live foreground, close the last
       window, assert the argv reached the PERSISTED snapshot before teardown
-- [ ] run tests — must pass before task 3
+- [x] run tests — must pass before task 3
 
 ### Task 3: Wire the payload into the factories, and verify at runtime
 
@@ -175,18 +199,18 @@ currently preserves.
 - Create: `agtermTests/SurfaceFactorySeedTests.swift`
 - Create: `docs/plans/notes/20260830-runtime-verification.md` (scratch; folded in before completion)
 
-- [ ] failing tests first: consume-once on primary and split, and `.fallback` does not consume. These are
+- [x] failing tests first: consume-once on primary and split, and `.fallback` does not consume. These are
       behaviours of the private factories and the session pending slots, so they belong in the APP target —
       `ZmxSupportTests` cannot reach them
-- [ ] build the replay only after `.wrapped` is established, never before `configuration` succeeds
-- [ ] consume `pendingForegroundCommand` exactly once; leave sticky restore overrides untouched
-- [ ] keep `initialInput` nil so the command cannot arrive twice
-- [ ] runtime, isolated instance: marker command captured on quit; kill only that daemon and relaunch, pane
+- [x] build the replay only after `.wrapped` is established, never before `configuration` succeeds
+- [x] consume `pendingForegroundCommand` exactly once; leave sticky restore overrides untouched
+- [x] keep `initialInput` nil so the command cannot arrive twice
+- [x] runtime, isolated instance: marker command captured on quit; kill only that daemon and relaunch, pane
       returns running the marker in a NEW daemon; ghostty integration live in the replayed pane (prompt
       marks and OSC 7); a surviving daemon ignores the payload with no duplicate; a failed replay still
       leaves a usable shell; a denylisted command yields a fresh shell; a hidden split replays on delayed
       show; closed-window panes come back fresh
-- [ ] run tests — must pass before task 4
+- [x] run tests — must pass before task 4
 
 ### Task 4: Documentation, then gates
 
@@ -195,15 +219,15 @@ currently preserves.
 - Modify: `.claude/rules/control-api.md` if the restore contract text lives there
 - Modify: this plan
 
-- [ ] replace the README sentence promising a fresh shell after a reboot with the new behaviour
-- [ ] state all three exclusions — window closed before quit, hard power loss, denylisted command — on all
+- [x] replace the README sentence promising a fresh shell after a reboot with the new behaviour
+- [x] state all three exclusions — window closed before quit, hard power loss, denylisted command — on all
       three surfaces
-- [ ] fold the benchmark and runtime measurements into this plan or into code comments, then delete the
+- [x] fold the benchmark and runtime measurements into this plan or into code comments, then delete the
       scratch notes, so the constants are not unexplained numbers
-- [ ] update `CLAUDE.md` if the capture/replay split is a pattern worth recording
-- [ ] move this plan to `docs/plans/completed/` — BEFORE the gates
-- [ ] verify every Overview requirement is implemented and all three exclusions behave as documented
-- [ ] run `make build`, `cd agtermCore && swift test`, `make test-app`, `make lint` — last, on the final tree
+- [x] update `CLAUDE.md` if the capture/replay split is a pattern worth recording
+- [x] move this plan to `docs/plans/completed/` — BEFORE the gates
+- [x] verify every Overview requirement is implemented and all three exclusions behave as documented
+- [x] run `make build`, `cd agtermCore && swift test`, `make test-app`, `make lint` — last, on the final tree
 
 ## Post-Completion
 
