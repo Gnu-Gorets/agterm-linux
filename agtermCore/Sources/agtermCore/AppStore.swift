@@ -94,10 +94,10 @@ public final class AppStore {
     /// `BuiltinAction.toggleWorkspaceFilter`, and `workspace.filter`.
     public internal(set) var focusEnabled = false
 
-    /// This window's sidebar width in points, persisted in `Snapshot`; drag-driven, clamped to the bounds below.
+    /// Sidebar width in points, persisted per window; drag and `sidebar.width` write it.
     public var sidebarWidth: Double = AppStore.sidebarWidthDefault
 
-    /// Default + drag/restore bounds, shared by the divider drag and the `restore()` clamp so they can't drift.
+    /// Bounds shared by drag, `sidebar.width`, and `restore()` through `clampSidebarWidth`.
     public static let sidebarWidthDefault: Double = 220
     public static let sidebarWidthMin: Double = 160
     public static let sidebarWidthMax: Double = 560
@@ -324,7 +324,7 @@ public final class AppStore {
                                         sessions: sessions)
         }
         return ControlTree(workspaces: nodes, idleMs: idleMs(), autoFollowMs: autoFollowMs,
-                           sidebarVisible: sidebarVisible, sidebarMode: sidebarMode.rawValue,
+                           sidebarVisible: sidebarVisible, sidebarMode: sidebarMode.rawValue, sidebarWidth: sidebarWidth,
                            workspaceFilter: focusEnabled,
                            quickVisible: quickVisible(), zoomedSurface: zoomedSurface(),
                            dashboardMembers: dashboardMembers(),
@@ -895,8 +895,8 @@ public final class AppStore {
                                       isExpanded: !(workspaceSnapshot.collapsed ?? false)))
         }
         // clamp on restore (not just nil-default) so a corrupt or hand-edited snapshot can't drive an
-        // out-of-range frame width; the drag path clamps to the same bounds.
-        sidebarWidth = min(AppStore.sidebarWidthMax, max(AppStore.sidebarWidthMin, snapshot.sidebarWidth ?? AppStore.sidebarWidthDefault))
+        // out-of-range frame width; the drag and `sidebar.width` clamp to the same bounds.
+        sidebarWidth = AppStore.clampSidebarWidth(snapshot.sidebarWidth ?? AppStore.sidebarWidthDefault)
         sidebarVisible = snapshot.sidebarVisible ?? true
         sidebarMode = snapshot.sidebarMode ?? .tree
         restoreFocus(from: snapshot)

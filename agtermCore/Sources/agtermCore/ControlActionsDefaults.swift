@@ -33,4 +33,11 @@ public extension ControlActions {
     func swapSessionPanes(_: String?, window _: String?) async -> ControlResponse {
         ControlResponse(ok: false, error: "session.swap is not supported by this host")
     }
+
+    /// Not `ControlActionsUnsupported.message`, which says "on this platform": the divider exists wherever
+    /// there is a sidebar, so a host refusing this has not implemented the command rather than lacking the
+    /// thing it moves.
+    func setSidebarWidth(_: Double, window _: String?) -> ControlResponse {
+        ControlResponse(ok: false, error: "sidebar.width is not supported by this control host")
+    }
 }

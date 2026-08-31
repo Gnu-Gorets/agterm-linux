@@ -225,6 +225,14 @@ struct SocketClient {
             // session.resize echoes the applied (clamped) primary-pane fraction, scriptable as a bare number.
             return String(format: "%.3f", ratio)
         }
+        if let sidebarWidth = response.result?.sidebarWidth {
+            // sidebar.width echoes the STORED (clamped) points, preserved without fixed-decimal rounding:
+            // a caller comparing its request against the echo reads a difference as a clamp, and rounding an
+            // honored 271.34 to 271.3 would report one that never happened. This is the Double's own
+            // description, so 300 comes back "300.0" - equivalent spellings differ and the comparison the
+            // docs ask for is NUMERIC, never string equality.
+            return String(sidebarWidth)
+        }
         if echoID, let id = response.result?.id {
             return id
         }
