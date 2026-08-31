@@ -19,8 +19,15 @@ enum ForegroundProcess {
     /// `--command` session by typing its command into a login shell instead of taking the exec path,
     /// losing the `--wait` hold and the close-on-exit shape.
     @MainActor
-    static func command(for view: GhosttySurfaceView, shellBasename: String?) -> [String]? {
-        guard let pid = view.foregroundPid(), let argv = procArgs(pid: pid) else { return nil }
+    static func command(for view: GhosttySurfaceView, shellBasename: String?,
+                        zmxSnapshot: ZmxForegroundResolver.Snapshot? = nil) -> [String]? {
+        let pid: pid_t?
+        if view.backedByZmx, let sessionName = view.zmxSessionName {
+            pid = zmxSnapshot?.foregroundPID(sessionName: sessionName)
+        } else {
+            pid = view.foregroundPid()
+        }
+        guard let pid, let argv = procArgs(pid: pid) else { return nil }
         return usable(argv, shellBasename: shellBasename)
     }
 

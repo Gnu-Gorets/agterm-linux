@@ -28,6 +28,7 @@ struct agtermApp: App {
     /// as prior state.
     private let welcomeDue: Bool
     private let zmxForegroundResolver: ZmxForegroundResolver?
+    private let captureOnExit: AppDelegate.ExitCapture?
 
     /// The plain `WindowGroup`'s scene id, used by `openWindow(id:)` to spawn additional windows.
     private static let windowGroupID = "terminal"
@@ -60,6 +61,14 @@ struct agtermApp: App {
         let restored = agtermApp.restoredRuntime(stateDirectory: stateDirectory)
         let library = restored.library
         zmxForegroundResolver = restored.foregroundResolver
+        if GhosttyApp.shared.capturesForegroundOnExit {
+            let capture: AppDelegate.ExitCapture = { [resolver = restored.foregroundResolver] sessions in
+                AppDelegate.captureForegroundCommands(sessions: sessions, zmxResolver: resolver)
+            }
+            captureOnExit = capture
+        } else {
+            captureOnExit = nil
+        }
         _library = State(initialValue: library)
         let actions = AppActions(library: library)
         _actions = State(initialValue: actions)
@@ -127,6 +136,7 @@ struct agtermApp: App {
                                                        suppressAutoFocus: session.programOverlayActive || qtVisible,
                                                        library: library)
                     },
+                    captureOnExit: captureOnExit,
                     actions: actions,
                     palette: palette,
                     sessionSwitcher: sessionSwitcher
@@ -134,6 +144,7 @@ struct agtermApp: App {
                     .frame(minWidth: 640, minHeight: 400)
                     .task {
                         appDelegate.library = library
+                        appDelegate.captureOnExit = captureOnExit
                         // `openWindow` lives only in the scene: hand it to the action hub for cross-window
                         // reveal and `window.new`/`window.select` (raise if on-screen, else claim + spawn).
                         // MUST precede `controlServer.start()`, or an early command finds it nil: ok, no window.
@@ -243,7 +254,7 @@ struct agtermApp: App {
                                                   allowDebugOverride: ZmxLaunch.allowDebugOverride)
         let client = ZmxClient(executablePath: executable,
                               socketDirectory: ZmxSupport.socketDirectory(forStateDirectory: stateDirectory.path))
-        let foregroundResolver = ZmxForegroundResolver(leaderProvider: { client.sessionLeaderPIDs() })
+        let foregroundResolver = ZmxForegroundResolver(leaderProvider: { client.sessionLeaderPIDs(timeout: $0) })
         let library = WindowLibrary(
             directory: stateDirectory,
             paneFinalizer: {

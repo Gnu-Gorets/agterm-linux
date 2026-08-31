@@ -3,6 +3,12 @@ import AppKit
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    typealias ForegroundCommandReader = (GhosttySurfaceView, String?, ZmxForegroundResolver.Snapshot?) -> [String]?
+    typealias ExitCapture = @MainActor @Sendable ([Session]) -> Int
+
+    // Leaves 150 ms after the refresh's 350 ms worst case for the per-pane kernel reads.
+    private static let exitCaptureBudget: Duration = .milliseconds(500)
+
     /// App-global window library, set on scene appear; terminate flushes every window's state.
     var library: WindowLibrary?
 
@@ -17,6 +23,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Action hub, set on scene appear so `application(_:open:)` can open a session at an `open -a` path.
     var actions: AppActions?
+
+    /// Injected only when this launch captures foreground commands on exit.
+    var captureOnExit: ExitCapture?
 
     /// Strongly retains the current Dock menu's target objects so nil-sender dispatch never depends on
     /// AppKit's target lifetime; replaced whenever the Dock asks for a fresh menu.
@@ -317,11 +326,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // mark terminating so per-window willClose can't zero the open-set during quit — it must survive
         // for the next launch's reopen-all.
         library?.isTerminating = true
-        // Rerun mode captures each pane's live foreground command before the snapshot save. A force quit or
-        // crash skips this path; sessions and cwd still restore.
-        if GhosttyApp.shared.restoreRunningCommand, let library {
-            Self.captureForegroundCommands(sessions: library.allOpenSessions())
-        }
+        if let library { _ = captureOnExit?(library.allOpenSessions()) }
         library?.finalizeAllPendingCloses()
         // flush the stores + index: cwd changes since the last structural mutation aren't auto-persisted.
         library?.saveAllOpen()
@@ -344,22 +349,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// of a session whose split is hidden or gone still holds whatever an earlier capture put there.
     @MainActor
     @discardableResult
-    static func captureForegroundCommands(sessions: [Session]) -> Int {
+    static func captureForegroundCommands(
+        sessions: [Session], zmxResolver: ZmxForegroundResolver? = nil,
+        timeRemaining suppliedTimeRemaining: (() -> Bool)? = nil,
+        commandReader: ForegroundCommandReader = { view, shell, snapshot in
+            ForegroundProcess.command(for: view, shellBasename: shell, zmxSnapshot: snapshot)
+        }
+    ) -> Int {
         let shellBasename = ProcessInfo.processInfo.environment["SHELL"].map(CommandRestore.basename)
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: exitCaptureBudget)
+        let timeRemaining = suppliedTimeRemaining ?? { clock.now < deadline }
+        let hasWrappedPane = sessions.contains { session in
+            session.surface?.backedByZmx == true || session.splitSurface?.backedByZmx == true
+        }
+        let zmxSnapshot = hasWrappedPane
+            ? zmxResolver?.freshSnapshot(timeout: ZmxClient.captureInvocationTimeout)
+            : nil
         var captured = 0
         for session in sessions {
             if let view = session.surface as? GhosttySurfaceView {
-                if view.backedByZmx {
-                    session.foregroundCommand = nil
-                } else {
-                    session.foregroundCommand = ForegroundProcess.command(for: view, shellBasename: shellBasename)
-                    if session.foregroundCommand != nil { captured += 1 }
-                }
+                session.foregroundCommand = timeRemaining() && (!view.backedByZmx || zmxSnapshot != nil)
+                    ? commandReader(view, shellBasename, zmxSnapshot) : nil
+                if session.foregroundCommand != nil { captured += 1 }
             }
-            // capture only a shown split: a hidden split keeps its identity and pending restore state,
-            // so arming a captured command would make the next show run it unexpectedly.
-            if session.isSplit, let split = session.splitSurface as? GhosttySurfaceView {
-                session.splitForegroundCommand = ForegroundProcess.command(for: split, shellBasename: shellBasename)
+            if let split = session.splitSurface as? GhosttySurfaceView,
+               session.isSplit || split.backedByZmx {
+                session.splitForegroundCommand = timeRemaining() && (!split.backedByZmx || zmxSnapshot != nil)
+                    ? commandReader(split, shellBasename, zmxSnapshot) : nil
                 if session.splitForegroundCommand != nil { captured += 1 }
             } else {
                 session.splitForegroundCommand = nil

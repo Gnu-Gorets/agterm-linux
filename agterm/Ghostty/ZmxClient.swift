@@ -5,6 +5,11 @@ import os
 
 @MainActor
 final class ZmxClient {
+    // A 55-daemon cold refresh measured at 10-30 ms; timeout plus kill grace stays below the exit budget.
+    nonisolated static let captureInvocationTimeout: TimeInterval = 0.1
+    nonisolated static let terminationGrace: TimeInterval = 0.25
+    nonisolated static let captureWallClockLimit = captureInvocationTimeout + terminationGrace
+
     struct Invocation {
         let executablePath: String
         let arguments: [String]
@@ -79,9 +84,9 @@ final class ZmxClient {
         }
     }
 
-    func sessionLeaderPIDs() -> [String: pid_t]? {
+    func sessionLeaderPIDs(timeout: TimeInterval? = nil) -> [String: pid_t]? {
         do {
-            return ZmxLeaderMap.leaders(in: try ZmxListParser.parse(invoke(["list"])))
+            return ZmxLeaderMap.leaders(in: try ZmxListParser.parse(invoke(["list"], timeout: timeout)))
         } catch {
             Self.logger.error("zmx leader refresh failed: \(String(describing: error), privacy: .public)")
             return nil
@@ -157,13 +162,13 @@ final class ZmxClient {
         }
     }
 
-    private func invoke(_ arguments: [String]) throws -> String {
+    private func invoke(_ arguments: [String], timeout timeoutOverride: TimeInterval? = nil) throws -> String {
         var environment = ProcessInfo.processInfo.environment
         environment["ZMX_DIR"] = socketDirectory
         environment.removeValue(forKey: "ZMX_SESSION")
         environment.removeValue(forKey: "ZMX_SESSION_PREFIX")
         return try runner(Invocation(executablePath: executablePath, arguments: arguments,
-                                     environment: environment, timeout: timeout))
+                                     environment: environment, timeout: timeoutOverride ?? timeout))
     }
 
     private nonisolated static func run(_ invocation: Invocation) throws -> String {
@@ -180,7 +185,7 @@ final class ZmxClient {
         try process.run()
         if finished.wait(timeout: .now() + invocation.timeout) == .timedOut {
             process.terminate()
-            if finished.wait(timeout: .now() + 0.25) == .timedOut {
+            if finished.wait(timeout: .now() + terminationGrace) == .timedOut {
                 Darwin.kill(process.processIdentifier, SIGKILL)
                 process.waitUntilExit()
             }
