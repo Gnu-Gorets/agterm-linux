@@ -165,11 +165,116 @@ final class AppDelegateCaptureTests: XCTestCase {
                        ["worker", "--terminate"])
     }
 
+    func testFreshLaunchChangedToRerunCapturesAtFirstExit() throws {
+        let state = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agterm-dynamic-exit-capture-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: state) }
+        let library = WindowLibrary(directory: state)
+        let windowID = try XCTUnwrap(library.activeWindowID)
+        let session = try XCTUnwrap(library.activeStore?.activeSession)
+        let settings = SettingsModel(library: library, settingsStore: SettingsStore(directory: state))
+        XCTAssertEqual(settings.settings.effectiveRestoreMode, .none)
+        let capture = AppDelegate.makeExitCapture(settingsModel: settings, zmxResolver: nil)
+        session.pendingForegroundCommand = ["worker", "--first-rerun"]
+        XCTAssertTrue(settings.setRestoreMode(.rerun))
+        let delegate = AppDelegate()
+        delegate.library = library
+        delegate.captureOnExit = capture
+
+        delegate.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
+
+        let persisted = PersistenceStore(
+            directory: state.appendingPathComponent("windows"), fileName: "\(windowID.uuidString).json").load()
+        XCTAssertEqual(persisted.workspaces.first?.sessions.first?.foregroundCommand,
+                       ["worker", "--first-rerun"])
+    }
+
+    func testLiveLaunchChangedToRerunCapturesDaemonForegroundAtExit() throws {
+        let state = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agterm-live-to-rerun-capture-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: state) }
+        let worker = try startWorker()
+        defer { stopWorker(worker) }
+        let library = WindowLibrary(directory: state)
+        let windowID = try XCTUnwrap(library.activeWindowID)
+        let session = try XCTUnwrap(library.activeStore?.activeSession)
+        session.surface = GhosttySurfaceView(
+            workingDirectory: "/tmp", env: ["AGTERM_PANE_ID": session.paneIdentity.uuidString], backedByZmx: true)
+        let settings = SettingsModel(library: library, settingsStore: SettingsStore(directory: state))
+        XCTAssertTrue(settings.setRestoreMode(.live))
+        var snapshotTimeout: TimeInterval?
+        let resolver = ZmxForegroundResolver(
+            leaderProvider: {
+                snapshotTimeout = $0
+                return [ZmxSupport.daemonName(for: session.paneIdentity): worker.processIdentifier]
+            },
+            leaderProbe: { _ in .foreground(worker.processIdentifier) })
+        let capture = AppDelegate.makeExitCapture(settingsModel: settings, zmxResolver: resolver)
+        XCTAssertTrue(settings.setRestoreMode(.rerun))
+        let delegate = AppDelegate()
+        delegate.library = library
+        delegate.captureOnExit = capture
+
+        delegate.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
+
+        let persisted = PersistenceStore(
+            directory: state.appendingPathComponent("windows"), fileName: "\(windowID.uuidString).json").load()
+        XCTAssertEqual(snapshotTimeout, ZmxClient.captureInvocationTimeout)
+        XCTAssertEqual(persisted.workspaces.first?.sessions.first?.foregroundCommand?.last, "30")
+    }
+
+    func testConfiguredNoneClearsCapturedAndPendingSlotsOnLastWindowClose() throws {
+        let state = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agterm-disabled-exit-capture-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: state) }
+        let library = WindowLibrary(directory: state)
+        let windowID = try XCTUnwrap(library.activeWindowID)
+        let store = try XCTUnwrap(library.activeStore)
+        let session = try XCTUnwrap(store.activeSession)
+        let settings = SettingsModel(library: library, settingsStore: SettingsStore(directory: state))
+        XCTAssertEqual(settings.settings.effectiveRestoreMode, .none)
+        session.foregroundCommand = ["stale-primary"]
+        session.splitForegroundCommand = ["stale-split"]
+        session.pendingForegroundCommand = ["pending-primary"]
+        session.pendingSplitForegroundCommand = ["pending-split"]
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = WindowAccessor.TitleProbeView(
+            windowID: windowID, library: library, store: store,
+            captureOnExit: AppDelegate.makeExitCapture(settingsModel: settings, zmxResolver: nil))
+
+        window.close()
+
+        XCTAssertNil(session.foregroundCommand)
+        XCTAssertNil(session.splitForegroundCommand)
+        XCTAssertNil(session.pendingForegroundCommand)
+        XCTAssertNil(session.pendingSplitForegroundCommand)
+        let persisted = PersistenceStore(
+            directory: state.appendingPathComponent("windows"), fileName: "\(windowID.uuidString).json").load()
+        XCTAssertNil(persisted.workspaces.first?.sessions.first?.foregroundCommand)
+        XCTAssertNil(persisted.workspaces.first?.sessions.first?.splitForegroundCommand)
+    }
+
     private func liveSession(paneID: UUID) -> Session {
         let session = Session(initialCwd: "/tmp", paneIdentity: paneID)
         session.surface = GhosttySurfaceView(
             workingDirectory: "/tmp", env: ["AGTERM_PANE_ID": paneID.uuidString], backedByZmx: true)
         return session
+    }
+
+    private func startWorker() throws -> Process {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        process.arguments = ["30"]
+        try process.run()
+        return process
+    }
+
+    private func stopWorker(_ process: Process) {
+        if process.isRunning { process.terminate() }
+        process.waitUntilExit()
     }
 
     func testExitCapturePreservesAnUnconsumedPendingArgvWhenTheReadYieldsNothing() {
@@ -227,14 +332,5 @@ final class AppDelegateCaptureTests: XCTestCase {
 
         XCTAssertNil(session.splitForegroundCommand)
         XCTAssertEqual(session.takePendingForegroundCommand(pane: .right), ["tail", "-f", "log"])
-    }
-
-    func testCapturePolicyReadsTheRequestedModeSoAFallbackLaunchStillCaptures() {
-        let fellBack = RestoreMode.live.launchDecision(liveUnavailableReason: "the zmx executable is unavailable")
-        XCTAssertEqual(fellBack.active, RestoreMode.none)
-        XCTAssertTrue(GhosttyApp.capturesForegroundOnExit(decision: fellBack))
-
-        let fresh = RestoreMode.none.launchDecision(liveUnavailableReason: nil)
-        XCTAssertFalse(GhosttyApp.capturesForegroundOnExit(decision: fresh))
     }
 }

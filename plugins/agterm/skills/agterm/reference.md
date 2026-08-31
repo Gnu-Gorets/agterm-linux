@@ -1240,11 +1240,12 @@ shutdown, restart or logout is not one of them: that path quits the app normally
 Run it from a scheduled job or bind it, and an exit nobody was there for restores like a deliberate
 quit. Consumption is unchanged — the next launch arms each captured command once and clears it. App-global
 (no `--window`), prints `count`, the number of panes it captured a command for (main and shown split count
-one each). It runs only in `rerun` mode. Fresh-shell and live modes return
-`restore.capture requires rerun mode; active restore mode is MODE`. A capture is only as fresh as its last
-run: a pager or a build that has finished since still re-runs after a crash, which `restore clear` drops wholesale and
-`restore-denylist.conf` prevents per program. Typed at a prompt the command records ITSELF, since while it
-runs it is that pane's foreground process and the pane comes back running `agtermctl restore capture` (which
+one each). It runs only when `rerun` is configured for the next launch. Configured fresh-shell and live
+modes return `restore.capture requires rerun mode; configured restore mode is MODE`. A capture is only as
+fresh as its last run: a pager or a build that has finished since still re-runs after a crash, which
+`restore clear` drops wholesale and `restore-denylist.conf` prevents per program. Typed at a prompt the
+command records ITSELF, since while it runs it is that pane's foreground process and the pane comes back
+running `agtermctl restore capture` (which
 prints its count and captures itself again). Bind it or schedule it rather than running it by hand:
 `restore clear` is app-global, so it is no per-pane undo.
 

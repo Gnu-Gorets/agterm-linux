@@ -61,15 +61,6 @@ struct agtermApp: App {
         let restored = agtermApp.restoredRuntime(stateDirectory: stateDirectory)
         let library = restored.library
         zmxForegroundResolver = restored.foregroundResolver
-        if GhosttyApp.shared.capturesForegroundOnExit {
-            let capture: AppDelegate.ExitCapture = { [resolver = restored.foregroundResolver] sessions in
-                AppDelegate.captureForegroundCommands(sessions: sessions, zmxResolver: resolver,
-                                                      preserveUnconsumedPending: true)
-            }
-            captureOnExit = capture
-        } else {
-            captureOnExit = nil
-        }
         _library = State(initialValue: library)
         let actions = AppActions(library: library)
         _actions = State(initialValue: actions)
@@ -78,6 +69,8 @@ struct agtermApp: App {
         let settingsStore = SettingsStore(directory: stateDirectory)
         let settingsModel = SettingsModel(library: library, settingsStore: settingsStore)
         _settingsModel = State(initialValue: settingsModel)
+        captureOnExit = AppDelegate.makeExitCapture(
+            settingsModel: settingsModel, zmxResolver: restored.foregroundResolver)
         welcomeDue = FirstRunWelcome.isDue(welcomeShown: settingsModel.settings.welcomeShown,
                                            hasPriorState: hadPriorState)
         let controlServer = ControlServer(library: library, actions: actions, settingsModel: settingsModel,

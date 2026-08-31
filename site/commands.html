@@ -2691,9 +2691,10 @@
                 For the exit that never reaches a clean quit: a force quit, a crash, a hard reset, a power loss. (A shutdown,
                 restart or logout quits the app normally and captures by itself.) Run it from a scheduled job or bind it, and an
                 exit nobody was there for restores like a deliberate quit. Consumption is unchanged, the next launch arms each
-                captured command once and clears it. It runs only when this launch is in
-                <span style="font-family: &quot;JetBrains Mono&quot;, monospace">rerun</span> mode; fresh-shell and live modes refuse with
-                <span style="font-family: &quot;JetBrains Mono&quot;, monospace">restore.capture requires rerun mode; active restore mode is MODE</span>.
+                captured command once and clears it. It runs only when
+                <span style="font-family: &quot;JetBrains Mono&quot;, monospace">rerun</span> is configured for the next launch;
+                configured fresh-shell and live modes refuse with
+                <span style="font-family: &quot;JetBrains Mono&quot;, monospace">restore.capture requires rerun mode; configured restore mode is MODE</span>.
                 Typed at a prompt it records ITSELF, being that
                 pane's foreground process while it runs, so bind it or schedule it rather than running it by hand.
               </p>

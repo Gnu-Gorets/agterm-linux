@@ -561,15 +561,17 @@ final class ControlServer {
     /// App-global like `clearRestoreCommands`, its inverse over the same slots: no `--window` selector, every
     /// open window. Consumption stays one-shot and launch-only, so nothing here changes replay.
     ///
-    /// Available only in the immutable rerun launch mode. It refuses in the other two modes and names the
-    /// active one, unlike `session.restore`, which saves future rerun policy with a note.
+    /// Available only when rerun is configured for the next launch. It refuses in the other two modes,
+    /// unlike `session.restore`, which saves future rerun policy with a note.
     func captureRestoreCommands() -> ControlResponse {
-        guard launchRestoreMode == .rerun else {
-            return ControlResponse(ok: false, error: "restore.capture requires rerun mode; active restore mode is "
-                + launchRestoreMode.rawValue)
+        let configuredMode = settingsModel.settings.effectiveRestoreMode
+        guard configuredMode == .rerun else {
+            return ControlResponse(ok: false, error: "restore.capture requires rerun mode; configured restore mode is "
+                + configuredMode.rawValue)
         }
         let sessions = library.allOpenSessions()
-        let captured = AppDelegate.captureForegroundCommands(sessions: sessions)
+        let captured = AppDelegate.captureForegroundCommands(
+            sessions: sessions, zmxResolver: zmxForegroundResolver)
         // this command's whole claim is that the argv reached disk, so the ack waits on the write and not on
         // the assignment: `saveAllOpen` swallows the result, `saveAllOpenChecked` reports it.
         guard library.saveAllOpenChecked() else {

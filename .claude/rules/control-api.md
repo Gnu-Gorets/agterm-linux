@@ -662,9 +662,10 @@ side, and reads `lastAppliedIsDark` when bare. Refuse it outside XCUITest; provi
 - `restore.capture` fills those same captured main/split slots on demand, from every open window's live
   panes, saves immediately, and captures no hidden split. It is app-global. It reports the slots it
   actually WROTE in `result.count` plus its own `result.text`; counting the slots afterwards instead would
-  read a stale split capture as a fresh one. It runs only in the immutable `rerun` launch mode; `none` and
-  `live` refuse and name the active mode. This is the one place the API does not follow `session.restore`'s
-  note-and-succeed behavior: see [[settings]] for why the two differ and for the exits the command exists for.
+  read a stale split capture as a fresh one. It runs only when `rerun` is configured for the next launch;
+  configured `none` and `live` refuse and name that mode. This is the one place the API does not follow
+  `session.restore`'s note-and-succeed behavior: see [[settings]] for why the two differ and for the exits
+  the command exists for.
 - `restore.clear` clears captured main/split foreground commands across open windows and saves immediately.
   It never clears durable `initialCommand`; it is app-global and works in every mode.
 - The captured slots are deliberately NOT a read surface: neither command exposes what is armed, and the

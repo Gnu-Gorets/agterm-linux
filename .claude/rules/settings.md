@@ -133,12 +133,12 @@ paths:
   libghostty diagnostics across all sources, clear all session zoom, post appearance change, and notify
   non-zero diagnostics. A config-directory change reloads both co-located files. Launch also reports
   cached diagnostics.
-- **Restore mode is frozen at launch.** `none` restores fresh shells, `rerun` uses the captured-command path
+- **Process restore mode is frozen at launch; capture follows the configured next mode.** `none` restores fresh shells, `rerun` uses the captured-command path
   below, and `live` is zmx-backed. Settings changes apply after restart. A live request falls back to
   `none` when the bundled executable, zsh integration, or password-database login shell is unsupported, and
   Settings reports the reason. The requested-live latch still claims persisted daemons during fallback; only
-  a deliberate `none` or `rerun` launch reaps them. Factories, capture gates, control responses, and reap each
-  read the appropriate immutable requested or active mode, never the mutable setting.
+  a deliberate `none` or `rerun` launch reaps them. Factories, control status, and reap read the immutable
+  requested or active mode. Exit capture and `restore.capture` read the configured next-launch mode.
 - **Command replay is launch-scoped; capture runs at two exits and on demand.**
   `AppDelegate.captureForegroundCommands` runs at three points: `applicationWillTerminate` before
   `saveAllOpen()`, the LAST window's `willClose` before its surface teardown, which precedes
@@ -148,8 +148,8 @@ paths:
   that set — since #447 it reaches `applicationWillTerminate` like any quit — so do not re-motivate the
   command with an OS update. The on-demand arm changes nothing else: it fills the same
   slots, persists through the same `saveAllOpen`, and replay stays launch-only and one-shot.
-  The two automatic exit arms run when `capturesForegroundOnExit` accepts `rerun` or `live`. The on-demand
-  arm remains rerun-only: it refuses in `none` or `live` and names the active mode. Deliberately unlike a
+  The two automatic exit arms run when the configured mode is `rerun` or `live`. The on-demand arm remains
+  rerun-only: it refuses when `none` or `live` is configured and names that mode. Deliberately unlike a
   `session.restore` pin, which saves future rerun policy with an explanatory note, because a pin outlives
   the mode and a capture only goes stale.
   The `willClose` arm alone is guarded by `openIDs() == [windowID]` and skipped under `isTerminating`.

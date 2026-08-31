@@ -24,7 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Action hub, set on scene appear so `application(_:open:)` can open a session at an `open -a` path.
     var actions: AppActions?
 
-    /// Injected only when this launch captures foreground commands on exit.
+    /// Injected exit policy; the configured mode is evaluated when the exit happens.
     var captureOnExit: ExitCapture?
 
     /// Strongly retains the current Dock menu's target objects so nil-sender dispatch never depends on
@@ -334,6 +334,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // flush pending debounced settings writes (a keyboard-driven opacity/blur change holds a ~0.3s save
         // no drag-end commit fires) so they survive ⌘Q.
         settingsModel?.flushPendingSaves()
+    }
+
+    /// Keep the exit policy live so a mode selected after launch governs the next launch.
+    static func makeExitCapture(settingsModel: SettingsModel,
+                                zmxResolver: ZmxForegroundResolver?) -> ExitCapture {
+        return { sessions in
+            guard GhosttyApp.capturesForegroundOnExit(mode: settingsModel.settings.effectiveRestoreMode) else {
+                for session in sessions { session.clearCapturedForegroundCommands() }
+                return 0
+            }
+            return captureForegroundCommands(sessions: sessions, zmxResolver: zmxResolver,
+                                             preserveUnconsumedPending: true)
+        }
     }
 
     /// Capture the given panes' foreground commands (main + split) into their `Session` fields for the
