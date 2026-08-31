@@ -124,6 +124,20 @@ public enum ZmxSupport {
         return .wrapped(configuration)
     }
 
+    public static func attachCommand(_ configuration: Configuration, replaying argv: [String]?,
+                                     denylist: Set<String>) -> String {
+        guard let argv, CommandRestore.shouldRestore(argv: argv, denylist: denylist),
+              let shell = configuration.environment["SHELL"],
+              let integrationDirectory = configuration.environment["ZDOTDIR"] else {
+            return configuration.command
+        }
+        let script = ZmxReplayScript.render(
+            argv: argv, integrationDirectory: integrationDirectory,
+            inheritedZdotdir: configuration.environment["GHOSTTY_ZSH_ZDOTDIR"], shell: shell
+        )
+        return configuration.command + " " + CommandRestore.shellQuotedLine([shell, "-lic", script])
+    }
+
     public static func socketDirectory(forStateDirectory stateDirectory: String) -> String {
         let canonical = URL(fileURLWithPath: stateDirectory, isDirectory: true)
             .standardizedFileURL.resolvingSymlinksInPath().path

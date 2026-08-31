@@ -120,6 +120,40 @@ struct ZmxSupportTests {
                                              configuration: nil) == .fallback)
     }
 
+    @Test func eligibleReplayIsAppendedAsOneOuterQuotedAttachPayload() {
+        let configuration = replayConfiguration()
+        let argv = ["printf", "%s", "two words", "single'quote"]
+        let script = ZmxReplayScript.render(
+            argv: argv, integrationDirectory: "/bundle resources/zsh",
+            inheritedZdotdir: "/user/zsh", shell: "/bin/zsh"
+        )
+
+        let command = ZmxSupport.attachCommand(configuration, replaying: argv, denylist: [])
+
+        #expect(command == configuration.command + " " +
+                CommandRestore.shellQuotedLine(["/bin/zsh", "-lic", script]))
+    }
+
+    @Test(arguments: [
+        (["tmux"], Set(["tmux"])),
+        (["echo", "a\u{0A}b"], Set<String>()),
+        (["grep", "caf\u{FFFD}"], Set<String>()),
+        ([""], Set<String>()),
+    ])
+    func refusedReplayKeepsTheBareAttach(argv: [String], denylist: Set<String>) {
+        let configuration = replayConfiguration()
+
+        #expect(ZmxSupport.attachCommand(configuration, replaying: argv, denylist: denylist) ==
+                configuration.command)
+    }
+
+    @Test func missingReplayKeepsTheBareAttach() {
+        let configuration = replayConfiguration()
+
+        #expect(ZmxSupport.attachCommand(configuration, replaying: nil, denylist: []) ==
+                configuration.command)
+    }
+
     @Test(arguments: [
         (ZmxSupport.Rejection.executablePathNotAbsolute, "the zmx executable path is not absolute"),
         (ZmxSupport.Rejection.executableUnavailable, "the zmx executable is unavailable"),
@@ -138,6 +172,18 @@ struct ZmxSupportTests {
               resourcesDirectory: resources.path, stateDirectory: "/tmp/agterm-state",
               paneIdentity: UUID(uuidString: "11111111-2222-3333-4444-555555555555")!,
               baseEnvironment: baseEnvironment, inheritedZdotdir: nil)
+    }
+
+    private func replayConfiguration() -> ZmxSupport.Configuration {
+        .init(
+            command: "'/bin/zmx' 'attach' 'agterm-pane'",
+            environment: [
+                "SHELL": "/bin/zsh",
+                "ZDOTDIR": "/bundle resources/zsh",
+                "GHOSTTY_ZSH_ZDOTDIR": "/user/zsh",
+            ],
+            daemonName: "agterm-pane", socketDirectory: "/tmp/zmx", paneID: "pane"
+        )
     }
 
     private func makeResources(withLoader: Bool) throws -> URL {
