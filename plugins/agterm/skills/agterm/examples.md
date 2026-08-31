@@ -18,15 +18,15 @@ agtermctl tree --json | jq -r '.result.tree.workspaces[].sessions[] | "\(.name):
 
 ## Capture or reset the restore-on-restart commands
 
-The opt-in "Restore running commands on restart" setting saves each pane's foreground command at quit.
-Clear those saved commands so the next launch restores plain shells:
+The `rerun` restore mode saves each pane's foreground command at quit. Clear those saved commands in any
+mode so a future rerun launch restores plain shells:
 
 ```bash
 agtermctl restore clear
 ```
 
 Or capture them now, so an exit that never reaches a clean quit (a force quit, a crash, a hard reset)
-restores like one. It needs the setting on, and answers with the number of panes it captured:
+restores like one. It requires this launch to be in `rerun` mode and answers with the number of panes it captured:
 
 ```bash
 agtermctl restore capture
@@ -35,12 +35,47 @@ agtermctl restore capture
 Use a keybind or a scheduled job rather than typing it at a prompt: run by hand it records ITSELF, being
 that pane's foreground process while it runs, and `restore clear` is app-global so it is no per-pane undo.
 
+## See and clean up the daemons behind live sessions
+
+In `live` mode each primary and split pane runs inside a zmx daemon that outlives the app. List them with
+the pane that claims each one:
+
+```bash
+agtermctl zmx list
+```
+
+A `claimed` row with zero clients is a CLOSED window's pane, which is its resting state, not a leak. Only
+`orphan` rows are eligible for cleanup, and prune refuses entirely if the pane inventory is incomplete:
+
+```bash
+agtermctl zmx prune
+```
+
+To destroy one pane's daemon and the process in it, name the session and the pane and confirm. All three
+are required because this kills a backend process, reaching a pane no window is showing and every client
+attached to it:
+
+```bash
+agtermctl zmx kill --target 3f2a --pane left --force
+```
+
+Read or change the restore policy without opening Settings. A mode you set applies to the NEXT launch,
+because a pane is wrapped in a daemon or not at the moment it is created:
+
+```bash
+agtermctl restore mode          # what settings hold, what this launch asked for, what it got
+agtermctl restore mode live     # for the next launch
+```
+
 ## Pin what a pane restores (per-session override)
 
 `session restore` pins a shell line that a pane re-runs on the NEXT launch, overriding the captured
 foreground. It is written now and consumed at the next launch (it never touches the running session), and
 it is sticky — it fires again on every restart until cleared. Read it back on `tree` as the node's
 `restoreCommand` / `splitRestoreCommand`.
+
+In fresh-shell or live mode, a command or `--none` is saved for a future rerun launch and the response
+names the active mode. `--clear` works in every mode. A pin never opts one session out of live mode.
 
 ```bash
 agtermctl session restore "claude --resume abc123" --target "$AGTERM_SESSION_ID"  # pin a shell line

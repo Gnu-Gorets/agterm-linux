@@ -12,14 +12,18 @@ struct AppStorePaneTests {
         let session = store.addSession(toWorkspace: ws.id, cwd: "/a")!
         #expect(session.isSplit == false)
         #expect(session.hasSplit == false)
+        #expect(session.splitPaneIdentity == nil)
         store.toggleSplit(session.id)
         #expect(session.isSplit == true)
         #expect(session.hasSplit == true)
         #expect(session.splitFocused == true)  // opening focuses the new (right) pane
+        let identity = session.splitPaneIdentity
+        #expect(identity != nil)
         store.toggleSplit(session.id)
         #expect(session.isSplit == false)
         #expect(session.hasSplit == true)
         #expect(session.splitFocused == true)
+        #expect(session.splitPaneIdentity == identity)
     }
 
     @Test func controlTreeReportsHasSplitAcrossHide() throws {
@@ -145,6 +149,7 @@ struct AppStorePaneTests {
         session.splitCwd = "/var/log"
         session.splitRatio = 0.7
         session.splitAxis = .topBottom
+        session.splitPaneIdentity = UUID()
         store.closeSplit(session.id)
         #expect(session.isSplit == false)
         #expect(session.hasSplit == false)
@@ -154,6 +159,7 @@ struct AppStorePaneTests {
         #expect(session.initialSplitCwd == nil)
         #expect(session.splitRatio == nil) // teardown clears geometry too, so a fresh re-split opens even
         #expect(session.splitAxis == .leftRight)
+        #expect(session.splitPaneIdentity == nil)
         #expect(split.teardownCount == 1)
     }
 
@@ -194,6 +200,9 @@ struct AppStorePaneTests {
         session.splitForegroundCommand = ["ssh", "host"]
         session.splitRatio = 0.3
         session.initialCommand = "ssh host" // a --command primary whose command has now exited
+        let primaryIdentity = session.paneIdentity
+        let splitIdentity = UUID()
+        session.splitPaneIdentity = splitIdentity
         store.closePrimaryPane(session.id)
         #expect(store.session(withID: session.id) != nil)
         #expect(primary.teardownCount == 1)
@@ -212,6 +221,9 @@ struct AppStorePaneTests {
         #expect(session.splitCwd == nil)
         #expect(session.splitTitle == nil)
         #expect(session.splitForegroundCommand == nil)
+        #expect(session.paneIdentity == splitIdentity)
+        #expect(session.paneIdentity != primaryIdentity)
+        #expect(session.splitPaneIdentity == nil)
         // the `?? splitSurface` fallback is for a shown split pre-collapse, not for a promoted survivor.
         #expect(session.addressableSurface === split)
     }
@@ -254,6 +266,26 @@ struct AppStorePaneTests {
 
         parked.isRealized = true
         #expect(realized() == true)
+    }
+
+    @Test func controlTreeReportsPerPaneAndAggregateZmxBacking() {
+        let store = makeStore()
+        let ws = store.addWorkspace(name: "work")
+        let session = store.addSession(toWorkspace: ws.id, cwd: "/a")!
+        session.surface = SpySurface(backedByZmx: true)
+        session.hasSplit = true
+        session.isSplit = true
+        session.splitSurface = SpySurface(backedByZmx: false)
+
+        var node = store.controlTree().workspaces[0].sessions[0]
+        #expect(node.backedByZmx == false)
+        #expect(node.surfaces?.first(where: { $0.kind == "left" })?.backedByZmx == true)
+        #expect(node.surfaces?.first(where: { $0.kind == "right" })?.backedByZmx == false)
+        #expect(node.surfaces?.first(where: { $0.kind == "scratch" })?.backedByZmx == nil)
+
+        session.splitSurface = SpySurface(backedByZmx: true)
+        node = store.controlTree().workspaces[0].sessions[0]
+        #expect(node.backedByZmx == true)
     }
 
     @Test func addressableSurfaceIsTheMainPaneUntilThePrimaryExits() {

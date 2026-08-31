@@ -83,6 +83,10 @@ public enum Command: String, Codable, Sendable {
     case restoreClear = "restore.clear"
     case version = "version"
     case restoreCapture = "restore.capture"
+    case restoreMode = "restore.mode"
+    case zmxList = "zmx.list"
+    case zmxPrune = "zmx.prune"
+    case zmxKill = "zmx.kill"
     /// UI-TEST-ONLY: forces the app-level appearance (`light`|`dark` via `args.name`) so an XCUITest can
     /// simulate a macOS light/dark flip; with NO name it READS the side the last config feed applied, so a
     /// test can assert the flip drove the reload. Refused outside an XCUITest launch, and EXEMPT from the
@@ -120,6 +124,9 @@ public struct ControlArgs: Codable, Sendable, Equatable {
     /// presents it. Read back as the `window.list` node's `minimized`. The new window also hands frontmost
     /// to a still-visible one, so untargeted commands do not route into the Dock.
     public var minimized: Bool?
+    /// `zmx kill`'s explicit confirmation. The command destroys a backend process that can reach detached
+    /// claims and every client attached to it, so it has no useful default for who is affected.
+    public var force: Bool?
     /// For `session.new`: create in the background without selecting or focusing (the CLI's `--no-select`);
     /// omitted/`false` keeps select-and-focus. Read back via the `tree` `active` flag — the new node is not it.
     public var noSelect: Bool?
@@ -309,6 +316,7 @@ public struct ControlArgs: Codable, Sendable, Equatable {
     public init(name: String? = nil, cwd: String? = nil, targets: [String]? = nil,
                 workspace: String? = nil, workspaceName: String? = nil,
                 createWorkspace: Bool? = nil, collapsed: Bool? = nil, minimized: Bool? = nil,
+                force: Bool? = nil,
                 noSelect: Bool? = nil,
                 text: String? = nil, select: Bool? = nil, mode: String? = nil, axis: String? = nil,
                 command: String? = nil, wait: Bool? = nil, sizePercent: Int? = nil, full: Bool? = nil,
@@ -335,6 +343,7 @@ public struct ControlArgs: Codable, Sendable, Equatable {
         self.createWorkspace = createWorkspace
         self.collapsed = collapsed
         self.minimized = minimized
+        self.force = force
         self.noSelect = noSelect
         self.text = text
         self.select = select
@@ -425,12 +434,19 @@ public struct ControlSurfaceNode: Codable, Sendable, Equatable {
     public let kind: String
     public let active: Bool
     public let visible: Bool
+    /// Actual zmx backing for primary/split surfaces; nil for ephemeral surfaces or older servers.
+    public let backedByZmx: Bool?
 
     public init(id: String, kind: String, active: Bool, visible: Bool) {
+        self.init(id: id, kind: kind, active: active, visible: visible, backedByZmx: nil)
+    }
+
+    public init(id: String, kind: String, active: Bool, visible: Bool, backedByZmx: Bool?) {
         self.id = id
         self.kind = kind
         self.active = active
         self.visible = visible
+        self.backedByZmx = backedByZmx
     }
 }
 
@@ -501,6 +517,8 @@ public struct ControlSessionNode: Codable, Sendable, Equatable {
     /// second-guessing `split`. The sidebar icon, the dashboard's second cell and Focus Left/Right Pane all
     /// follow this, not `split`.
     public let hasSplit: Bool?
+    /// True only when every existing primary/split pane is currently zmx-backed; nil on older servers.
+    public let backedByZmx: Bool?
     /// Divider direction for a live split (`vertical`=left/right, `horizontal`=top/bottom); nil without one.
     public let splitAxis: String?
     /// The primary-pane fraction (0.05...0.95) of a session that HAS a split (shown or hidden); nil with no
@@ -602,7 +620,7 @@ public struct ControlSessionNode: Codable, Sendable, Equatable {
     public let realized: Bool?
 
     public init(id: String, name: String, cwd: String, title: String? = nil, active: Bool, split: Bool,
-                hasSplit: Bool? = nil, splitAxis: String? = nil,
+                hasSplit: Bool? = nil, backedByZmx: Bool?, splitAxis: String? = nil,
                 splitRatio: Double? = nil, splitFocused: Bool? = nil,
                 overlay: Bool = false, overlaySizePercent: Int? = nil, paneOverlays: [String]? = nil,
                 hud: ControlHudNode? = nil, scratch: Bool = false, flagged: Bool = false,
@@ -621,6 +639,7 @@ public struct ControlSessionNode: Codable, Sendable, Equatable {
         self.active = active
         self.split = split
         self.hasSplit = hasSplit
+        self.backedByZmx = backedByZmx
         self.splitAxis = splitAxis
         self.splitRatio = splitRatio
         self.splitFocused = splitFocused
@@ -856,8 +875,9 @@ public struct ControlResult: Codable, Sendable, Equatable {
     /// not just the agterm-scoped `ghostty.conf` — libghostty diagnostics carry no source-file attribution);
     /// and `session.search`'s total match count (whose "N of M" display string rides in `text`).
     public var count: Int?
-    /// Number of sessions actually changed by a batch mutation (`session.close` or `session.move`); separate
-    /// from `count`, whose CLI rendering is specific to diagnostics/search results.
+    /// Number of things actually changed: sessions for a batch mutation (`session.close`/`session.move`),
+    /// daemons killed for `zmx.prune`. Separate from `count`, whose CLI rendering is specific to
+    /// diagnostics/search results.
     public var affected: Int?
     /// The current/affected theme name for `theme.set` (echo) and `theme.list` (current); nil =
     /// ghostty's built-in colors ("default ghostty"), distinct from the seeded `agterm` app default.
@@ -885,6 +905,11 @@ public struct ControlResult: Codable, Sendable, Equatable {
     public var cursor: ControlCursor?
     /// The app serving this socket, for `version`. The same value `tree` carries.
     public var app: AppIdentity?
+    /// The restore-mode policy for `restore.mode`, and the header `zmx list` repeats so its rows can be
+    /// read without a second call.
+    public var restore: ControlRestoreStatus?
+    /// The daemon inventory for `zmx list`.
+    public var zmx: ControlZmxInventory?
 
     public init(id: String? = nil, tree: ControlTree? = nil, text: String? = nil,
                 windows: [ControlWindowNode]? = nil, exitCode: Int? = nil, count: Int? = nil,
@@ -893,7 +918,10 @@ public struct ControlResult: Codable, Sendable, Equatable {
                 sync: Bool? = nil, light: String? = nil, dark: String? = nil,
                 events: ControlEventBatch? = nil, keymap: ControlKeymap? = nil,
                 pick: ControlPickResult? = nil, cursor: ControlCursor? = nil,
-                app: AppIdentity? = nil) {
+                app: AppIdentity? = nil, restore: ControlRestoreStatus? = nil,
+                zmx: ControlZmxInventory? = nil) {
+        self.restore = restore
+        self.zmx = zmx
         self.id = id
         self.tree = tree
         self.text = text
@@ -913,23 +941,6 @@ public struct ControlResult: Codable, Sendable, Equatable {
         self.pick = pick
         self.cursor = cursor
         self.app = app
-    }
-}
-
-/// `surface.cursor`'s payload, nested so a `row` could join it additively rather than by a rename.
-///
-/// There is no row: `tl_px_y` is the text BASELINE against an IME point at the cell bottom, leaving a term
-/// no probe separates from the row, and `adjust-font-baseline = 30` was measured reporting row 5 for a caret
-/// on row 4. `GhosttySurfaceView.readCursorColumn` owns why the horizontal twin is exact.
-///
-/// A column is a signal, not an assertion about content: past the prompt it proves the line is not empty,
-/// AT the prompt it proves nothing, the caret having possibly moved back over text.
-public struct ControlCursor: Codable, Sendable, Equatable {
-    /// Zero-based, counted from the left edge of the grid.
-    public let column: Int
-
-    public init(column: Int) {
-        self.column = column
     }
 }
 
@@ -977,17 +988,4 @@ public enum PaneOverlayError {
 /// broken notification path (issue #286). Shared so wording and matchers cannot drift.
 public enum ControlNotify {
     public static let bannersOffNote = "badge updated, but \"Show notification banners\" is off, so no banner was posted"
-}
-
-/// The single response written back per connection. `ok` gates `result` (on success) vs `error`.
-public struct ControlResponse: Codable, Sendable, Equatable {
-    public let ok: Bool
-    public var result: ControlResult?
-    public var error: String?
-
-    public init(ok: Bool, result: ControlResult? = nil, error: String? = nil) {
-        self.ok = ok
-        self.result = result
-        self.error = error
-    }
 }

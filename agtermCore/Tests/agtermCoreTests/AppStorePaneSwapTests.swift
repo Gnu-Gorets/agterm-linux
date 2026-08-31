@@ -23,6 +23,8 @@ struct AppStorePaneSwapTests {
     private struct State: Equatable {
         let surface: ObjectIdentifier?
         let splitSurface: ObjectIdentifier?
+        let paneIdentity: UUID
+        let splitPaneIdentity: UUID?
         let currentCwd: String?
         let splitCwd: String?
         let initialSplitCwd: String?
@@ -57,6 +59,8 @@ struct AppStorePaneSwapTests {
         @MainActor init(_ session: Session) {
             surface = session.surface.map { ObjectIdentifier($0) }
             splitSurface = session.splitSurface.map { ObjectIdentifier($0) }
+            paneIdentity = session.paneIdentity
+            splitPaneIdentity = session.splitPaneIdentity
             currentCwd = session.currentCwd
             splitCwd = session.splitCwd
             initialSplitCwd = session.initialSplitCwd
@@ -100,6 +104,8 @@ struct AppStorePaneSwapTests {
         let rightOverlay = SpySurface(paneToken: "overlay-right")
         session.surface = primary
         session.splitSurface = split
+        session.paneIdentity = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        session.splitPaneIdentity = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
         session.isSplit = false
         session.hasSplit = true
         session.splitAxis = .topBottom
@@ -142,6 +148,8 @@ struct AppStorePaneSwapTests {
 
         #expect(session.surface === fixture.split)
         #expect(session.splitSurface === fixture.primary)
+        #expect(session.paneIdentity == UUID(uuidString: "22222222-2222-2222-2222-222222222222"))
+        #expect(session.splitPaneIdentity == UUID(uuidString: "11111111-1111-1111-1111-111111111111"))
         #expect(session.currentCwd == "/live-right")
         #expect(session.splitCwd == "/live-left")
         #expect(session.initialSplitCwd == "/live-left")
@@ -172,6 +180,27 @@ struct AppStorePaneSwapTests {
         #expect(session.splitAxis == .topBottom)
         #expect(session.splitRatio == 0.3)
         #expect(session.splitFocused)
+    }
+
+    @Test func swappedPaneIdentitiesStayPairedThroughHiddenSplitRestore() throws {
+        let fixture = makeSeededSession()
+
+        #expect(fixture.store.swapPanes(fixture.session.id) == nil)
+        let persisted = fixture.store.snapshot().workspaces[0].sessions[0]
+        let restoredStore = makeStore()
+        restoredStore.restore(from: Snapshot(workspaces: [
+            WorkspaceSnapshot(id: UUID(), name: "work", sessions: [persisted]),
+        ]))
+        let restored = try #require(restoredStore.workspaces[0].sessions.first)
+
+        #expect(!restored.isSplit)
+        #expect(restored.hasSplit)
+        #expect(restored.paneIdentity == UUID(uuidString: "22222222-2222-2222-2222-222222222222"))
+        #expect(restored.splitPaneIdentity == UUID(uuidString: "11111111-1111-1111-1111-111111111111"))
+        #expect(restored.initialCommand == "right command")
+        #expect(restored.commandWait)
+        #expect(restored.splitInitialCommand == "left command")
+        #expect(!restored.splitCommandWait)
     }
 
     @Test func swapAssignsEachSurfaceItsNewRole() {

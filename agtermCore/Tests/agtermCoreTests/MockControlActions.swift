@@ -51,6 +51,11 @@ final class MockControlActions: ControlActions {
         case notify(target: String?, window: String?, title: String?, body: String)
         case themeSet(String?)
         case themeList
+        case restoreModeRead
+        case restoreModeSet(RestoreMode)
+        case zmxList
+        case zmxPrune
+        case zmxKill(target: String, window: String?, pane: ZmxPaneRole)
         case sidebarVisibility(ControlToggleMode)
         case sidebarViewMode(ControlSidebarViewMode)
         case expand(window: String?)
@@ -120,6 +125,10 @@ final class MockControlActions: ControlActions {
     var nextConfigResponse = ControlResponse(ok: true)
     var nextThemeSetResponse = ControlResponse(ok: true)
     var nextThemeListResponse = ControlResponse(ok: true)
+    var nextRestoreModeResponse = ControlResponse(ok: true)
+    var nextZmxListResponse = ControlResponse(ok: true)
+    var nextZmxPruneResponse = ControlResponse(ok: true)
+    var nextZmxKillResponse = ControlResponse(ok: true)
     var nextQuickResponse = ControlResponse(ok: true)
     var nextQuickTypeResponse = ControlResponse(ok: true)
     var nextQuickTextResponse = ControlResponse(ok: true)
@@ -387,6 +396,31 @@ final class MockControlActions: ControlActions {
     func listThemes() -> ControlResponse {
         calls.append(.themeList)
         return nextThemeListResponse
+    }
+
+    func readRestoreMode() -> ControlResponse {
+        calls.append(.restoreModeRead)
+        return nextRestoreModeResponse
+    }
+
+    func setRestoreMode(_ mode: RestoreMode) -> ControlResponse {
+        calls.append(.restoreModeSet(mode))
+        return nextRestoreModeResponse
+    }
+
+    func listZmxDaemons() -> ControlResponse {
+        calls.append(.zmxList)
+        return nextZmxListResponse
+    }
+
+    func pruneZmxDaemons() -> ControlResponse {
+        calls.append(.zmxPrune)
+        return nextZmxPruneResponse
+    }
+
+    func killZmxDaemon(target: String, window: String?, pane: ZmxPaneRole) -> ControlResponse {
+        calls.append(.zmxKill(target: target, window: window, pane: pane))
+        return nextZmxKillResponse
     }
 
     func setSidebarVisibility(_ mode: ControlToggleMode) -> ControlResponse {

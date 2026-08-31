@@ -839,6 +839,45 @@ final class ControlServerSessionActionsTests: XCTestCase {
         XCTAssertEqual(session.restoreCommand, "echo main")
     }
 
+    func testRestoreSetAndNoneSavePolicyWithANoteOutsideRerun() throws {
+        let store = try XCTUnwrap(library.activeStore)
+        let owner = try XCTUnwrap(store.currentWorkspaceID)
+        let session = try XCTUnwrap(store.addSession(toWorkspace: owner, cwd: NSHomeDirectory()))
+        let liveServer = makeServer(launchMode: .live)
+
+        let set = liveServer.setSessionRestore(
+            session.id.uuidString, window: nil,
+            update: ControlSessionRestoreUpdate(pin: .pin("echo later")))
+        XCTAssertTrue(set.ok, set.error ?? "")
+        XCTAssertEqual(set.result?.text, "saved for rerun mode; active restore mode is live")
+        XCTAssertEqual(session.restoreCommand, "echo later")
+
+        let none = liveServer.setSessionRestore(
+            session.id.uuidString, window: nil,
+            update: ControlSessionRestoreUpdate(pin: .pinNone))
+        XCTAssertTrue(none.ok, none.error ?? "")
+        XCTAssertEqual(none.result?.text, "saved for rerun mode; active restore mode is live")
+        XCTAssertEqual(session.restoreCommand, "")
+
+        let clear = liveServer.setSessionRestore(
+            session.id.uuidString, window: nil,
+            update: ControlSessionRestoreUpdate(pin: .unpin))
+        XCTAssertTrue(clear.ok, clear.error ?? "")
+        XCTAssertNil(clear.result?.text)
+        XCTAssertNil(session.restoreCommand)
+    }
+
+    private func makeServer(launchMode: RestoreMode) -> ControlServer {
+        ControlServer(
+            library: library,
+            actions: AppActions(library: library),
+            settingsModel: SettingsModel(library: library, settingsStore: SettingsStore(directory: stateDir)),
+            identity: AppIdentity(version: "9.9.9", commit: "testsha"),
+            launchRestoreMode: launchMode,
+            socketPath: stateDir.appendingPathComponent("control-\(UUID().uuidString).sock").path
+        )
+    }
+
 }
 
 @MainActor

@@ -33,6 +33,13 @@ public protocol TerminalSurface: AnyObject {
     /// surface spawned with no pane identity (overlay / quick terminal, or a test stub), which
     /// `paneRole(forToken:)` never matches.
     var paneToken: String { get }
+
+    /// Whether this primary/split surface is attached through zmx. Ephemeral surfaces keep the default false.
+    var backedByZmx: Bool { get }
+}
+
+public extension TerminalSurface {
+    var backedByZmx: Bool { false }
 }
 
 /// A live terminal surface's current role in a two-pane session.
