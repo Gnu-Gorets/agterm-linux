@@ -349,8 +349,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// of a session whose split is hidden or gone still holds whatever an earlier capture put there.
     @MainActor
     @discardableResult
+    /// `preserveUnconsumedPending` is EXIT-ONLY. On-demand `restore.capture` must leave an unconsumed slot
+    /// out of the persisted field: persisting it while the pending copy stays armed lets a later show consume
+    /// and replay it, and a crash before the next capture then replays the persisted copy a second time.
     static func captureForegroundCommands(
         sessions: [Session], zmxResolver: ZmxForegroundResolver? = nil,
+        preserveUnconsumedPending: Bool = false,
         timeRemaining suppliedTimeRemaining: (() -> Bool)? = nil,
         commandReader: ForegroundCommandReader = { view, shell, snapshot in
             ForegroundProcess.command(for: view, shellBasename: shell, zmxSnapshot: snapshot)
@@ -367,19 +371,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ? zmxResolver?.freshSnapshot(timeout: ZmxClient.captureInvocationTimeout)
             : nil
         var captured = 0
+        // `loadStore` moves the persisted argv into the pending slot and rewrites the file with nil, so this
+        // is the only thing that refills it: at exit, writing nil over a slot NO factory consumed destroys
+        // it. That happens on a fallback launch and on a restored hidden split never shown.
         for session in sessions {
+            let pending = preserveUnconsumedPending ? session.pendingForegroundCommand : nil
+            let pendingSplit = preserveUnconsumedPending ? session.pendingSplitForegroundCommand : nil
             if let view = session.surface as? GhosttySurfaceView {
-                session.foregroundCommand = timeRemaining() && (!view.backedByZmx || zmxSnapshot != nil)
+                let read = timeRemaining() && (!view.backedByZmx || zmxSnapshot != nil)
                     ? commandReader(view, shellBasename, zmxSnapshot) : nil
-                if session.foregroundCommand != nil { captured += 1 }
+                if read != nil { captured += 1 }
+                session.foregroundCommand = read ?? pending
+            } else {
+                session.foregroundCommand = pending
             }
             if let split = session.splitSurface as? GhosttySurfaceView,
                session.isSplit || split.backedByZmx {
-                session.splitForegroundCommand = timeRemaining() && (!split.backedByZmx || zmxSnapshot != nil)
+                let read = timeRemaining() && (!split.backedByZmx || zmxSnapshot != nil)
                     ? commandReader(split, shellBasename, zmxSnapshot) : nil
-                if session.splitForegroundCommand != nil { captured += 1 }
+                if read != nil { captured += 1 }
+                session.splitForegroundCommand = read ?? pendingSplit
             } else {
-                session.splitForegroundCommand = nil
+                session.splitForegroundCommand = pendingSplit
             }
         }
         return captured

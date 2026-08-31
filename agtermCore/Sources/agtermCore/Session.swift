@@ -245,8 +245,9 @@ public final class Session: Identifiable {
     /// goes nil the moment the replay is armed, so no save landing before the surface spawns can write the
     /// argv back over the file the strip just cleaned.
     @ObservationIgnored public var pendingForegroundCommand: [String]?
-    /// The split analogue of `pendingForegroundCommand`, seeded only when the restored split was SHOWN
-    /// (`isSplit`) — a hidden split builds no right surface at bootstrap.
+    /// The split analogue of `pendingForegroundCommand`, seeded for every surviving split (`hasSplit`),
+    /// hidden included: a hidden split builds no right surface at bootstrap, so it consumes this only if it
+    /// is later shown, and the exit capture writes it back untouched until then.
     @ObservationIgnored public var pendingSplitForegroundCommand: [String]?
 
     /// Whether the session-wide overlay slot is OCCUPIED, by either of its two occupants: a caller's PROGRAM

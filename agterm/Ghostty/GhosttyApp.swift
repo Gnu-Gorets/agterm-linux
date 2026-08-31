@@ -67,7 +67,12 @@ final class GhosttyApp {
     var launchRestoreMode: RestoreMode { restoreLaunchDecision.active }
     var liveRestoreUnavailableReason: String? { restoreLaunchDecision.liveUnavailableReason }
     var restoreRunningCommand: Bool { launchRestoreMode == .rerun }
-    var capturesForegroundOnExit: Bool { Self.capturesForegroundOnExit(mode: launchRestoreMode) }
+    var capturesForegroundOnExit: Bool { Self.capturesForegroundOnExit(decision: restoreLaunchDecision) }
+    /// Reads the REQUESTED mode, not the active one: a launch that asked for live and fell back preserves the
+    /// detached daemons for a later eligible launch, so it must preserve their captured argv too.
+    static func capturesForegroundOnExit(decision: RestoreLaunchDecision) -> Bool {
+        capturesForegroundOnExit(mode: decision.requested)
+    }
     static func capturesForegroundOnExit(mode: RestoreMode) -> Bool { mode == .rerun || mode == .live }
     /// Whether the window title bar shows the attention bell icon; off by default. The title bar reads it via
     /// `WindowContentView`'s mirrored chrome state; settings-mirrored like `toolbarMode`.

@@ -63,7 +63,8 @@ struct agtermApp: App {
         zmxForegroundResolver = restored.foregroundResolver
         if GhosttyApp.shared.capturesForegroundOnExit {
             let capture: AppDelegate.ExitCapture = { [resolver = restored.foregroundResolver] sessions in
-                AppDelegate.captureForegroundCommands(sessions: sessions, zmxResolver: resolver)
+                AppDelegate.captureForegroundCommands(sessions: sessions, zmxResolver: resolver,
+                                                      preserveUnconsumedPending: true)
             }
             captureOnExit = capture
         } else {

@@ -342,8 +342,9 @@ buys nothing. A caller with no tree uses `version`.
   vanish. In Re-run commands mode it persists across restart (unlike an overlay's live-only `--wait`),
   so a restored command session that starts its command again also holds; read it back on `tree`'s
   `commandWait`. Live sessions mode types the command into the persistent zmx shell only on first creation.
-  The shell stays open when it exits, `--wait` adds no hold prompt, and a missing daemon restores a fresh
-  shell without replaying the command.
+  The shell stays open when it exits, and `--wait` adds no hold prompt. After a clean quit, a missing daemon
+  is recreated running whatever that pane's foreground command was; if the command had already exited, or the
+  quit never happened, the pane comes back as a fresh shell.
   The command is persisted (`SessionSnapshot.initialCommand`) and starts again on restore in Re-run commands
   mode; a captured foreground takes precedence over it. Fresh shells mode restores a plain shell. `--name`
   seeds the session's custom name (the sidebar label; blank/omitted leaves the auto basename),
@@ -1214,9 +1215,13 @@ started with, so a change applies after restarting agterm.
 - **Live sessions** wraps primary and split panes with zmx and reattaches to their running processes. Zsh
   must be the macOS login shell. Scratch, overlay, and quick terminals remain temporary.
 
-Closing agterm or sending it SIGTERM ends the attach clients and leaves live daemons running. A missing
-daemon, including after a reboot or `agtermctl zmx kill`, comes back as a fresh shell under the same name. A
-session or split that is explicitly deleted has its daemon killed after the undo grace period.
+Closing agterm or sending it SIGTERM ends the attach clients and leaves live daemons running. A clean quit
+also captures each live pane's foreground command, so a daemon missing after an orderly machine restart is
+recreated under the same name running that command. Four cases still come back as a
+fresh shell: a pane in a window closed before the quit, a hard power loss or force quit that never reached
+capture, a command refused by `restore-denylist.conf` or carrying control bytes, and SIGTERM, which leaves
+the daemons running but skips the clean-quit capture. A session or split that is explicitly deleted has its
+daemon killed after the undo grace period.
 Switching to Fresh shells or Re-run commands and restarting ends every detached live process in the state
 directory. A launch that still requests Live sessions but cannot use it preserves those processes.
 

@@ -171,4 +171,70 @@ final class AppDelegateCaptureTests: XCTestCase {
             workingDirectory: "/tmp", env: ["AGTERM_PANE_ID": paneID.uuidString], backedByZmx: true)
         return session
     }
+
+    func testExitCapturePreservesAnUnconsumedPendingArgvWhenTheReadYieldsNothing() {
+        let session = Session(initialCwd: "/tmp")
+        session.surface = GhosttySurfaceView(workingDirectory: "/tmp")
+        session.pendingForegroundCommand = ["npm", "run", "dev"]
+
+        let count = AppDelegate.captureForegroundCommands(
+            sessions: [session], zmxResolver: nil, preserveUnconsumedPending: true,
+            commandReader: { _, _, _ in nil })
+
+        XCTAssertEqual(count, 0)
+        XCTAssertEqual(session.foregroundCommand, ["npm", "run", "dev"])
+    }
+
+    func testExitCapturePreservesAHiddenSplitArgvWhenNoRightSurfaceWasBuilt() {
+        let session = Session(initialCwd: "/tmp")
+        session.surface = GhosttySurfaceView(workingDirectory: "/tmp")
+        session.hasSplit = true
+        session.isSplit = false
+        session.pendingSplitForegroundCommand = ["tail", "-f", "log"]
+
+        _ = AppDelegate.captureForegroundCommands(
+            sessions: [session], zmxResolver: nil, preserveUnconsumedPending: true,
+            commandReader: { _, _, _ in nil })
+
+        XCTAssertNil(session.splitSurface)
+        XCTAssertEqual(session.splitForegroundCommand, ["tail", "-f", "log"])
+    }
+
+    func testExitCaptureDoesNotResurrectAnArgvTheFactoryAlreadyConsumed() {
+        let session = Session(initialCwd: "/tmp")
+        session.surface = GhosttySurfaceView(workingDirectory: "/tmp")
+        session.pendingForegroundCommand = ["npm", "run", "dev"]
+        XCTAssertEqual(session.takePendingForegroundCommand(pane: .left), ["npm", "run", "dev"])
+
+        _ = AppDelegate.captureForegroundCommands(
+            sessions: [session], zmxResolver: nil, preserveUnconsumedPending: true,
+            commandReader: { _, _, _ in nil })
+
+        XCTAssertNil(session.foregroundCommand)
+    }
+
+    // restore.capture persisting an unconsumed slot while it stays armed lets a later show replay it once and
+    // a crash replay the persisted copy again.
+    func testOnDemandCaptureLeavesAnUnconsumedPendingArgvOutOfTheSnapshot() {
+        let session = Session(initialCwd: "/tmp")
+        session.surface = GhosttySurfaceView(workingDirectory: "/tmp")
+        session.hasSplit = true
+        session.isSplit = false
+        session.pendingSplitForegroundCommand = ["tail", "-f", "log"]
+
+        _ = AppDelegate.captureForegroundCommands(
+            sessions: [session], zmxResolver: nil, commandReader: { _, _, _ in nil })
+
+        XCTAssertNil(session.splitForegroundCommand)
+        XCTAssertEqual(session.takePendingForegroundCommand(pane: .right), ["tail", "-f", "log"])
+    }
+
+    func testCapturePolicyReadsTheRequestedModeSoAFallbackLaunchStillCaptures() {
+        let fellBack = RestoreMode.live.launchDecision(liveUnavailableReason: "the zmx executable is unavailable")
+        XCTAssertEqual(fellBack.active, RestoreMode.none)
+        XCTAssertTrue(GhosttyApp.capturesForegroundOnExit(decision: fellBack))
+
+        let fresh = RestoreMode.none.launchDecision(liveUnavailableReason: nil)
+        XCTAssertFalse(GhosttyApp.capturesForegroundOnExit(decision: fresh))
+    }
 }
