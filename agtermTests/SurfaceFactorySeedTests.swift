@@ -75,17 +75,35 @@ final class SurfaceFactorySeedTests: XCTestCase {
         XCTAssertEqual(session.pendingSplitForegroundCommand, ["split"])
     }
 
-    func testDeniedReplayConsumesOnceAndProducesBareAttach() throws {
-        let session = restoredSession()
-        session.pendingForegroundCommand = ["/usr/bin/tmux", "attach"]
+    func testDeniedReplaySuppressesDurableCommandOnBothPanes() throws {
+        for pane in [StatusPane.left, .right] {
+            let session = restoredSession()
+            setDurableCommand("echo durable", on: pane, session: session)
+            setPendingCapture(["/usr/bin/tmux", "attach"], on: pane, session: session)
 
-        let seed = try XCTUnwrap(ZmxLaunch.surfaceSeed(
-            disposition: .wrapped(configuration), session: session, pane: .left, denylist: ["tmux"]
-        ))
+            let seed = try XCTUnwrap(ZmxLaunch.surfaceSeed(
+                disposition: .wrapped(configuration), session: session, pane: pane, denylist: ["tmux"]
+            ))
 
-        XCTAssertEqual(seed.command, configuration.command)
-        XCTAssertNil(seed.initialInput)
-        XCTAssertNil(session.pendingForegroundCommand)
+            XCTAssertEqual(seed.command, configuration.command)
+            XCTAssertNil(seed.initialInput)
+            XCTAssertNil(pendingCapture(on: pane, session: session))
+        }
+    }
+
+    func testRestoredWrappedPanesUseDurableCommandWhenCaptureIsAbsent() throws {
+        for pane in [StatusPane.left, .right] {
+            let session = restoredSession()
+            setDurableCommand("printf durable && echo 'two words'", on: pane, session: session)
+
+            let seed = try XCTUnwrap(ZmxLaunch.surfaceSeed(
+                disposition: .wrapped(configuration), session: session, pane: pane, denylist: []
+            ))
+
+            XCTAssertNotEqual(seed.command, configuration.command)
+            XCTAssertTrue(seed.command.contains("printf durable && echo"))
+            XCTAssertNil(seed.initialInput)
+        }
     }
 
     func testFreshWrappedPrimaryKeepsCreationInput() throws {
@@ -104,5 +122,29 @@ final class SurfaceFactorySeedTests: XCTestCase {
         let session = Session(initialCwd: "/tmp")
         session.wasRestored = true
         return session
+    }
+
+    private func setDurableCommand(_ command: String, on pane: StatusPane, session: Session) {
+        switch pane {
+        case .left: session.initialCommand = command
+        case .right: session.splitInitialCommand = command
+        case .scratch: XCTFail("scratch is not restored")
+        }
+    }
+
+    private func setPendingCapture(_ argv: [String], on pane: StatusPane, session: Session) {
+        switch pane {
+        case .left: session.pendingForegroundCommand = argv
+        case .right: session.pendingSplitForegroundCommand = argv
+        case .scratch: XCTFail("scratch is not restored")
+        }
+    }
+
+    private func pendingCapture(on pane: StatusPane, session: Session) -> [String]? {
+        switch pane {
+        case .left: session.pendingForegroundCommand
+        case .right: session.pendingSplitForegroundCommand
+        case .scratch: nil
+        }
     }
 }

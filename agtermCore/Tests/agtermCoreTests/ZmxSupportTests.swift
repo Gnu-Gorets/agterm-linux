@@ -120,7 +120,7 @@ struct ZmxSupportTests {
                                              configuration: nil) == .fallback)
     }
 
-    @Test func eligibleReplayIsAppendedAsOneOuterQuotedAttachPayload() {
+    @Test func eligibleReplayWinsOverDurableCommandAsOneOuterQuotedAttachPayload() {
         let configuration = replayConfiguration()
         let argv = ["printf", "%s", "two words", "single'quote"]
         let script = ZmxReplayScript.render(
@@ -128,7 +128,9 @@ struct ZmxSupportTests {
             inheritedZdotdir: "/user/zsh", shell: "/bin/zsh"
         )
 
-        let command = ZmxSupport.attachCommand(configuration, replaying: argv, denylist: [])
+        let command = ZmxSupport.attachCommand(
+            configuration, replaying: argv, creationCommand: "echo durable", denylist: []
+        )
 
         #expect(command == configuration.command + " " +
                 CommandRestore.shellQuotedLine(["/bin/zsh", "-lic", script]))
@@ -143,14 +145,32 @@ struct ZmxSupportTests {
     func refusedReplayKeepsTheBareAttach(argv: [String], denylist: Set<String>) {
         let configuration = replayConfiguration()
 
-        #expect(ZmxSupport.attachCommand(configuration, replaying: argv, denylist: denylist) ==
+        #expect(ZmxSupport.attachCommand(
+            configuration, replaying: argv, creationCommand: "echo durable", denylist: denylist
+        ) ==
                 configuration.command)
     }
 
-    @Test func missingReplayKeepsTheBareAttach() {
+    @Test func missingReplayUsesDurableCommandAsAShellLine() {
+        let configuration = replayConfiguration()
+        let line = "printf durable && echo 'two words'"
+        let script = ZmxReplayScript.render(
+            commandLine: line, integrationDirectory: "/bundle resources/zsh",
+            inheritedZdotdir: "/user/zsh", shell: "/bin/zsh"
+        )
+
+        #expect(ZmxSupport.attachCommand(
+            configuration, replaying: nil, creationCommand: line, denylist: []
+        ) == configuration.command + " " +
+                CommandRestore.shellQuotedLine(["/bin/zsh", "-lic", script]))
+    }
+
+    @Test func missingReplayAndDurableCommandKeepTheBareAttach() {
         let configuration = replayConfiguration()
 
-        #expect(ZmxSupport.attachCommand(configuration, replaying: nil, denylist: []) ==
+        #expect(ZmxSupport.attachCommand(
+            configuration, replaying: nil, creationCommand: nil, denylist: []
+        ) ==
                 configuration.command)
     }
 

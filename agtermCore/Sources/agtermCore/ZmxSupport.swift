@@ -125,16 +125,29 @@ public enum ZmxSupport {
     }
 
     public static func attachCommand(_ configuration: Configuration, replaying argv: [String]?,
-                                     denylist: Set<String>) -> String {
-        guard let argv, CommandRestore.shouldRestore(argv: argv, denylist: denylist),
-              let shell = configuration.environment["SHELL"],
+                                     creationCommand: String? = nil, denylist: Set<String>) -> String {
+        guard let shell = configuration.environment["SHELL"],
               let integrationDirectory = configuration.environment["ZDOTDIR"] else {
             return configuration.command
         }
-        let script = ZmxReplayScript.render(
-            argv: argv, integrationDirectory: integrationDirectory,
-            inheritedZdotdir: configuration.environment["GHOSTTY_ZSH_ZDOTDIR"], shell: shell
-        )
+        let inheritedZdotdir = configuration.environment["GHOSTTY_ZSH_ZDOTDIR"]
+        let script: String
+        if let argv {
+            guard CommandRestore.shouldRestore(argv: argv, denylist: denylist) else {
+                return configuration.command
+            }
+            script = ZmxReplayScript.render(
+                argv: argv, integrationDirectory: integrationDirectory,
+                inheritedZdotdir: inheritedZdotdir, shell: shell
+            )
+        } else if let creationCommand {
+            script = ZmxReplayScript.render(
+                commandLine: creationCommand, integrationDirectory: integrationDirectory,
+                inheritedZdotdir: inheritedZdotdir, shell: shell
+            )
+        } else {
+            return configuration.command
+        }
         return configuration.command + " " + CommandRestore.shellQuotedLine([shell, "-lic", script])
     }
 

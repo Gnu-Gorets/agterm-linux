@@ -83,6 +83,21 @@ struct ZmxReplayScriptTests {
         #expect(try String(contentsOf: result, encoding: .utf8).split(separator: "\n").map(String.init) == expected)
     }
 
+    @Test func durableShellLineKeepsItsOperatorsAndWordParsing() throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let result = fixture.appending(path: "shell-line")
+        let output = CommandRestore.shellQuotedLine([result.path])
+        let script = ZmxReplayScript.render(
+            commandLine: "printf '%s' 'two words' > \(output) && printf ' and more' >> \(output)",
+            integrationDirectory: "/bundle/zsh", inheritedZdotdir: nil,
+            shell: "/usr/bin/true"
+        )
+
+        #expect(try runZsh(script: script) == 0)
+        #expect(try String(contentsOf: result, encoding: .utf8) == "two words and more")
+    }
+
     private func makeFixture() throws -> URL {
         let root = FileManager.default.temporaryDirectory.appending(path: "agterm-zmx-replay-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
