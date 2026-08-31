@@ -6,6 +6,11 @@ import os
 enum ZmxLaunch {
     typealias Disposition = ZmxSupport.LaunchDisposition
 
+    struct SurfaceSeed: Equatable {
+        let command: String
+        let initialInput: String?
+    }
+
     private struct Runtime {
         let bundleURL: URL
         let environment: [String: String]
@@ -74,6 +79,20 @@ enum ZmxLaunch {
     static func disposition(requested: RestoreMode, active: RestoreMode,
                             configuration: ZmxSupport.Configuration?) -> Disposition {
         ZmxSupport.launchDisposition(requested: requested, active: active, configuration: configuration)
+    }
+
+    @MainActor
+    static func surfaceSeed(disposition: Disposition, session: Session, pane: StatusPane,
+                            denylist: Set<String>) -> SurfaceSeed? {
+        guard case .wrapped(let configuration) = disposition else { return nil }
+        let replay = session.takePendingForegroundCommand(pane: pane)
+        let initialInput = pane == .left && !session.wasRestored
+            ? session.initialCommand.map { $0 + "\n" }
+            : nil
+        return SurfaceSeed(
+            command: ZmxSupport.attachCommand(configuration, replaying: replay, denylist: denylist),
+            initialInput: initialInput
+        )
     }
 
     static func passwordDatabaseLoginShell() -> String? {

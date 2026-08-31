@@ -307,8 +307,8 @@ struct agtermApp: App {
         // foreground pid, so it is never captured and restores via the exec `command` path, keeping close-on-exit.
         // On the ordinary path, precedence is host-free `CommandRestore.restorePlan`: fresh always runs, restored
         // honors rerun mode, and a captured foreground preempts `initialCommand` even when denylist-suppressed. A
-        // `session.restore` override beats both from the TRANSIENT pending slot. The zmx path deliberately leaves
-        // both pending slots untouched because the still-running daemon, not a replay command, owns restoration.
+        // `session.restore` override beats both from the TRANSIENT pending slot. A wrapped live pane consumes only
+        // its captured foreground argv; zmx ignores that create-only payload when the daemon survived.
         let zmx = ghostty.launchRestoreMode == .live
             ? ZmxLaunch.configuration(paneIdentity: session.paneIdentity, pane: "primary", environment: env)
             : nil
@@ -321,8 +321,11 @@ struct agtermApp: App {
         let surfaceEnv: [String: String]
         switch disposition {
         case .wrapped(let zmx):
-            command = zmx.command
-            initialInput = session.wasRestored ? nil : session.initialCommand.map { $0 + "\n" }
+            guard let seed = ZmxLaunch.surfaceSeed(
+                disposition: disposition, session: session, pane: .left, denylist: ghostty.restoreDenylist
+            ) else { preconditionFailure("wrapped zmx disposition has no surface seed") }
+            command = seed.command
+            initialInput = seed.initialInput
             waitAfterCommand = false
             surfaceEnv = zmx.environment
         case .ordinary:
@@ -503,8 +506,8 @@ struct agtermApp: App {
                                          zmxForegroundResolver: ZmxForegroundResolver?) -> GhosttySurfaceView {
         // cwd is the persisted `initialSplitCwd` (a restored split keeps its own directory), else the session's
         // effectiveCwd. Font size matches the primary; env inherits the parent's window/workspace/session ids.
-        // Creation, capture and override precedence matches the primary. The zmx path leaves every replay slot
-        // untouched because the surviving daemon owns restoration; a missing daemon starts a plain shell.
+        // Creation, capture and override precedence matches the primary. A wrapped live pane passes its captured
+        // command as a create-only payload, so an existing daemon wins without replaying it.
         let ghostty = GhosttyApp.shared
         let zmx = ghostty.launchRestoreMode == .live
             ? ZmxLaunch.configuration(paneIdentity: session.splitPaneIdentity, pane: "split", environment: env)
@@ -518,8 +521,11 @@ struct agtermApp: App {
         let surfaceEnv: [String: String]
         switch disposition {
         case .wrapped(let zmx):
-            command = zmx.command
-            initialInput = nil
+            guard let seed = ZmxLaunch.surfaceSeed(
+                disposition: disposition, session: session, pane: .right, denylist: ghostty.restoreDenylist
+            ) else { preconditionFailure("wrapped zmx disposition has no surface seed") }
+            command = seed.command
+            initialInput = seed.initialInput
             waitAfterCommand = false
             surfaceEnv = zmx.environment
         case .ordinary:
