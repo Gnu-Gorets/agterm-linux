@@ -50,10 +50,10 @@ paths:
   changed; its Swift membership also runs macOS jobs.
 - The cookbook job builds nothing. It compares the `cookbook/README.md` table and recipe directories in
   both directions; requires kebab-case directories, a `README.md` with all six exact
-  (`grep -qxF`) headings, and shebangs for `.sh`/`.zsh`/`.py`; runs `shellcheck` on `.sh`; parses `.zsh`
-  with `zsh -n`; runs `ruff check` on `.py`; and executes every `test_*.py` regression script directly.
-  `shellcheck` is preinstalled. Install absent `zsh` and `fish` together before the shell gates (`fish`
-  runs the Claude resume regression), and install `ruff` through `pipx` because the runner's python is
+  (`grep -qxF`) headings, and shebangs for `.sh`/`.zsh`/`.fish`/`.py`; runs `shellcheck` on `.sh`; parses
+  `.zsh` with `zsh -n` and `.fish` with `fish --no-execute`; runs `ruff check` on `.py`; and executes every
+  `test_*.py` regression script directly. `shellcheck` is preinstalled. Install absent `zsh` and `fish`
+  together before the shell gates, and install `ruff` through `pipx` because the runner's python is
   externally managed.
 - Recipes are not shell-only. A language gains a gate by adding its extension to the shebang glob plus a
   lint or parse step; until then it merges unchecked, which is why `cookbook/CONTRIBUTING.md` tells a

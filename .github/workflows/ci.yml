@@ -261,7 +261,7 @@ jobs:
             if ! head -c 2 "$f" | grep -q '#!'; then
               echo "::error::$f has no shebang"; fail=1
             fi
-          done < <(find cookbook -type f \( -name '*.sh' -o -name '*.zsh' -o -name '*.py' \) -print0)
+          done < <(find cookbook -type f \( -name '*.sh' -o -name '*.zsh' -o -name '*.fish' -o -name '*.py' \) -print0)
 
           exit $fail
       - name: shellcheck
@@ -278,6 +278,12 @@ jobs:
         # bash explicitly, for pipefail, same reason as the shellcheck step above
         shell: bash
         run: find cookbook -type f -name '*.zsh' -print0 | xargs -0 -r -n1 zsh -n
+      - name: fish syntax check
+        # nothing lints .fish either, so a parse is the only gate these recipes get.
+        # -n1 because fish --no-execute parses its first argument and ignores the rest,
+        # so a batched call would leave the step green having checked one file
+        shell: bash
+        run: find cookbook -type f -name '*.fish' -print0 | xargs -0 -r -n1 fish --no-execute
       - name: Install ruff
         # not on the ubuntu-latest image, unlike shellcheck. pipx, because the runner's
         # python is externally managed and a bare pip install into it fails
