@@ -10,6 +10,14 @@ public enum PaneOverlayOpenFailure: Equatable, Sendable {
     case paneNotVisible
 }
 
+/// Why `swapPanes` could not exchange a session's two pane roles.
+public enum SwapRefusal: Equatable, Sendable {
+    case noSession
+    case noSplit
+    case slotNotRealized
+    case roleNotMutable
+}
+
 extension AppStore {
     /// Toggles the one-level split. With no axis this is the legacy preserve-axis hide/show operation. With
     /// an axis it is the axis-specific UI command: the same shown axis hides, another shown axis transposes,
@@ -63,6 +71,65 @@ extension AppStore {
         return applied
     }
 
+    /// Exchanges two role-mutable pane slots and every pane-owned field. Layout stays fixed; focus follows the
+    /// terminal.
+    @discardableResult
+    public func swapPanes(_ sessionID: UUID) -> SwapRefusal? {
+        guard let session = session(withID: sessionID) else { return .noSession }
+        guard session.hasSplit else { return .noSplit }
+        guard let primarySurface = session.surface, let splitSurface = session.splitSurface else {
+            return .slotNotRealized
+        }
+        guard let primaryRole = primarySurface as? any PaneRoleMutableSurface,
+              let splitRole = splitSurface as? any PaneRoleMutableSurface else {
+            return .roleNotMutable
+        }
+
+        let primaryCwd = session.currentCwd ?? session.initialCwd
+        let splitCwd = session.splitCwd ?? session.initialSplitCwd ?? primaryCwd
+        primaryRole.setPaneRole(.split)
+        splitRole.setPaneRole(.primary)
+        session.surface = splitSurface
+        session.splitSurface = primarySurface
+        session.currentCwd = splitCwd
+        session.splitCwd = primaryCwd
+        session.initialSplitCwd = primaryCwd
+        (session.oscTitle, session.splitTitle) = (session.splitTitle, session.oscTitle)
+        (session.foregroundCommand, session.splitForegroundCommand) =
+            (session.splitForegroundCommand, session.foregroundCommand)
+        (session.restoreCommand, session.splitRestoreCommand) =
+            (session.splitRestoreCommand, session.restoreCommand)
+        (session.pendingRestoreCommand, session.pendingSplitRestoreCommand) =
+            (session.pendingSplitRestoreCommand, session.pendingRestoreCommand)
+        (session.pendingForegroundCommand, session.pendingSplitForegroundCommand) =
+            (session.pendingSplitForegroundCommand, session.pendingForegroundCommand)
+        (session.initialCommand, session.splitInitialCommand) =
+            (session.splitInitialCommand, session.initialCommand)
+        (session.commandWait, session.splitCommandWait) = (session.splitCommandWait, session.commandWait)
+        (session.leftOverlay, session.rightOverlay) = (session.rightOverlay, session.leftOverlay)
+        (session.leftOverlaySurface, session.rightOverlaySurface) =
+            (session.rightOverlaySurface, session.leftOverlaySurface)
+        (session.leftOverlayExitCode, session.rightOverlayExitCode) =
+            (session.rightOverlayExitCode, session.leftOverlayExitCode)
+
+        var indicator = session.agentIndicator
+        if indicator.status == .idle {
+            indicator.statusPane = nil
+        } else {
+            switch indicator.statusPane {
+            case nil, .left: indicator.statusPane = .right
+            case .right: indicator.statusPane = .left
+            case .scratch: break
+            }
+        }
+        session.agentIndicator = indicator
+        // PaneHostIdentity observes this because surface slots are ignored; keep the swap toggle unconditional
+        // so a zoom host re-evaluates and sees its new occupant token.
+        session.splitFocused.toggle()
+        save()
+        return nil
+    }
+
     /// Clear the agent-status indicator when the pane that OWNED it is torn down, so a pane-tagged block
     /// can't strand a glyph no surviving surface can keystroke-clear (`AgentIndicator.clearedBy` requires the
     /// typing pane to match `statusPane`). `owner` is the departing pane; a nil tag counts as `.left`,
@@ -87,13 +154,14 @@ extension AppStore {
         session.splitCwd = nil
         session.splitTitle = nil
         session.initialSplitCwd = nil
-        // the right pane is gone: drop the persisted pin, the captured command, and any payload still armed
-        // for this launch, so a fresh split is a plain shell. The capture slot matters since `restore.capture`
-        // can fill it mid-run: left behind, a re-split would arm the dead pane's command on the next launch.
+        // the right pane is gone: drop its persisted pin, captured/creation commands, and armed payloads so a
+        // fresh split is a plain shell. `restore.capture` can fill the capture slot mid-run, so it matters too.
         session.splitRestoreCommand = nil
         session.pendingSplitRestoreCommand = nil
         session.splitForegroundCommand = nil
         session.pendingSplitForegroundCommand = nil
+        session.splitInitialCommand = nil
+        session.splitCommandWait = false
         session.splitRatio = nil // tearing down the split clears its geometry too, so a fresh split opens even
         // the right pane is gone, so its overlay has nothing left to cover and nobody left to read its status.
         session.teardownPaneOverlay(.right)
@@ -129,10 +197,9 @@ extension AppStore {
         session.splitFocused = false
         session.splitAxis = .leftRight
         session.splitRatio = nil // promoted to a single pane; a later split should open even, not stale
-        // the promoted survivor is a plain shell: drop the creation command and its held-open flag together,
-        // or a restart resurrects the exited command and a snapshot persists commandWait with no initialCommand.
-        session.initialCommand = nil
-        session.commandWait = false
+        // creation identity follows the surviving pane, replacing the exited primary's command outright.
+        session.initialCommand = session.splitInitialCommand
+        session.commandWait = session.splitCommandWait
         // migrate the split's metadata up, then clear the split fields so nothing describes a gone pane. cwd
         // prefers the split's live PWD, then `initialSplitCwd` (a restored split whose shell hasn't emitted
         // OSC yet), falling back to the exited primary's only when the split has none. title is replaced
@@ -151,6 +218,8 @@ extension AppStore {
         session.splitForegroundCommand = nil
         session.splitRestoreCommand = nil
         session.pendingSplitRestoreCommand = nil
+        session.splitInitialCommand = nil
+        session.splitCommandWait = false
         // the pane overlays follow their panes: the exiting primary's dies with it, the survivor's moves into
         // the left slot WITH its exit code, so `session.overlay.result --pane left` still answers afterwards.
         session.teardownPaneOverlay(.left)

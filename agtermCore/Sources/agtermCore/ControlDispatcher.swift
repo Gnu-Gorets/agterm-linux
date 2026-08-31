@@ -48,6 +48,9 @@ public protocol ControlActions {
     /// Tear the split pane down rather than hide it, the write side `splitSession`'s `on|off|toggle` cannot
     /// express: the surface dies and `hasSplit`/`splitRatio`/`splitFocused` go nil in `tree`.
     func closeSessionSplit(_ target: String?, window: String?) -> ControlResponse
+    /// Exchange the two live pane roles. The default below keeps existing hosts source-compatible and
+    /// reports that the optional operation is unsupported.
+    func swapSessionPanes(_ target: String?, window: String?) async -> ControlResponse
     func scratchSession(_ target: String?, window: String?, mode: String?, command: String?) -> ControlResponse
     func focusSessionPane(_ target: String?, window: String?, pane: String?) -> ControlResponse
     func resizeSplit(_ target: String?, window: String?, resize: ControlSplitResize) -> ControlResponse
@@ -129,6 +132,10 @@ public extension ControlActions {
     func splitSession(_ target: String?, window: String?, mode: String?, axis _: SplitAxis?) -> ControlResponse {
         splitSession(target, window: window, mode: mode)
     }
+
+    func swapSessionPanes(_: String?, window _: String?) async -> ControlResponse {
+        ControlResponse(ok: false, error: "session.swap is not supported by this host")
+    }
 }
 
 public struct ControlSessionTypeOptions: Equatable, Sendable {
@@ -176,11 +183,13 @@ public struct ControlSessionBackgroundOptions: Equatable, Sendable {
 
 public struct ControlSessionTextOptions: Equatable, Sendable {
     public let pane: String?
+    public let paneID: String?
     public let all: Bool
     public let lines: Int?
 
-    public init(pane: String?, all: Bool, lines: Int?) {
+    public init(pane: String?, paneID: String? = nil, all: Bool, lines: Int?) {
         self.pane = pane
+        self.paneID = paneID
         self.all = all
         self.lines = lines
     }
@@ -220,7 +229,7 @@ public struct ControlDispatcher {
         case .sessionNew, .sessionDuplicate, .sessionSelect, .sessionGo, .sessionClose, .sessionRename,
                 .sessionReveal, .sessionMove, .sessionFlag, .sessionSeen, .sessionStatus, .sessionRestore:
             return dispatchSessionCommand(request)
-        case .sessionSplit, .sessionSplitClose, .sessionScratch, .sessionFocus, .sessionResize,
+        case .sessionSplit, .sessionSplitClose, .sessionSwap, .sessionScratch, .sessionFocus, .sessionResize,
                 .surfaceZoom, .surfaceCursor, .sessionType,
                 .sessionCopy, .sessionPaste, .sessionSelectAll, .sessionSearch, .sessionOverlayOpen,
                 .sessionOverlayClose, .sessionOverlayResize, .sessionOverlayResult, .sessionOverlayCopy,
@@ -581,6 +590,8 @@ public struct ControlDispatcher {
                                         mode: request.args?.mode, axis: axis)
         case .sessionSplitClose:
             return actions.closeSessionSplit(request.target, window: request.args?.window)
+        case .sessionSwap:
+            return await actions.swapSessionPanes(request.target, window: request.args?.window)
         case .sessionScratch:
             return actions.scratchSession(request.target, window: request.args?.window, mode: request.args?.mode,
                                           command: request.args?.command)
@@ -865,6 +876,7 @@ public struct ControlDispatcher {
         case .extent(let all, let lines):
             return actions.readSessionText(request.target, window: request.args?.window,
                                            options: ControlSessionTextOptions(pane: request.args?.pane,
+                                                                              paneID: request.args?.paneID,
                                                                               all: all,
                                                                               lines: lines))
         }

@@ -29,6 +29,7 @@ public enum Command: String, Codable, Sendable {
     case sessionBackground = "session.background"
     case sessionSplit = "session.split"
     case sessionSplitClose = "session.split.close"
+    case sessionSwap = "session.swap"
     case sessionScratch = "session.scratch"
     case sessionFocus = "session.focus"
     case sessionResize = "session.resize"
@@ -182,10 +183,10 @@ public struct ControlArgs: Codable, Sendable, Equatable {
     /// unaffected. A pane overlay is always full-pane, so
     /// `--pane` conflicts with `session.overlay.open --size-percent` and `session.overlay.resize` refuses it.
     public var pane: String?
-    /// A surface's STABLE spawn token for `session.status --pane-id`/`session.restore --pane-id` (the shell's
-    /// baked `AGTERM_PANE_ID`, forwarded by the agent-status hook). Resolving it against the session's live
-    /// surfaces OVERRIDES the stale role `pane`, so a status from a promoted-then-re-split pane lands on the
-    /// CURRENT slot; empty/unknown falls back to `pane`. Opaque — validated only by resolving.
+    /// A surface's STABLE spawn token for `session.status`/`session.restore`/`session.text --pane-id` (the
+    /// shell's baked `AGTERM_PANE_ID`, forwarded by the agent-status hook). Resolving it against the session's
+    /// live surfaces OVERRIDES the stale role `pane`, so a call from a moved pane reaches the CURRENT slot;
+    /// empty/unknown falls back to `pane`. Opaque — validated only by resolving.
     /// `session.restore` diverges: an unresolvable token with NO explicit `pane` errors there rather than
     /// silently using `left`, since a wrong restore pin persists. See `Session.paneRole(forToken:)`, #199.
     public var paneID: String?
@@ -530,6 +531,8 @@ public struct ControlSessionNode: Codable, Sendable, Equatable {
     /// --command … --wait`) instead of closing; nil/omitted for a plain or non-holding session. The read
     /// side of `session.new --wait`; it persists across restart, unlike an overlay's live-only wait.
     public let commandWait: Bool?
+    /// The split pane's hold-after-exit policy; nil/omitted without a holding split creation command.
+    public let splitCommandWait: Bool?
     /// The LIVE foreground process command (full argv) in the main pane; nil/omitted at the shell prompt —
     /// the same capture restore-running-command uses.
     public let foreground: [String]?
@@ -603,7 +606,7 @@ public struct ControlSessionNode: Codable, Sendable, Equatable {
                 splitRatio: Double? = nil, splitFocused: Bool? = nil,
                 overlay: Bool = false, overlaySizePercent: Int? = nil, paneOverlays: [String]? = nil,
                 hud: ControlHudNode? = nil, scratch: Bool = false, flagged: Bool = false,
-                commandWait: Bool? = nil,
+                commandWait: Bool? = nil, splitCommandWait: Bool? = nil,
                 foreground: [String]? = nil, splitForeground: [String]? = nil,
                 restoreCommand: String? = nil, splitRestoreCommand: String? = nil, status: String? = nil,
                 statusPane: String? = nil, statusBlink: Bool? = nil, statusColor: String? = nil,
@@ -628,6 +631,7 @@ public struct ControlSessionNode: Codable, Sendable, Equatable {
         self.scratch = scratch
         self.flagged = flagged
         self.commandWait = commandWait
+        self.splitCommandWait = splitCommandWait
         self.foreground = foreground
         self.splitForeground = splitForeground
         self.restoreCommand = restoreCommand
