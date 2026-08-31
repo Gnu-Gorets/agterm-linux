@@ -22,15 +22,6 @@ struct Session: ParsableCommand {
                       Seen.self, Search.self, Background.self, Overlay.self, Hud.self]
     )
 
-    /// The overlay and HUD arms share one accepted range for `--size-percent`, so the gate belongs to
-    /// neither. `1...100` is the input domain both document; the narrower bound for rendering a HUD is a
-    /// presentation limit applied app-side, not a rejection.
-    static func validateSizePercent(_ sizePercent: Int?) throws {
-        if let sizePercent, !(1...100).contains(sizePercent) {
-            throw ValidationError("--size-percent must be between 1 and 100")
-        }
-    }
-
     struct New: RequestCommand {
         static let configuration = CommandConfiguration(abstract: "Create a session.")
         @Option(name: .long, help: "Working directory (defaults to $HOME).") var cwd: String?
@@ -990,6 +981,17 @@ struct Session: ParsableCommand {
             func makeRequest() throws -> ControlRequest {
                 ControlRequest(cmd: .sessionHudClose, target: target.target, args: options.withWindow())
             }
+        }
+    }
+}
+
+extension Session {
+    /// The overlay and HUD arms share one accepted range for `--size-percent`, so the gate belongs to
+    /// neither. `1...100` is the input domain both document; the narrower bound for rendering a HUD is a
+    /// presentation limit applied app-side, not a rejection.
+    static func validateSizePercent(_ sizePercent: Int?) throws {
+        if let sizePercent, !(1...100).contains(sizePercent) {
+            throw ValidationError("--size-percent must be between 1 and 100")
         }
     }
 }

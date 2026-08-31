@@ -125,7 +125,7 @@ struct SnapshotRoundTripTests {
         #expect(restored.workspaces[0].sessions[0].commandWait == false)
     }
 
-    @Test func splitCreationIdentityRoundTripsOnlyForShownSplit() {
+    @Test func splitCreationIdentityRoundTripsForShownAndHiddenSplits() {
         let shownStore = makeStore()
         let shownWorkspace = shownStore.addWorkspace(name: "shown")
         let shown = shownStore.addSession(toWorkspace: shownWorkspace.id, cwd: "/shown")!
@@ -152,8 +152,8 @@ struct SnapshotRoundTripTests {
 
         let restoredHidden = makeStore()
         restoredHidden.restore(from: hiddenStore.snapshot())
-        #expect(restoredHidden.workspaces[0].sessions[0].splitInitialCommand == nil)
-        #expect(!restoredHidden.workspaces[0].sessions[0].splitCommandWait)
+        #expect(restoredHidden.workspaces[0].sessions[0].splitInitialCommand == "ssh hidden-host")
+        #expect(restoredHidden.workspaces[0].sessions[0].splitCommandWait)
     }
 
     @Test func legacySnapshotWithoutCommandWaitDecodesNil() throws {

@@ -323,12 +323,13 @@ struct agtermApp: App {
                 hadForeground: pendingForeground != nil,
                 foregroundInput: restoreInput,
                 initialCommand: session.initialCommand,
-                restoreOverride: session.takePendingRestoreOverride(pane: .left)
+                restoreOverride: session.takePendingRestoreOverride(pane: .left),
+                requestedWait: session.commandWait
             )
             let plan = CommandRestore.restorePlan(inputs)
             command = plan.command
             initialInput = plan.initialInput
-            waitAfterCommand = session.commandWait
+            waitAfterCommand = plan.waitAfterCommand
             surfaceEnv = env
         case .fallback:
             let plan = CommandRestore.restorePlan(.init(
@@ -337,10 +338,11 @@ struct agtermApp: App {
                 hadForeground: false,
                 foregroundInput: nil,
                 initialCommand: session.initialCommand,
-                restoreOverride: nil))
+                restoreOverride: nil,
+                requestedWait: session.commandWait))
             command = plan.command
             initialInput = plan.initialInput
-            waitAfterCommand = plan.command != nil && session.commandWait
+            waitAfterCommand = plan.waitAfterCommand
             surfaceEnv = env
         }
         let view = GhosttySurfaceView(workingDirectory: session.initialCwd, fontSize: session.fontSize.map(Float.init),
@@ -489,12 +491,9 @@ struct agtermApp: App {
                                          library: WindowLibrary,
                                          zmxForegroundResolver: ZmxForegroundResolver?) -> GhosttySurfaceView {
         // cwd is the persisted `initialSplitCwd` (a restored split keeps its own directory), else the session's
-        // effectiveCwd. Font size matches the primary; the split's own cmd +/- is not persisted. Env inherits the
-        // parent's window/workspace/session ids. The captured foreground command re-runs via initial_input
-        // (run-once); splits never carry an `initialCommand`, so there is no mutual-exclusion guard and no
-        // `restorePlan` — `restoreInput` alone decides. A `session.restore` override wins over the capture, from
-        // the TRANSIENT pending slot seeded by app-bootstrap restore, not the sticky persisted field; taking
-        // it clears it, so a fresh ⌘D split after a split shell exits is a shell.
+        // effectiveCwd. Font size matches the primary; env inherits the parent's window/workspace/session ids.
+        // Creation, capture and override precedence matches the primary. The zmx path leaves every replay slot
+        // untouched because the surviving daemon owns restoration; a missing daemon starts a plain shell.
         let ghostty = GhosttyApp.shared
         let zmx = ghostty.launchRestoreMode == .live
             ? ZmxLaunch.configuration(paneIdentity: session.splitPaneIdentity, pane: "split", environment: env)
@@ -504,28 +503,45 @@ struct agtermApp: App {
         if disposition.backedByZmx { zmxForegroundResolver?.noteLifecycleChange() }
         let command: String?
         let initialInput: String?
+        let waitAfterCommand: Bool
         let surfaceEnv: [String: String]
         switch disposition {
         case .wrapped(let zmx):
             command = zmx.command
             initialInput = nil
+            waitAfterCommand = false
             surfaceEnv = zmx.environment
         case .ordinary:
-            let capturedInput = Self.restoreInitialInput(session.takePendingForegroundCommand(pane: .right))
-            initialInput = CommandRestore.restoreInput(
+            let pendingForeground = session.takePendingForegroundCommand(pane: .right)
+            let plan = CommandRestore.restorePlan(.init(
+                wasRestored: session.wasRestored,
                 restoreEnabled: ghostty.restoreRunningCommand,
+                hadForeground: pendingForeground != nil,
+                foregroundInput: Self.restoreInitialInput(pendingForeground),
+                initialCommand: session.splitInitialCommand,
                 restoreOverride: session.takePendingRestoreOverride(pane: .right),
-                capturedInput: capturedInput)
-            command = nil
+                requestedWait: session.splitCommandWait))
+            command = plan.command
+            initialInput = plan.initialInput
+            waitAfterCommand = plan.waitAfterCommand
             surfaceEnv = env
         case .fallback:
-            command = nil
-            initialInput = nil
+            let plan = CommandRestore.restorePlan(.init(
+                wasRestored: session.wasRestored,
+                restoreEnabled: false,
+                hadForeground: false,
+                foregroundInput: nil,
+                initialCommand: session.splitInitialCommand,
+                restoreOverride: nil,
+                requestedWait: session.splitCommandWait))
+            command = plan.command
+            initialInput = plan.initialInput
+            waitAfterCommand = plan.waitAfterCommand
             surfaceEnv = env
         }
         let view = GhosttySurfaceView(workingDirectory: session.initialSplitCwd ?? session.effectiveCwd,
                                       fontSize: session.fontSize.map(Float.init), command: command,
-                                      initialInput: initialInput, env: surfaceEnv,
+                                      initialInput: initialInput, waitAfterCommand: waitAfterCommand, env: surfaceEnv,
                                       backedByZmx: disposition.backedByZmx)
         view.session = session
         view.isSplitPane = true

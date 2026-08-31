@@ -107,6 +107,10 @@ extension AppStore {
         splitRole.setPaneRole(.primary)
         session.surface = splitSurface
         session.splitSurface = primarySurface
+        if let splitPaneIdentity = session.splitPaneIdentity {
+            session.splitPaneIdentity = session.paneIdentity
+            session.paneIdentity = splitPaneIdentity
+        }
         session.currentCwd = splitCwd
         session.splitCwd = primaryCwd
         session.initialSplitCwd = primaryCwd
