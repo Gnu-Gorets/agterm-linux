@@ -126,6 +126,7 @@ class ClaudeResumeTest(unittest.TestCase):
                 "CLAUDE_CONFIG_DIR": str(self.home / ".claude"),
                 "FAKE_CLAUDE_LOG": str(self.log),
                 "HOME": str(self.home),
+                "LC_ALL": "C",
                 "PATH": f"{self.bin_dir}{os.pathsep}{env['PATH']}",
                 "RECIPE": str(RECIPES[self.shell]),
                 "TERM": "xterm-256color",
@@ -294,6 +295,13 @@ class ClaudeResumeTest(unittest.TestCase):
                     "plan",
                     session_id=malformed,
                 )
+
+    def test_conversation_under_a_later_project_key_beats_bridge_only(self):
+        # a scan that inspects only the first matching transcript skips the real conversation
+        self.write_transcript(self.bridge(), project=self.projects / "a-bridge")
+        self.write_transcript(self.message(), project=self.projects / "z-conversation")
+
+        self.assert_call(["--resume", TAB_ID])
 
 if __name__ == "__main__":
     if "CLAUDE_RESUME_SHELLS" in os.environ:

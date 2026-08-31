@@ -19,7 +19,7 @@ Keep several Claude Code sessions open at once, and after the terminal restarts 
 
 - agterm 0.3.1 or later, with **Restore running commands on restart** turned on under Settings ▸ General ▸ Sessions. Both `AGTERM_SESSION_ID` and that setting predate the repository's earliest tagged release, so 0.3.1 is the first version that can be named, not the version the behavior arrived in.
 - `zsh`, or `fish`
-- Claude Code, with its conversations in the default `~/.claude/projects/`
+- Claude Code, with its conversations in `~/.claude/projects/` (or wherever `CLAUDE_CONFIG_DIR` points)
 - Python 3.8 or later, plus both `zsh` and `fish`, only to run the bundled `test_claude_resume.py`. Using the recipe needs no Python.
 
 ## Setup
@@ -90,7 +90,7 @@ On the agterm side that replay is a foreground-process capture. At quit agterm r
 
 - **agterm-specific.** It needs a stable per-tab identifier and relies on agterm feeding the restored command back *through the login shell*, which is how the function intercepts it. It will not work as-is in another terminal; you would adapt it to that terminal's equivalent.
 - **Rests on restore behavior its author verified empirically rather than from documentation.** It could change between agterm versions.
-- **One tab-owned conversation id at a time.** Simultaneous launches in the same tab can choose the same id and collide with Claude's transcript check. A process that has switched elsewhere through `/resume` can leave a metadata-only id, which the next launch skips.
+- **One tab-owned conversation id at a time.** Simultaneous launches in the same tab can choose the same id and collide with Claude's transcript check. A split pane, a scratch pane and any overlay all run under the same `AGTERM_SESSION_ID` as the main pane, so a second `claude` in any of them counts as the same tab. A process that has switched elsewhere through `/resume` can leave a metadata-only id, which the next launch skips.
 - **It shadows the `claude` command** with a shell function. Passthrough is handled, but the list of subcommands and flags that must not be touched has to be kept current if the CLI grows new ones.
 - **It knows Claude Code's on-disk layout** (`~/.claude/projects/*/<id>.jsonl`). A Claude Code storage change can require a recipe update.
 - **zsh or fish only** (the zsh version uses `${:l}`, the `(N)` glob qualifier, and `emulate`; the fish version uses fish-only syntax throughout). Bash needs a rewrite.
