@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.26.1 - 2026-09-02
+
+### Improved
+
+- the bundled agent skill's description is less than half the size. Most of what it held sat past the 1536-character cap an agent listing applies, so nothing ever read it, and the trigger list that made up the bulk repeated the prose above it word for word. What reaches the model is now the whole of it #528 @umputun
+
+### Bug Fixes
+
+- in Live sessions mode a `session new --command` longer than 1024 bytes arrived truncated and was never submitted, leaving the command half-typed at a shell prompt. A freshly created live pane fed its command through the pty, where macOS keeps 1024 bytes of a line and silently drops the rest along with the newline that would have run it. The command now goes to zmx as a create-only payload, the route a restored pane already took, which also gives a fresh split pane the command that previously never ran at all #533 @umputun
+
 ## v0.26.0 - 2026-09-02
 
 ### New Features
