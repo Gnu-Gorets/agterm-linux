@@ -354,14 +354,18 @@ buys nothing. A caller with no tree uses `version`.
   `&&`, `$VAR`, redirects, globs) are not interpreted, and it inherits the app's GUI `PATH` (the launchd
   default — no `/opt/homebrew/bin`), so a bare Homebrew or other non-default binary fails with exit 127.
   Wrap in a login shell for both — `--command "zsh -lc 'htop'"` — or give an absolute path
-  (`/opt/homebrew/bin/htop`).
+  (`/opt/homebrew/bin/htop`). All of that describes Fresh shells and Re-run commands. In Live sessions
+  mode the command is instead a create-only zmx payload the persistent shell runs as a login shell, so
+  shell operators are interpreted, the `PATH` is that shell's rather than the launchd default, and the
+  session stays open after the command exits.
   `--wait` (only with `--command`, else an error) HOLDS the session open after the command exits —
   showing libghostty's press-any-key prompt with the final output intact instead of closing immediately —
   so you can read a build/test/deploy's final output or an early failure that would otherwise flash and
   vanish. In Re-run commands mode it persists across restart (unlike an overlay's live-only `--wait`),
   so a restored command session that starts its command again also holds; read it back on `tree`'s
-  `commandWait`. Live sessions mode types the command into the persistent zmx shell only on first creation.
-  The shell stays open when it exits, and `--wait` adds no hold prompt. After a clean quit, a missing daemon
+  `commandWait`. Live sessions mode passes the command as a create-only zmx payload, which bypasses the
+  1,024-byte PTY input cap. A surviving daemon ignores the payload; a new daemon runs it, then starts the persistent
+  shell. The shell stays open when it exits, and `--wait` adds no hold prompt. After a clean quit, a missing daemon
   is recreated running whatever that pane's foreground command was; if the command had already exited, or the
   quit never happened, the pane comes back as a fresh shell.
   The command is persisted (`SessionSnapshot.initialCommand`) and starts again on restore in Re-run commands
