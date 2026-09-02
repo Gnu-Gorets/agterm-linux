@@ -213,6 +213,37 @@ final class ControlServerZmxTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(created.splitInitialCommand).contains("agterm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2"))
     }
 
+    // attach shipped with no focus call at all, so a teleported session opened with the keyboard still on
+    // whatever held it
+    func testAttachFocusesTheSplitPaneOnceItsSurfacesMaterialize() async throws {
+        let runner = FakeRemoteRunner(result: RemoteCommandResult(status: 0, stdout: Self.splitProjection,
+                                                                  stderr: ""))
+        let server = makeServer(list: "", remoteRunner: runner)
+        let store = try XCTUnwrap(library.activeStore)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        let primary = GhosttySurfaceView(workingDirectory: NSTemporaryDirectory())
+        let split = GhosttySurfaceView(workingDirectory: NSTemporaryDirectory())
+        window.contentView?.addSubview(primary)
+        window.contentView?.addSubview(split)
+
+        let response = await server.attachRemoteSession(host: "buildbox", session: "s1")
+
+        XCTAssertTrue(response.ok)
+        let created = try XCTUnwrap(store.workspaces.flatMap(\.sessions).first { $0.remoteHost != nil })
+        let realize = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 60_000_000)
+            created.surface = primary
+            created.splitSurface = split
+        }
+        for _ in 0..<20 where window.firstResponder !== split {
+            try? await Task.sleep(nanoseconds: 30_000_000)
+        }
+        await realize.value
+
+        XCTAssertTrue(window.firstResponder === split)
+    }
+
     func testListReportsTheEndpointOfTheInjectedClient() throws {
         let server = makeServer(list: "")
 
