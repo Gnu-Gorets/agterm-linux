@@ -146,8 +146,8 @@ extension ControlServer {
             store.setSplitVisibility(created.id, shown: true,
                                      axis: remote.splitAxis.flatMap(SplitAxis.init(rawValue:)) ?? .leftRight)
         }
-        // the FIXED-target helper, never `focusActiveSession`: the deck re-render can churn first responder
-        // onto the primary, whose `onFocusChange` clears `splitFocused`, and a follower would chase it.
+        // a FIXED target, never `focusActiveSession`: it follows `splitFocused`, which the new split's deck
+        // re-render can clear from under it through `onFocusChange`.
         actions.focusSplitPane(created, wantSplit: created.splitFocused)
         return ControlResponse(ok: true, result: ControlResult(id: created.id.uuidString))
     }

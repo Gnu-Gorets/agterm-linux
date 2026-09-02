@@ -213,15 +213,17 @@ final class ControlServerZmxTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(created.splitInitialCommand).contains("agterm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2"))
     }
 
-    // attach shipped with no focus call at all, so a teleported session opened with the keyboard still on
-    // whatever held it
+    // attach shipped with no focus call, so a teleported session opened with the keyboard still elsewhere
     func testAttachFocusesTheSplitPaneOnceItsSurfacesMaterialize() async throws {
         let runner = FakeRemoteRunner(result: RemoteCommandResult(status: 0, stdout: Self.splitProjection,
                                                                   stderr: ""))
         let server = makeServer(list: "", remoteRunner: runner)
         let store = try XCTUnwrap(library.activeStore)
+        // `NSWindow` defaults isReleasedWhenClosed to true; see the hosted-test rule in ui-tests.md.
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
                               styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.orderOut(nil) }
         let primary = GhosttySurfaceView(workingDirectory: NSTemporaryDirectory())
         let split = GhosttySurfaceView(workingDirectory: NSTemporaryDirectory())
         window.contentView?.addSubview(primary)
