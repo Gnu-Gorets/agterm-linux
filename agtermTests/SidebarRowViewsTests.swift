@@ -109,14 +109,14 @@ final class SidebarRowViewsTests: XCTestCase {
         XCTAssertEqual(try renderedIcon(forSession: remote.id), coordinator.remoteSplitSessionIcon)
     }
 
-    func testAFlaggedRemoteRowKeepsTheUnsplitGlyph() throws {
+    func testAFlaggedRemoteRowKeepsTheUnsplitWeight() throws {
         let store = try XCTUnwrap(library.activeStore)
         let remote = try XCTUnwrap(store.addSession(toWorkspace: store.workspaces[0].id, cwd: "/a", remoteHost: "buildbox"))
         remote.flagged = true
         buildSidebar(for: store)
 
         XCTAssertEqual(try renderedIcon(forSession: remote.id), coordinator.remoteSessionIcon,
-                       "on a remote row the fill carries split, so flagging must not claim it")
+                       "on a remote row the weight carries split, so flagging must not claim it")
     }
 
     private func buildSidebar(for store: AppStore) {
