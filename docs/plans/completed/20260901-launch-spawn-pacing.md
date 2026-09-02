@@ -449,7 +449,7 @@ signal. No command sets this state, so the read-back rule for state-setting comm
       over several seconds, the visible panes first
 - [x] `plugins/agterm/skills/agterm/troubleshooting.md`: `(not realized)` right after a replaying launch
       is pacing, not a fault
-- [ ] move this plan to `docs/plans/completed/` (left in place: this run does not move the plan; do it when the PR merges)
+- [x] move this plan to `docs/plans/completed/`
 - [x] ➕ `plugins/agterm/skills/agterm/reference.md` and `SKILL.md`: their `realized` sentences said `session type`
       answers `session not realized` for an unrealized pane, which the expedite makes untrue for a paced one
 
