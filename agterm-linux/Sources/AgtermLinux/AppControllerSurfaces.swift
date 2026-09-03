@@ -843,8 +843,11 @@ extension AppController {
         return names.sorted()
     }
 
-    func sessionDidReportTitle(_ id: UUID, _ title: String, isSplit: Bool) {
-        guard store.recordTitle(title, forSession: id, isSplit: isSplit) else { return }
+    func sessionDidReportTitle(_ id: UUID, _ title: String, isSplit: Bool, loginShell: String? = nil) {
+        let home = ProcessInfo.processInfo.environment["HOME"]
+            ?? FileManager.default.homeDirectoryForCurrentUser.path
+        guard store.recordTitle(title, forSession: id, isSplit: isSplit,
+                                loginShell: loginShell, home: home) else { return }
         if id == store.selectedSessionID { updateTitle() }
         scheduleSidebarMetadataRefresh()
     }

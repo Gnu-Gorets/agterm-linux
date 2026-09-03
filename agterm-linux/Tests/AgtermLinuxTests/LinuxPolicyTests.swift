@@ -54,6 +54,14 @@ struct LinuxPolicyTests {
         #expect(" \n".linuxTrimmedOrNil == nil)
     }
 
+    @Test("Linux session home honors an isolated launch environment")
+    func defaultSessionHome() {
+        #expect(ConfigPaths.defaultNewSessionCwd(environment: ["HOME": "/tmp/agterm-home"])
+            == "/tmp/agterm-home")
+        #expect(ConfigPaths.defaultNewSessionCwd(environment: ["HOME": ""])
+            == FileManager.default.homeDirectoryForCurrentUser.path)
+    }
+
     @Test("Linux bundled libghostty defaults mirror upstream macOS adapted to Linux conventions")
     func bundledLibghosttyDefaults() {
         let defaults = GhosttyDefaults.baseConfLines
@@ -255,6 +263,26 @@ struct LinuxPolicyTests {
         #expect(session.splitTitle == "split")
         #expect(session.splitFocused)
         #expect(LinuxSidebarPolicy.flaggedRowLabel(for: session, in: store) == "main  —  work")
+    }
+
+    @Test("redundant local shell titles preserve cwd-derived session names")
+    func redundantLocalTitles() {
+        #expect(LinuxSessionTitlePolicy.recordableTitle(
+            "/home/sasha", cwd: "/home/sasha", home: "/tmp/test-home", loginShell: "bash") == "")
+        #expect(LinuxSessionTitlePolicy.recordableTitle(
+            "/h/sasha", cwd: "/home/sasha", home: "/tmp/test-home", loginShell: "fish") == "")
+        #expect(LinuxSessionTitlePolicy.recordableTitle(
+            "~", cwd: "/home/sasha", home: "/home/sasha", loginShell: "fish") == "")
+        #expect(LinuxSessionTitlePolicy.recordableTitle(
+            "~/D/github.com", cwd: "/home/sasha/Developer/github.com",
+            home: "/home/sasha", loginShell: "fish") == "")
+        #expect(LinuxSessionTitlePolicy.recordableTitle(
+            "~/.c/fish", cwd: "/home/sasha/.config/fish",
+            home: "/home/sasha", loginShell: "fish") == "")
+        #expect(LinuxSessionTitlePolicy.recordableTitle(
+            "[server] ~", cwd: "/home/sasha", home: "/home/sasha", loginShell: "fish") == "[server] ~")
+        #expect(LinuxSessionTitlePolicy.recordableTitle(
+            "vim README.md", cwd: "/home/sasha", home: "/home/sasha", loginShell: "fish") == "vim README.md")
     }
 
     @Test("sidebar CSS derives row height from the shared font-size clamp")

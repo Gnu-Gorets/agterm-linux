@@ -211,7 +211,8 @@ private let onOpen: @MainActor @convention(c) (OpaquePointer?, UnsafeMutablePoin
             ).runningNames
             gZmxForegroundResolver?.noteLifecycleChange()
         },
-        launchPaneDrop: { identities in identities.forEach(gSpawnRegistry.pacer.discard) }
+        launchPaneDrop: { identities in identities.forEach(gSpawnRegistry.pacer.discard) },
+        defaultSessionCwd: ConfigPaths.defaultNewSessionCwd()
     )
     let spawnPlan = gLibrary.launchSpawnPlan()
     gSpawnRegistry.pacer.arm(order: spawnPlan.order, burst: spawnPlan.burst)
@@ -327,7 +328,7 @@ func appCSS(prefersReducedMotion: Bool) -> String {
     .agterm-sidebar #workspace-row .workspace-add-session { opacity: 0; }
     .agterm-sidebar #workspace-row:hover .workspace-add-session { opacity: 1; }
     \(LinuxSidebarPolicy.sidebarHoverCSS)   /* passive rows lose `.activatable`, so hover keys on bare `:hover` — contract + pins live on the constant; see agterm-linux/docs/sidebar.md */
-    /* trailing inset inside the selection highlight (the row's content box paints it, so a box margin would indent the highlight itself) */
+    /* trailing content inset inside the rounded selection row; a row margin would indent the highlight itself */
     .agterm-session-row-content { padding-right: 6px; }
     """
 }

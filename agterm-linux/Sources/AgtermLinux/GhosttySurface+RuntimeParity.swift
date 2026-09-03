@@ -39,35 +39,6 @@ extension GhosttySurface {
         waitAfterCommand = seed.waitAfterCommand
     }
 
-    /// Release the renderer's swap chain after GTK hides a pane. A short grace absorbs stack churn while
-    /// selection changes; `MainTimer` is GLib-backed on Linux, so the edge always fires on GTK's thread.
-    func updateRendererVisibility(delayHide: Bool = true) {
-        cancelRendererHide?()
-        cancelRendererHide = nil
-        let visible = gtk_widget_get_mapped(W(glArea)) != 0
-        if visible {
-            setRendererVisible(true)
-        } else if delayHide {
-            cancelRendererHide = MainTimer.schedule(after: 1) { [weak self] in
-                guard let self, gtk_widget_get_mapped(W(self.glArea)) == 0 else { return }
-                self.cancelRendererHide = nil
-                self.setRendererVisible(false)
-            }
-        } else {
-            setRendererVisible(false)
-        }
-    }
-
-    private func setRendererVisible(_ visible: Bool) {
-        guard let surface, rendererVisible != visible else { return }
-        rendererVisible = visible
-        ghostty_surface_set_occlusion(surface, visible)
-        if visible {
-            ghostty_surface_refresh(surface)
-            ghostty_surface_draw(surface)
-        }
-    }
-
     /// The live foreground-process argv (via `/proc/<pid>/cmdline`), or nil at the shell prompt — the
     /// Linux analogue of macOS's KERN_PROCARGS2 capture, used for `tree` introspection / restore.
     func foregroundCommand() -> [String]? {
@@ -83,7 +54,7 @@ extension GhosttySurface {
         return CommandRestore.paneForeground(argv: argv, extra: loginShellName)
     }
 
-    private var loginShellName: String? {
+    var loginShellName: String? {
         let shell = env["SHELL"] ?? ProcessInfo.processInfo.environment["SHELL"]
         return shell.map(CommandRestore.basename)
     }

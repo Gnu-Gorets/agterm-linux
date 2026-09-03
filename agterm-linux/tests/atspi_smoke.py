@@ -502,8 +502,25 @@ def mouse_click(node_provider, process_id, window_title=None, button="right", co
         ["xdotool", "getactivewindow", "getwindowgeometry", "--shell"], text=True
     )
     origin = dict(line.split("=", 1) for line in geometry.splitlines() if "=" in line)
-    x = int(origin["X"]) + local.x + max(1, int(local.width * x_fraction))
-    y = int(origin["Y"]) + local.y + max(1, local.height // 2) + dy
+    # GTK BUTTON accessibles use the content-frame origin while
+    # `xdotool getwindowgeometry` starts at the outer X11 client-side shadow. The
+    # frame's own negative local origin exposes that inset (observed as -16,-16 under
+    # Adwaita/Openbox). Rows and labels already report outer-window coordinates, so
+    # compensating those would over-shift drag slots and inline-rename targets.
+    frame_x = 0
+    frame_y = 0
+    if node.get_role() == Atspi.Role.PUSH_BUTTON:
+        ancestor = node
+        try:
+            while ancestor and ancestor.get_role_name() != "frame":
+                ancestor = ancestor.get_parent()
+            if ancestor:
+                frame_bounds = ancestor.get_component_iface().get_extents(Atspi.CoordType.WINDOW)
+                frame_x, frame_y = frame_bounds.x, frame_bounds.y
+        except Exception:
+            pass
+    x = int(origin["X"]) + local.x - frame_x + max(1, int(local.width * x_fraction))
+    y = int(origin["Y"]) + local.y - frame_y + max(1, local.height // 2) + dy
     number = 3 if button == "right" else 1
     time.sleep(0.2)
     click = ["click"]
@@ -755,9 +772,8 @@ def sidebar_session_row_label(app, name):
 def sidebar_session_row(app, name):
     """The sidebar `list item` ROW carrying the named session label.
 
-    The accessible SELECTED state is published on the ROW accessible only (the CSS paint also
-    touches the row's child; the a11y state deliberately does not), so selection assertions
-    need the row while pointer aims keep targeting the label.
+    The accessible SELECTED state and rounded CSS class are published on the ROW only, so
+    selection assertions need the row while pointer aims keep targeting the label.
     """
     for row in collect(app, role="list item"):
         if named(row, name, role="label"):
@@ -1287,16 +1303,14 @@ def verify_window_key_dispatch(env):
             "window rename dialog has no editable entry",
         )
         assert rename_entry.get_editable_text_iface().set_text_contents("key-window-renamed")
-        wait_for(
-            lambda: actionable(window, "Rename"),
+        rename_action = wait_for(
+            lambda: named(window, "Rename", role="button"),
             "window rename dialog has no Rename action",
         )
-        mouse_click(
-            lambda: actionable(window, "Rename"),
-            process.pid,
-            window_title="key-window-session",
-            button="left",
-        )
+        # This scenario pins mapped key dispatch and its existing-dialog callbacks. Activate
+        # the modal action directly: alert-local pointer coordinates are compositor-specific
+        # and are covered by the dedicated pointer/focus scenarios instead.
+        activate(rename_action)
         wait_for(
             lambda: next(
                 (item for item in window_list(env) if item["id"] == initial_id), {}
@@ -1309,16 +1323,11 @@ def verify_window_key_dispatch(env):
             lambda: named(window, "Delete Window?"),
             "mapped delete_window did not open the delete confirmation",
         )
-        wait_for(
-            lambda: actionable(window, "Delete"),
+        delete_action = wait_for(
+            lambda: named(window, "Delete", role="button"),
             "window delete dialog has no Delete action",
         )
-        mouse_click(
-            lambda: actionable(window, "Delete"),
-            process.pid,
-            window_title="key-window-session",
-            button="left",
-        )
+        activate(delete_action)
         wait_for(
             lambda: all(item["id"] != initial_id for item in window_list(env)),
             "mapped delete_window did not delete its window",
@@ -3308,7 +3317,10 @@ def verify_sidebar_multiselect_collapse(env):
                  "the created sessions did not settle into their creation order")
         wait_for(lambda: sidebar_session_row_label(app, "pick-one"),
                  "the pick-one sidebar row is missing")
-        row_dy = calibrate_row_click(app, process.pid, "pick-one")
+        # Calibrate on a different row from the anchor. Re-clicking pick-one immediately after
+        # calibration is classified as a double-click and correctly opens inline rename, which
+        # would turn this multi-selection test into an accidental rename test.
+        row_dy = calibrate_row_click(app, process.pid, "pick-two")
 
         def build_block(last, members):
             """Anchor on pick-one, then shift-click `last` to extend the block on PRESS.

@@ -28,8 +28,6 @@ final class GhosttySurface: PaneRoleMutableSurface {
     private var keyController: OpaquePointer?
     private var imContext: OpaquePointer?
     private var creationErrorLabel: OpaquePointer?
-    var rendererVisible = true
-    var cancelRendererHide: (@MainActor () -> Void)?
     weak var spawnPacer: SpawnPacer?
     var spawnKey: UUID?
     var awaitingSpawnPermit = false
@@ -148,10 +146,6 @@ final class GhosttySurface: PaneRoleMutableSurface {
         let me = Unmanaged.passRetained(self).toOpaque()
         connect(glArea, "destroy", unsafeBitCast(surfaceDestroy as @convention(c) (OpaquePointer?, gpointer?) -> Void, to: GCallback.self), me)
         connect(glArea, "realize", unsafeBitCast(surfaceRealize as @convention(c) (OpaquePointer?, gpointer?) -> Void, to: GCallback.self), me)
-        connect(glArea, "map", unsafeBitCast(surfaceMap as @convention(c) (OpaquePointer?, gpointer?) -> Void,
-                                              to: GCallback.self), me)
-        connect(glArea, "unmap", unsafeBitCast(surfaceUnmap as @convention(c) (OpaquePointer?, gpointer?) -> Void,
-                                                to: GCallback.self), me)
         connect(glArea, "render", unsafeBitCast(surfaceRender as @convention(c) (OpaquePointer?, OpaquePointer?, gpointer?) -> gboolean, to: GCallback.self), me)
         connect(glArea, "resize", unsafeBitCast(surfaceResize as @convention(c) (OpaquePointer?, Int32, Int32, gpointer?) -> Void, to: GCallback.self), me)
 
@@ -221,7 +215,6 @@ final class GhosttySurface: PaneRoleMutableSurface {
             return
         }
         createSurface()
-        updateRendererVisibility(delayHide: false)
     }
 
     private func reportGLContextFailure(message: String? = nil) {
@@ -751,7 +744,8 @@ final class GhosttySurface: PaneRoleMutableSurface {
 
     func applyTitle(_ title: String) {
         guard reportsPaneState, !title.isEmpty else { return }
-        controller?.sessionDidReportTitle(sessionID, title, isSplit: isSplitPane)
+        controller?.sessionDidReportTitle(
+            sessionID, title, isSplit: isSplitPane, loginShell: loginShellName)
     }
 
     func applyPwd(_ pwd: String) {
@@ -833,8 +827,6 @@ final class GhosttySurface: PaneRoleMutableSurface {
     // MARK: - TerminalSurface
 
     func teardown() {
-        cancelRendererHide?()
-        cancelRendererHide = nil
         onExit = nil
         if let spawnKey { gSpawnRegistry.cancel(spawnKey) }
         spawnPacer = nil
@@ -867,12 +859,6 @@ private let surfaceDestroy: @MainActor @convention(c) (OpaquePointer?, gpointer?
 }
 private let surfaceRealize: @MainActor @convention(c) (OpaquePointer?, gpointer?) -> Void = { _, data in
     MainActor.assumeIsolated { wrap(data)?.realize() }
-}
-private let surfaceMap: @MainActor @convention(c) (OpaquePointer?, gpointer?) -> Void = { _, data in
-    MainActor.assumeIsolated { wrap(data)?.updateRendererVisibility(delayHide: false) }
-}
-private let surfaceUnmap: @MainActor @convention(c) (OpaquePointer?, gpointer?) -> Void = { _, data in
-    MainActor.assumeIsolated { wrap(data)?.updateRendererVisibility() }
 }
 private let surfaceRender: @MainActor @convention(c) (OpaquePointer?, OpaquePointer?, gpointer?) -> gboolean = { _, _, data in
     MainActor.assumeIsolated { wrap(data)?.render() }

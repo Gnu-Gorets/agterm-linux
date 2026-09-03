@@ -158,10 +158,13 @@ Nothing auto-loads this document — read it before editing `AppController.swift
   owns BOTH selection surfaces.
   Paint: `syncSidebarSelection` mirrors the model into the `agterm-selected` CSS class, the ONLY
   selection visual (libadwaita suppresses `:selected` under `navigation-sidebar` anyway).
-  The tint rule is `.agterm-selected > label, .agterm-selected > image`
+  The tint rule follows the exact row-content path from
+  `.agterm-sidebar row.agterm-selected` to its direct `label` and `image` children
   (`ThemeColorResolver.windowThemeCSS`, whose CSS comment owns why; string-pinned in
-  `GhosttyConfigThemeTests`), so `makeRow` must keep every row label and symbolic icon a DIRECT child
-  of the content box — a wrapper drops the tint silently. The `image` half is what keeps the leading
+  `GhosttyConfigThemeTests`). Only the row carries the class and paints the rounded background;
+  tagging the content box too would cover that radius with a square fill. `makeRow` must keep every
+  row label and symbolic icon a DIRECT child of the content box — a wrapper drops the tint silently.
+  The `image` half is what keeps the leading
   terminal icon and the flagged star visible when a theme's selection background equals its
   foreground; the status glyph and badge keep their pango markup colors.
   The sibling rules stay descendant matches and keep cascading into row popovers —
@@ -173,8 +176,7 @@ Nothing auto-loads this document — read it before editing `AppController.swift
   Because `GtkListBoxRow` resets that published state while GTK roots a rebuilt hierarchy,
   `rebuildSidebar` re-runs `syncSidebarSelectionStyles` on the next main-loop turn through
   `SelectionRepublishCoordinator` (re-armed by every rebuild, disarmed in `windowWillClose`).
-- The state goes on the row accessible ONLY, never the row's child (the CSS class touches both,
-  but the child is presentation).
+- The state and CSS class go on the row ONLY, never its presentation-only child.
   The GValue must be built as `G_TYPE_INT` + `g_value_set_int`, never boolean: SELECTED is an
   undefined-able state, so GTK's GValue collector reads it with `g_value_get_int`, and a boolean
   GValue trips a GLib-GObject-CRITICAL and silently drops the update (observed on GTK 4.22).

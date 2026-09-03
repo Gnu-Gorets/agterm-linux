@@ -40,14 +40,19 @@ final class WindowLibraryTests {
     // MARK: - Seeding
 
     @Test func freshLibrarySeedsOneWindowWithDefaultTree() {
-        let library = WindowLibrary(directory: directory)
+        let library = WindowLibrary(directory: directory, defaultSessionCwd: "/tmp/agterm-home")
         #expect(library.windows.count == 1)
         #expect(library.windows[0].name == "window 1")
         let store = try! #require(library.store(for: library.windows[0].id))
         #expect(store.workspaces.count == 1)
         #expect(store.workspaces[0].name == "workspace 1")
         #expect(store.workspaces[0].sessions.count == 1)
+        #expect(store.workspaces[0].sessions[0].initialCwd == "/tmp/agterm-home")
         #expect(library.openIDs() == [library.windows[0].id])
+
+        let second = library.newWindow()
+        let secondStore = try! #require(library.store(for: second.id))
+        #expect(secondStore.workspaces[0].sessions[0].initialCwd == "/tmp/agterm-home")
     }
 
     @Test func windowNameForIDReturnsNameOrEmpty() {

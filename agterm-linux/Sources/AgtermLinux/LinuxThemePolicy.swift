@@ -123,10 +123,14 @@ enum ThemeColorResolver {
         @define-color sidebar_fg_color \(foreground);
         .agterm-sidebar { background-color: \(sidebarBackground); }
         .agterm-sidebar list, .agterm-sidebar row { background-color: transparent; }
-        .agterm-selected { background-color: \(selectionBackground); }
+        .agterm-sidebar row.agterm-selected {
+            background-color: \(selectionBackground);
+            border-radius: 6px;
+        }
         .agterm-sidebar label { color: \(foreground); }
-        /* child combinator: a row-parented popover must not inherit the selection foreground */
-        .agterm-selected > label, .agterm-selected > image { color: \(selectionForeground); }
+        /* exact row-content path: a row-parented popover must not inherit the selection foreground */
+        .agterm-sidebar row.agterm-selected > .agterm-session-row-content > label,
+        .agterm-sidebar row.agterm-selected > .agterm-session-row-content > image { color: \(selectionForeground); }
         .agterm-sidebar button { color: \(foreground); }
         .agterm-sidebar separator { background-color: alpha(\(foreground), 0.22); }
         toolbarview.agterm-sidebar-column > .top-bar,

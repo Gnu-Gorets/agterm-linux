@@ -281,7 +281,9 @@ paths:
 - Defaults load before user config and set `cursor-style = block` plus
   `shell-integration-features = no-cursor,no-title`. `no-cursor` prevents prompt DECSCUSR bar resets;
   `no-title` prevents abbreviated local cwd OSC 2 from overriding sidebar names. User/remote OSC titles
-  still work, and OSC 7 is unaffected.
+  still work, and OSC 7 is unaffected. Fish's built-in `fish_title` is independent of Ghostty's feature
+  bit, so Linux also normalizes an exact cwd or Fish's default `prompt_pwd -d 1 -D 1` title to blank in
+  `LinuxSessionTitlePolicy`; real program titles and host-prefixed remote titles remain intact.
 - `ssh-env` and `ssh-terminfo` are forced OFF after `ghostty_config_load_recursive_files`, so no user
   source including a `config-file` include can enable them: their wrappers call a `ghostty` CLI agterm
   does not bundle, and enabling either broke `ssh` outright (#463). The override reads the resolved
