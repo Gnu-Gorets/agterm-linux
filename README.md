@@ -102,9 +102,14 @@ What it does:
 
 - **Workspaces.** Sessions are grouped under named workspaces like "work" and "personal", which keeps a screen of concurrent sessions organized. You reach a session by name, by recency, or from the keyboard.
 - **Control API and CLI.** A bundled tool, `agtermctl`, drives almost everything over a local socket: create sessions, type into them, run a program in an overlay and read its exit status, move and resize windows, or post a notification tied to a specific session. A script or an agent can set up and drive its own layout, and send you a notification from the session it was working in.
-- **Splits, scratch, and overlays.** Split a session into two shells, open a scratch terminal over it, or run a program in a full or floating overlay without disturbing the shell underneath.
+- **Splits, scratch, and overlays.** Split a session into two shells side by side or top and bottom, open a scratch terminal over it, or run a program in a full or floating overlay without disturbing the shell underneath.
+- **Three restore modes on macOS.** Upstream can restore fresh shells, rerun captured commands, or keep primary and split processes alive with zmx. Linux restore behavior and the current platform boundary are described above.
 - **Agent skill.** An installable skill teaches Claude Code or Codex the control model and the `agtermctl` commands, so an agent running inside agterm can build its own layout, run overlays, manage windows, and show images inline without you explaining the API. On Linux, manage it from **Preferences ▸ Integrations**.
 - **Agent status.** A coding agent reports its state (active, blocked, or completed) onto its session's row, so you can see which of many running agents needs you. On Linux, inspect and install the Claude Code, Codex, Pi, OpenCode, and shell hooks from **Preferences ▸ Integrations**.
+
+A lot of "does it have X?" questions have the same answer: bind X yourself. A `command` line in `keymap.conf` turns any shell line into a key chord, and an overlay gives an interactive program a real terminal over the session, so a file manager, a git UI, or a database browser is one line away. Bigger workflows become scripts, which is what the [cookbook](cookbook/) collects.
+
+You are not meant to write those lines by hand. Install the agent skill (Help ▸ Install Agent Skill…) and ask the agent in your session for what you want, and it writes the line with the right syntax, targeting, and PATH handling. [Extend agterm](https://agterm.com/docs#extend) shows that, and teaches enough of the model to read and change what comes back.
 
 For the real terminal work, rendering, VT parsing, and shell I/O, `agterm` embeds [Ghostty](https://ghostty.org)'s engine (libghostty); everything above is `agterm`'s own.
 
@@ -133,7 +138,7 @@ A full-screen diff TUI running inside a session:
 
 ![Diff TUI](docs/screenshots/diff-tui.png)
 
-A file manager in a floating overlay over the active session:
+The yazi file manager in a floating overlay over the active session, from one `command` line in `keymap.conf`:
 
 ![Floating overlay](docs/screenshots/floating-overlay.png)
 
@@ -555,6 +560,12 @@ ArgumentParser reports malformed command lines with exit status `64`.
 These local commands ignore `--socket` and do not require a running app.
 
 Each command targets a session or workspace by its UUID, a unique prefix of that UUID (git-style), or the keyword `active` (the selected session / current workspace). `--target` defaults to `active`, so the current one rarely needs to be named. Mutating commands normally print the affected id; batch `session close` and `session move` accept repeated `--target` options and print the number of sessions actually changed. `tree` prints the workspace and session tree. Add `--json` for the raw response, or `--socket PATH` to override the socket path. The exit code is zero on success, non-zero on error.
+
+On macOS, sessions come back on the next launch with their directory, font size, and split state. **Settings ▸ General ▸ Restore sessions** chooses fresh shells, re-run commands, or live sessions. Live mode wraps every primary and split pane; scratch, overlay, and quick terminals remain temporary. A clean quit leaves each live process running and captures the foreground command as a fallback. The next launch reattaches when the daemon survived. If the daemon is missing after an orderly machine restart, zmx creates it with the captured command; the pane remains live and later launches reattach normally.
+
+The fallback has three exclusions. A pane in a window closed before quit has no capture and starts a fresh shell if its daemon is missing. A hard power loss or force quit never reaches capture. A command refused by `restore-denylist.conf`, carrying a control character, or captured with invalid UTF-8 also starts a fresh shell. SIGTERM leaves live daemons running but skips the clean-quit capture path. `agtermctl zmx list` shows every daemon and the pane that claims it, `agtermctl zmx prune` clears the detached ones no pane claims, and `agtermctl restore mode` reads or sets the policy without opening Settings. Switching away from Live sessions and restarting ends the detached live processes. A launch that still requests Live sessions but cannot use it preserves them for a later eligible launch.
+
+Live restore keeps the running process, usable text and TUI state, and normal terminal colors. The reconstructed screen does not retain inline images, earlier OSC 133 prompt markers, program-changed palette entries, or hyperlink metadata already attached to cells. New output after reattach behaves normally.
 
 ### Native picker
 

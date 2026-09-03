@@ -96,7 +96,8 @@ struct SurfaceTargetOptions: ParsableArguments {
 public enum AgtermctlCommandCatalog {
     public static var subcommands: [ParsableCommand.Type] {
         [Tree.self, Events.self, Workspace.self, Session.self, Surface.self, Dashboard.self, Window.self, Quick.self,
-         Sidebar.self, Notify.self, Font.self, Keymap.self, Config.self, Theme.self, Pick.self, Restore.self, Recent.self]
+         Sidebar.self, Notify.self, Font.self, Keymap.self, Config.self, Theme.self, Pick.self, Restore.self, Recent.self,
+         Zmx.self, Version.self]
     }
 
     public static func rootConfiguration(
@@ -147,6 +148,14 @@ extension RequestCommand {
                                    affectedNoun: affectedNoun)
         if !response.ok { throw ExitCode.failure }
     }
+}
+
+/// Decodes a `type` command's stdin payload, whose contract is text; an invalid byte empties it entirely.
+func decodeTypedStdin(_ input: Data) throws -> String {
+    guard let text = String(data: input, encoding: .utf8) else {
+        throw ValidationError("stdin must be valid UTF-8")
+    }
+    return text
 }
 
 // MARK: - tree
