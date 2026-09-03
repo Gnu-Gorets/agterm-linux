@@ -182,11 +182,39 @@ private let onOpen: @MainActor @convention(c) (OpaquePointer?, UnsafeMutablePoin
         hasPriorState: FirstRunWelcome.hasPriorState(in: stateDirectory))
     let appearanceSide = LinuxAppearanceSide(isDark: AppController.systemIsDark)
     GhosttyApp.shared.start(appearanceSide: appearanceSide)
+    let restoreDecision = currentSettings.effectiveRestoreMode.launchDecision(
+        liveUnavailableReason: LinuxZmxLaunch.liveUnavailableReason()
+    )
+    gRestoreLaunchDecision = restoreDecision
+    let zmxPath = LinuxZmxLaunch.executablePath()
+    let zmxClient = FileManager.default.isExecutableFile(atPath: zmxPath)
+        ? LinuxZmxClient(
+            executablePath: zmxPath,
+            socketDirectory: ZmxSupport.socketDirectory(forStateDirectory: stateDirectory.path)
+        ) : nil
+    gZmxClient = zmxClient
+    gZmxForegroundResolver = zmxClient.map(LinuxZmxForegroundResolver.init(client:))
     // The notification click-to-reveal target: an `app.reveal` action carrying a session-id string.
     let revealAction = g_simple_action_new("reveal", g_variant_type_new("s"))
     connect(revealAction, "activate", unsafeBitCast(onRevealAction as @convention(c) (OpaquePointer?, OpaquePointer?, gpointer?) -> Void, to: GCallback.self))
     g_action_map_add_action(app, revealAction)
-    gLibrary = WindowLibrary(directory: linuxStateDirectory())
+    gLibrary = WindowLibrary(
+        directory: stateDirectory,
+        paneFinalizer: { identities in
+            _ = zmxClient?.kill(paneIdentities: identities)
+            gZmxForegroundResolver?.noteLifecycleChange()
+        },
+        launchInventorySink: { identities in
+            gZmxRunningNames = zmxClient?.reap(
+                knownPaneIdentities: identities,
+                launchDecision: restoreDecision
+            ).runningNames
+            gZmxForegroundResolver?.noteLifecycleChange()
+        },
+        launchPaneDrop: { identities in identities.forEach(gSpawnRegistry.pacer.discard) }
+    )
+    let spawnPlan = gLibrary.launchSpawnPlan()
+    gSpawnRegistry.pacer.arm(order: spawnPlan.order, burst: spawnPlan.burst)
     ensureStarterFiles()
     installAppCSS()
     installStatusColorCSS()
@@ -264,6 +292,7 @@ func linuxSettingsStore() -> SettingsStore {
 private let onShutdown: @MainActor @convention(c) (OpaquePointer?, gpointer?) -> Void = { _, _ in
     MainActor.assumeIsolated {
         colorSchemeChangeDebouncer.cancel()
+        gLibrary?.isTerminating = true
         flushOnQuit()
         gControlServer.stop()
     }

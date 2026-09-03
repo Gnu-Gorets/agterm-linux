@@ -62,7 +62,7 @@ attached to it:
 agtermctl zmx kill --target 3f2a --pane left --force
 ```
 
-## Attach a session running on another Mac
+## Attach a session running on another host
 
 List what the other machine offers across every open window, then open one here by its ID. The far side
 has to be in `live` mode, reachable over ssh with key-based auth, and carry `agtermctl` from the cask or

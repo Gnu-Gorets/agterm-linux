@@ -62,6 +62,9 @@ extension AppController {
         if paletteWindow != nil { closePalette() }
         searchSurface?.endSearch()
         cancelSessionSwitch()
+        gSpawnRegistry.prioritize(members.compactMap {
+            surface(for: .session($0.session, $0.surface))
+        })
         dashboard.open(members: members, fontMode: fontMode)
         refreshPaneOverlayCoverage()
         suppressAutoFollow()

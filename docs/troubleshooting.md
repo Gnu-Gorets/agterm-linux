@@ -183,6 +183,26 @@ A reload applies most keys to your open terminals right away — colors, theme, 
 
 The full ghostty key reference is at <https://ghostty.org/docs/config>. One pair of values in it does not apply to agterm: the `ssh-env` and `ssh-terminfo` values of `shell-integration-features`. Ghostty implements both by replacing your `ssh` with a wrapper that calls the `ghostty` command-line tool absent from agterm's bundle, so in agterm the wrapper would fail on every connection. agterm forces those two values back off and keeps the rest of your `shell-integration-features` flags, so `ssh` stays the real `ssh`. If you need agterm's terminfo entry on a remote host, install it there once with `infocmp -x xterm-ghostty | ssh <host> 'tic -x -'`.
 
+## A Live session came back as a fresh shell on Linux
+
+Live mode is fixed when agterm starts.
+After selecting **Preferences ▸ General ▸ Restore sessions ▸ Live sessions**, restart the app.
+Linux requires zsh as the password-database login shell, Ghostty's bundled zsh integration, and the
+executable zmx runtime bundled by the release packages or staged by `scripts/setup-linux.sh`.
+If zmx is unavailable, agterm preserves the requested mode but safely starts ordinary shells.
+
+Use `agtermctl tree --json` to inspect `backedByZmx` and `agtermctl zmx list` to compare running daemons
+with their claimed panes.
+Only local primary and split panes are eligible; scratch, overlay, Quick, and SSH-attached panes are
+temporary or remote adapters.
+A clean app quit leaves eligible daemons alive, while explicitly deleting a session, split, workspace, or
+window kills its daemon after any undo grace period.
+A reboot removes live daemons, so agterm recreates a missing pane from its last cleanly captured command.
+
+`agtermctl zmx prune` removes only confirmed orphan daemons.
+`agtermctl zmx kill --target <session> --pane left|right --force` explicitly ends one shown live pane.
+An incomplete pane inventory reports an unknown claim and is never pruned speculatively.
+
 ## Copy/paste and shortcuts on a non-Latin or alternative layout
 
 On Linux, agterm resolves shortcuts once per active layout, matching upstream macOS behavior.

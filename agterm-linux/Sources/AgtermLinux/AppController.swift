@@ -450,7 +450,7 @@ final class AppController {
     /// The primary pane's shell exited. Mirrors macOS: if a split pane is alive the session SURVIVES,
     /// promoted to that single pane (a primary exit must never destroy the live split shell); with no
     /// split the session closes. `AppStore.closePrimaryPane` decides promote-vs-close.
-    func closePrimaryPane(_ id: UUID) {
+    func closePrimaryPane(_ id: UUID, alreadyFinalized: UUID? = nil) {
         // Capture the survivor (the split pane) before the store clears the session's split flags.
         if dashboard.isOpen { dashboard.promoteSplitMember(session: id) }
         let survivor = splitSurfaces[id]
@@ -458,7 +458,7 @@ final class AppController {
         let survivorOverlay = rightOverlaySurfaces[id]; let survivorWash = rightOverlayWashes[id]
         let survivorWashProvider = rightOverlayWashProviders[id]
         let zoomTarget = suspendTerminalZoomForPrimaryPanePromotion(id)
-        store.closePrimaryPane(id)
+        store.closePrimaryPane(id, alreadyFinalized: alreadyFinalized)
         guard store.session(withID: id) != nil, let survivor, let survivorHost,
               let paned = sessionPanes[id] else {
             reconcile()   // no split → the store closed the session; reconcile drops its widgets
@@ -474,8 +474,7 @@ final class AppController {
         leftOverlaySurfaces[id] = survivorOverlay; rightOverlaySurfaces[id] = nil
         leftOverlayWashes[id] = survivorWash; rightOverlayWashes[id] = nil
         leftOverlayWashProviders[id] = survivorWashProvider; rightOverlayWashProviders[id] = nil
-        let sid = id
-        survivor.promoteToPrimary(onExit: { [weak self] in self?.closePrimaryPane(sid) })
+        survivor.promoteToPrimaryPane()
         survivor.queueRender()
         survivor.refresh()
         if store.selectedSessionID == id {
@@ -698,6 +697,7 @@ final class AppController {
         gtk_label_set_xalign(label, 0)
         gtk_widget_set_hexpand(W(label), 1)
         gtk_label_set_ellipsize(label, PANGO_ELLIPSIZE_END)
+        text.withCString { gtk_widget_set_tooltip_text(W(label), $0) }
         nameLabels[label] = (id, isWorkspace)
         let dbl = gtk_gesture_click_new()
         gtk_gesture_single_set_button(dbl, 1)   // left double-click only; right-click goes to the context menu
@@ -736,8 +736,8 @@ final class AppController {
         sessionFocusTarget(for: id)?.grabFocus(supersedingPopoverCapture: true)
     }
 
-    func closeSplitPane(_ id: UUID) {
-        store.closeSplitPane(id)
+    func closeSplitPane(_ id: UUID, alreadyFinalized: UUID? = nil) {
+        store.closeSplitPane(id, alreadyFinalized: alreadyFinalized)
         reconcile()
         if store.selectedSessionID == id {
             sessionFocusTarget(for: id, wantSplit: false)?.grabFocus()

@@ -76,10 +76,10 @@ extension AppController: ControlActions {
 
     func controlTree(window: String?) -> ControlResponse {
         let baseTree = store.controlTree(
-            foreground: { [weak self] session in self?.surfaces[session.id]?.foregroundCommand() },
-            splitForeground: { [weak self] session in self?.splitSurfaces[session.id]?.foregroundCommand() },
-            fontSize: { [weak self] in self?.surfaces[$0.id]?.currentFontSize() },
-            splitFontSize: { [weak self] in self?.splitSurfaces[$0.id]?.currentFontSize() },
+            paneForeground: { ($0.surface as? GhosttySurface)?.paneForeground() },
+            splitPaneForeground: { ($0.splitSurface as? GhosttySurface)?.paneForeground() },
+            fontSize: { ($0.surface as? GhosttySurface)?.currentFontSize() },
+            splitFontSize: { ($0.splitSurface as? GhosttySurface)?.currentFontSize() },
             scratchFontSize: { [weak self] in self?.scratchSurfaces[$0.id]?.currentFontSize() },
             quickVisible: { [weak self] in self?.quickVisible ?? false },
             zoomedSurface: { [weak self] in self?.terminalZoom.target?.controlID },
@@ -94,7 +94,7 @@ extension AppController: ControlActions {
                 case .fixed: return "fixed"
                 case .auto: return "auto"
                 }
-            }
+            }, app: LinuxAppMetadata.identity
         )
         let tree = projectingLinuxAutoFollow(baseTree)
         return ControlResponse(ok: true, result: ControlResult(tree: tree))

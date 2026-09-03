@@ -142,8 +142,10 @@ final class ControlServer: @unchecked Sendable {
                 if errno == EBADF || errno == EINVAL { return }
                 continue
             }
-            handle(conn)
-            close(conn)
+            Thread.detachNewThread { [self] in
+                handle(conn)
+                close(conn)
+            }
         }
     }
 
@@ -151,13 +153,82 @@ final class ControlServer: @unchecked Sendable {
         guard let line = readLine(conn) else { return }
         let response: ControlResponse
         if let req = try? JSONDecoder().decode(ControlRequest.self, from: line) {
-            response = dispatchOnMain(req)
+            response = Self.isRemoteZmxRequest(req) ? dispatchRemoteZmx(req) : dispatchOnMain(req)
         } else {
             response = ControlResponse(ok: false, error: "could not decode request")
         }
         guard var data = try? JSONEncoder().encode(response) else { return }
         data.append(0x0A)
         writeAll(conn, data)
+    }
+
+    private static func isRemoteZmxRequest(_ request: ControlRequest) -> Bool {
+        request.cmd == .zmxAttach
+            || (request.cmd == .zmxTree
+                && request.args?.host?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+    }
+
+    /// SSH waits on a per-connection worker, never GTK's main thread and never the listener thread.
+    private func dispatchRemoteZmx(_ request: ControlRequest) -> ControlResponse {
+        guard let host = request.args?.host?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !host.isEmpty else {
+            return ControlResponse(ok: false, error: request.cmd == .zmxAttach
+                ? "zmx.attach requires a host" : "invalid host")
+        }
+        let tree = readRemoteTree(host: host)
+        guard request.cmd == .zmxAttach else { return tree }
+        guard let remoteID = request.target?.trimmingCharacters(in: .whitespacesAndNewlines),
+              Self.isPlainRemoteToken(remoteID) else {
+            return ControlResponse(ok: false, error: request.target == nil
+                ? "zmx.attach requires a remote session" : "invalid remote session")
+        }
+        guard tree.ok, let remote = tree.result?.remote else { return tree }
+        return attachRemoteOnMain(host: host, session: remoteID, tree: remote)
+    }
+
+    private func readRemoteTree(host: String) -> ControlResponse {
+        let argv: [String]
+        do {
+            argv = try RemoteSession.treeCommand(host: host)
+        } catch {
+            return ControlResponse(ok: false, error: "invalid host")
+        }
+        let result = LinuxRemoteCommand.run(argv, deadline: LinuxRemoteCommand.treeDeadline)
+        guard result.status == 0 else {
+            let stderr = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            let detail = RemoteTreeMerger.remoteError(stdout: result.stdout) ?? (stderr.isEmpty ? nil : stderr)
+            return ControlResponse(ok: false, error: detail ?? "the remote command failed on \(host)")
+        }
+        do {
+            let decoded = try RemoteTreeMerger.decode(stdout: result.stdout)
+            let stamped = ControlRemoteTree(host: host, endpoint: decoded.endpoint, sessions: decoded.sessions)
+            return ControlResponse(ok: true, result: ControlResult(remote: stamped))
+        } catch let error as RemoteTreeMerger.MergeError {
+            return ControlResponse(ok: false, error: error.message)
+        } catch {
+            return ControlResponse(ok: false, error: "the remote answer could not be read")
+        }
+    }
+
+    private func attachRemoteOnMain(host: String, session: String,
+                                    tree: ControlRemoteTree) -> ControlResponse {
+        let sem = DispatchSemaphore(value: 0)
+        let box = ResponseBox()
+        runOnMain {
+            MainActor.assumeIsolated {
+                box.value = gController?.attachRemoteSession(host: host, session: session, tree: tree)
+                    ?? ControlResponse(ok: false, error: "no window to attach into")
+                sem.signal()
+            }
+        }
+        sem.wait()
+        return box.value
+    }
+
+    private static func isPlainRemoteToken(_ value: String) -> Bool {
+        !value.isEmpty && !value.unicodeScalars.contains {
+            $0.properties.isWhitespace || $0.value < 0x20 || $0.value == 0x7f
+        }
     }
 
     /// Run the dispatch on the GTK main thread and block until it returns.
@@ -210,8 +281,8 @@ final class ControlServer: @unchecked Sendable {
         switch req.cmd {
         case .sessionClose, .sessionDuplicate, .sessionSelect, .sessionGo, .sessionRename, .sessionReveal,
              .sessionMove, .sessionType,
-             .sessionStatus, .sessionRestore, .sessionFlag, .sessionSeen,
-             .sessionSplit, .sessionSplitClose, .sessionScratch, .sessionFocus,
+             .sessionStatus, .sessionRestore, .sessionFlag, .sessionContext, .sessionSeen,
+             .sessionSplit, .sessionSplitClose, .sessionSwap, .sessionScratch, .sessionFocus,
              .sessionCopy, .sessionPaste, .sessionSelectAll, .sessionSearch,
              .sessionOverlayOpen, .sessionOverlayClose, .sessionOverlayResize, .sessionOverlayResult,
              .sessionOverlayCopy, .sessionOverlayText,
@@ -231,7 +302,9 @@ final class ControlServer: @unchecked Sendable {
              .windowNew, .windowList, .windowSelect, .windowClose, .windowRename, .windowDelete,
              .windowResize, .windowMove, .windowZoom, .windowFullscreen, .windowMinimize,
              .keymapReload, .keymapList, .configReload, .themeSet, .themeList,
-             .pickOpen, .pickResult, .pickCancel, .restoreClear, .recentClear, .debugAppearance:
+             .pickOpen, .pickResult, .pickCancel, .sidebarWidth,
+             .restoreClear, .restoreCapture, .restoreMode, .recentClear, .version,
+             .zmxList, .zmxPrune, .zmxKill, .zmxTree, .zmxAttach, .debugAppearance:
             return .controller(gController)
         }
     }

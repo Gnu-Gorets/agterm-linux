@@ -121,6 +121,7 @@ extension AppController {
         case .toggleSplit: return { self.toggleSplit(axis: .leftRight) }
         case .toggleHorizontalSplit: return { self.toggleSplit(axis: .topBottom) }
         case .closeSplit: return { self.closeActiveSplit() }
+        case .swapPanes: return { self.swapActiveSessionPanes() }
         case .toggleScratch: return { self.toggleScratch() }
         case .toggleTerminalZoom: return { self.toggleTerminalZoom() }
         case .dashboard: return { self.toggleDashboard() }

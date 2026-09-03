@@ -16,7 +16,7 @@ Full detail for every `agtermctl` command. See `SKILL.md` for the model and addr
 - **Response shape**: `{"ok": true, "result": {…}}` or `{"ok": false, "error": "<message>"}`.
   `result` carries one of: `id` (affected/new session/workspace/window), `text` (session copy/text),
   `exitCode` (overlay result), `count` (diagnostics/search), `restore` (the restore-mode policy),
-  `zmx` (the daemon inventory), `remote` (another Mac's attachable sessions, for `zmx tree`),
+  `zmx` (the daemon inventory), `remote` (another SSH host's attachable sessions, for `zmx tree`),
   `affected` (things actually changed: sessions
   for a batch close/move, daemons killed for `zmx prune`, or recent entries removed), `tree` (the tree), `windows` (window list), `app` (the serving app's identity, for
   `version`). The process exit code is non-zero when
@@ -1320,7 +1320,8 @@ started with, so a change applies after restarting agterm.
 - **Fresh shells** restores the structural snapshot with new shells.
 - **Re-run commands** starts captured commands again. The old processes are not attached.
 - **Live sessions** wraps primary and split panes with zmx and reattaches to their running processes. Zsh
-  must be the macOS login shell. Scratch, overlay, and quick terminals remain temporary.
+  must be zsh on both frontends, with bundled zmx and zsh integration available. Scratch, overlay, and
+  quick terminals remain temporary.
 
 Closing agterm or sending it SIGTERM ends the attach clients and leaves live daemons running. A clean quit
 also captures each live pane's foreground command, so a daemon missing after an orderly machine restart is

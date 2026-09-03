@@ -15,7 +15,7 @@ enum LinuxOverlayExitCapture {
 }
 
 @MainActor
-final class GhosttySurface: TerminalSurface {
+final class GhosttySurface: PaneRoleMutableSurface {
     /// Stable surface-local host. The GtkGLArea stays its child while the host is reparented for terminal
     /// zoom and overlays; a creation failure adds its diagnostic here and cannot cover sibling surfaces.
     let rootWidget: OpaquePointer
@@ -28,6 +28,12 @@ final class GhosttySurface: TerminalSurface {
     private var keyController: OpaquePointer?
     private var imContext: OpaquePointer?
     private var creationErrorLabel: OpaquePointer?
+    var rendererVisible = true
+    var cancelRendererHide: (@MainActor () -> Void)?
+    weak var spawnPacer: SpawnPacer?
+    var spawnKey: UUID?
+    var awaitingSpawnPermit = false
+    var launchSeed: LinuxPaneLaunchProvider?
 
     /// The owning session's id (so the host can route close/title back to the model).
     let sessionID: UUID
@@ -39,13 +45,14 @@ final class GhosttySurface: TerminalSurface {
     /// The shell's working directory.
     private let cwd: String
     /// Optional explicit command; nil runs the user's default login shell.
-    private let command: String?
+    var command: String?
     /// A fixed background owned by an overlay surface rather than the underlying session.
     private let fixedBackgroundColor: String?
     /// Program overlays use the theme default unless they explicitly own a color.
     private let usesSessionWatermark: Bool
     /// Whether command surfaces should linger on ghostty's "press any key" prompt after exit.
-    private let waitAfterCommand: Bool
+    var waitAfterCommand: Bool
+    private(set) var backedByZmx: Bool
     /// Scratch/overlay/quick terminals are transient covers; their OSC title/PWD must not overwrite the
     /// owning session's primary/split pane state.
     private let reportsPaneState: Bool
@@ -54,12 +61,12 @@ final class GhosttySurface: TerminalSurface {
     private let fontSize: Double?
     /// Optional text fed to the shell at startup (restore-running-command re-runs the captured argv);
     /// runs INSIDE the shell so its exit returns to a prompt (unlike `command`).
-    private let initialInput: String?
+    var initialInput: String?
     /// `AGTERM_*` (and any other) env vars to inject into the spawned shell, plus the pre-launch
     /// GDK_DISABLE/GDK_DEBUG values `main()` overwrote — this init is the single choke point every
     /// surface role (main, split, scratch, overlay, quick) goes through, so the restore is merged here
     /// rather than at each construction site.
-    private let env: [String: String]
+    let env: [String: String]
     /// The last libghostty-requested pointer state. GTK may receive visibility, link-hover, and shape
     /// actions independently, so keep all three and re-apply their precedence instead of letting one
     /// callback accidentally reset another.
@@ -96,7 +103,7 @@ final class GhosttySurface: TerminalSurface {
     var onExit: (() -> Void)?
     private var exitCodeFile: String?
     private var onExitCodeCaptured: ((Int) -> Void)?
-    private var didHandleProcessExit = false
+    var didHandleProcessExit = false
 
     isolated deinit {
         if let surface { ghostty_surface_free(surface) }
@@ -109,7 +116,7 @@ final class GhosttySurface: TerminalSurface {
          controller: AppController? = nil, waitAfterCommand: Bool = false,
          role: LinuxSurfaceRole = .main, reportsPaneState: Bool = true,
          fontSize: Double? = nil, initialInput: String? = nil, backgroundColor: String? = nil,
-         usesSessionWatermark: Bool = true) {
+         usesSessionWatermark: Bool = true, backedByZmx: Bool = false) {
         self.sessionID = sessionID
         self.controller = controller
         self.role = role
@@ -118,6 +125,7 @@ final class GhosttySurface: TerminalSurface {
         fixedBackgroundColor = backgroundColor
         self.usesSessionWatermark = usesSessionWatermark
         self.waitAfterCommand = waitAfterCommand
+        self.backedByZmx = backedByZmx
         self.reportsPaneState = reportsPaneState
         self.fontSize = fontSize
         self.initialInput = initialInput
@@ -140,6 +148,10 @@ final class GhosttySurface: TerminalSurface {
         let me = Unmanaged.passRetained(self).toOpaque()
         connect(glArea, "destroy", unsafeBitCast(surfaceDestroy as @convention(c) (OpaquePointer?, gpointer?) -> Void, to: GCallback.self), me)
         connect(glArea, "realize", unsafeBitCast(surfaceRealize as @convention(c) (OpaquePointer?, gpointer?) -> Void, to: GCallback.self), me)
+        connect(glArea, "map", unsafeBitCast(surfaceMap as @convention(c) (OpaquePointer?, gpointer?) -> Void,
+                                              to: GCallback.self), me)
+        connect(glArea, "unmap", unsafeBitCast(surfaceUnmap as @convention(c) (OpaquePointer?, gpointer?) -> Void,
+                                                to: GCallback.self), me)
         connect(glArea, "render", unsafeBitCast(surfaceRender as @convention(c) (OpaquePointer?, OpaquePointer?, gpointer?) -> gboolean, to: GCallback.self), me)
         connect(glArea, "resize", unsafeBitCast(surfaceResize as @convention(c) (OpaquePointer?, Int32, Int32, gpointer?) -> Void, to: GCallback.self), me)
 
@@ -209,6 +221,7 @@ final class GhosttySurface: TerminalSurface {
             return
         }
         createSurface()
+        updateRendererVisibility(delayHide: false)
     }
 
     private func reportGLContextFailure(message: String? = nil) {
@@ -227,8 +240,13 @@ final class GhosttySurface: TerminalSurface {
         controller?.applySidebarThemeColor()
     }
 
-    private func createSurface() {
+    func createSurface() {
         guard surface == nil, let app = GhosttyApp.shared.app else { return }
+        if let spawnPacer, let spawnKey {
+            awaitingSpawnPermit = !spawnPacer.request(spawnKey)
+            guard !awaitingSpawnPermit else { return }
+        }
+        resolveLaunchSeed()
         let scale = gtk_widget_get_scale_factor(W(glArea))
         var cfg = ghostty_surface_config_new()
         cfg.platform_tag = GHOSTTY_PLATFORM_OPENGL
@@ -603,6 +621,7 @@ final class GhosttySurface: TerminalSurface {
     }
 
     func grabFocus(supersedingPopoverCapture: Bool = false) {
+        expediteSpawn()
         // Explicit user/control transfers are newer than any search-entry owner captured before a
         // popover took the keyboard. Implicit repair grabs (window reactivation and popover dismissal)
         // deliberately keep the capture so the entry can be restored after GTK moves focus transiently.
@@ -774,7 +793,7 @@ final class GhosttySurface: TerminalSurface {
         onExitCodeCaptured = onCapture
     }
 
-    private func finishExitCodeCapture() {
+    func finishExitCodeCapture() {
         guard let file = exitCodeFile else { return }
         defer {
             exitCodeFile = nil
@@ -786,13 +805,12 @@ final class GhosttySurface: TerminalSurface {
 
     var shouldCloseOnChildExitAction: Bool { command != nil && !waitAfterCommand }
 
-    func promoteToPrimary(onExit: (() -> Void)?) {
-        role = .main
-        self.onExit = onExit
-    }
-
     func promoteToPrimaryPane() {
         role = .main
+    }
+
+    func setPaneRole(_ role: SwappablePaneRole) {
+        self.role = role == .primary ? .main : .split
     }
 
     func terminalNotificationOrigin() -> LinuxTerminalNotificationOrigin? {
@@ -812,22 +830,16 @@ final class GhosttySurface: TerminalSurface {
     /// token against the surface's live slot after a split pane is promoted and a new split is created.
     var paneToken: String { env["AGTERM_PANE_ID"] ?? "" }
 
-    /// The live foreground-process argv (via `/proc/<pid>/cmdline`), or nil at the shell prompt — the
-    /// Linux analogue of macOS's KERN_PROCARGS2 capture, used for `tree` introspection / restore.
-    func foregroundCommand() -> [String]? {
-        guard let surface else { return nil }
-        let pid = ghostty_surface_foreground_pid(surface)
-        guard pid > 0,
-              let data = try? Data(contentsOf: URL(fileURLWithPath: "/proc/\(pid)/cmdline")),
-              let argv = CommandRestore.parseProcCmdline(data),
-              !CommandRestore.isIdleShell(argv: argv) else { return nil }
-        return argv
-    }
-
     // MARK: - TerminalSurface
 
     func teardown() {
+        cancelRendererHide?()
+        cancelRendererHide = nil
         onExit = nil
+        if let spawnKey { gSpawnRegistry.cancel(spawnKey) }
+        spawnPacer = nil
+        spawnKey = nil
+        launchSeed = nil
         if let surface {
             ghostty_surface_free(surface)
             self.surface = nil
@@ -855,6 +867,12 @@ private let surfaceDestroy: @MainActor @convention(c) (OpaquePointer?, gpointer?
 }
 private let surfaceRealize: @MainActor @convention(c) (OpaquePointer?, gpointer?) -> Void = { _, data in
     MainActor.assumeIsolated { wrap(data)?.realize() }
+}
+private let surfaceMap: @MainActor @convention(c) (OpaquePointer?, gpointer?) -> Void = { _, data in
+    MainActor.assumeIsolated { wrap(data)?.updateRendererVisibility(delayHide: false) }
+}
+private let surfaceUnmap: @MainActor @convention(c) (OpaquePointer?, gpointer?) -> Void = { _, data in
+    MainActor.assumeIsolated { wrap(data)?.updateRendererVisibility() }
 }
 private let surfaceRender: @MainActor @convention(c) (OpaquePointer?, OpaquePointer?, gpointer?) -> gboolean = { _, _, data in
     MainActor.assumeIsolated { wrap(data)?.render() }

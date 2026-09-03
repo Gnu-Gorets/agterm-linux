@@ -357,6 +357,9 @@ extension AppController {
             // END even though the breadcrumb ends in the workspace: the flagged view is already
             // workspace-scoped, so the tail is what can be given up first.
             gtk_label_set_ellipsize(label, PANGO_ELLIPSIZE_END)
+            LinuxSidebarPolicy.flaggedRowLabel(for: s, in: store).withCString {
+                gtk_widget_set_tooltip_text(W(label), $0)
+            }
         }
         gtk_box_append(cast(box), W(label))
         if let glyph = Self.makeStatusGlyph(

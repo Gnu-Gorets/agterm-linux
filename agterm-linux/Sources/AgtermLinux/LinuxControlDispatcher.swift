@@ -10,11 +10,7 @@ import agtermCore
 /// Linux-driven API surface to `agtermCore`.
 @MainActor
 struct LinuxControlDispatcher {
-    private let actions: AppController
-
-    init(actions: AppController) {
-        self.actions = actions
-    }
+    let actions: AppController
 
     func dispatch(_ request: ControlRequest) -> ControlResponse? {
         switch request.cmd {
@@ -23,9 +19,9 @@ struct LinuxControlDispatcher {
         case .eventsRead:
             return dispatchEventsRead(request)
         case .sessionNew, .sessionDuplicate, .sessionSelect, .sessionGo, .sessionClose, .sessionRename, .sessionReveal,
-                .sessionMove, .sessionFlag, .sessionSeen, .sessionStatus, .sessionRestore:
+                .sessionMove, .sessionFlag, .sessionContext, .sessionSeen, .sessionStatus, .sessionRestore:
             return dispatchSessionCommand(request)
-        case .sessionSplit, .sessionSplitClose, .sessionScratch, .sessionFocus, .sessionResize,
+        case .sessionSplit, .sessionSplitClose, .sessionSwap, .sessionScratch, .sessionFocus, .sessionResize,
                 .surfaceZoom, .surfaceCursor,
                 .sessionCopy, .sessionPaste, .sessionSelectAll, .sessionOverlayOpen,
                 .sessionOverlayClose, .sessionOverlayResize, .sessionOverlayResult,
@@ -40,7 +36,7 @@ struct LinuxControlDispatcher {
             return dispatchWorkspaceCommand(request)
         case .fontInc, .fontDec, .fontReset, .keymapReload, .keymapList, .configReload, .notify,
                 .themeSet, .themeList, .sidebar, .sidebarMode, .sidebarExpand,
-                .sidebarCollapse, .restoreClear, .recentClear:
+                .sidebarCollapse, .sidebarWidth, .restoreClear, .restoreCapture, .recentClear, .version:
             return dispatchAppCommand(request)
         case .windowRename, .windowResize, .windowMove, .windowZoom, .windowFullscreen, .windowMinimize:
             return dispatchWindowCommand(request)
@@ -48,6 +44,8 @@ struct LinuxControlDispatcher {
             return dispatchPickCommand(request)
         case .dashboard:
             return dispatchDashboard(request)
+        case .restoreMode, .zmxList, .zmxPrune, .zmxKill, .zmxTree, .zmxAttach:
+            return dispatchZmxCommand(request)
         default:
             return nil
         }
@@ -237,6 +235,8 @@ struct LinuxControlDispatcher {
             return actions.moveSession(request.target, window: args?.window, move: move)
         case .sessionFlag:
             return actions.setSessionFlag(request.target, window: request.args?.window, mode: request.args?.mode)
+        case .sessionContext:
+            return dispatchSessionContext(request)
         case .sessionSeen:
             return actions.markSessionSeen(request.target, window: request.args?.window)
         case .sessionStatus:
@@ -372,6 +372,8 @@ struct LinuxControlDispatcher {
             )
         case .sessionSplitClose:
             return actions.closeSessionSplit(request.target, window: request.args?.window)
+        case .sessionSwap:
+            return actions.swapSessionPanes(request.target, window: request.args?.window)
         case .sessionScratch:
             return actions.scratchSession(request.target, window: request.args?.window, mode: request.args?.mode,
                                           command: request.args?.command)
@@ -595,6 +597,8 @@ struct LinuxControlDispatcher {
             return actions.reloadKeymap()
         case .keymapList:
             return actions.listKeymap()
+        case .version:
+            return actions.appIdentity()
         case .configReload:
             return actions.reloadGhosttyConfig()
         case .notify:
@@ -621,8 +625,15 @@ struct LinuxControlDispatcher {
             return actions.expandSidebar(window: request.args?.window)
         case .sidebarCollapse:
             return actions.collapseSidebar(window: request.args?.window)
+        case .sidebarWidth:
+            guard let points = request.args?.sidebarWidth, points.isFinite else {
+                return ControlResponse(ok: false, error: "sidebar.width requires a width in points")
+            }
+            return actions.setSidebarWidth(points, window: request.args?.window)
         case .restoreClear:
             return actions.clearRestoreCommands()
+        case .restoreCapture:
+            return actions.captureRestoreCommands()
         case .recentClear:
             return actions.clearRecentClosedItems()
         default:

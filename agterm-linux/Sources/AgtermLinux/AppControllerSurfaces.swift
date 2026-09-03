@@ -41,11 +41,16 @@ extension AppController {
     /// The `AGTERM_*` env injected into a session's spawned shells (main/split/scratch) so the
     /// agent-status hooks + `{AGT_X}` tokens can call back over the control socket.
     func sessionEnv(for s: Session, pane: StatusPane? = nil) -> [String: String] {
-        SurfaceEnvironment.session(sessionID: s.id, windowID: windowID,
-                                   workspaceID: store.workspace(forSession: s.id)?.id,
-                                   socketPath: gControlServer.resolvedSocketPath,
-                                   programVersion: LinuxAppMetadata.version, pane: pane,
-                                   paneToken: pane == nil ? nil : UUID().uuidString)
+        let paneIdentity: UUID? = switch pane {
+        case .left: s.paneIdentity
+        case .right: s.splitPaneIdentity
+        case .scratch, nil: nil
+        }
+        return SurfaceEnvironment.session(sessionID: s.id, windowID: windowID,
+                                          workspaceID: store.workspace(forSession: s.id)?.id,
+                                          socketPath: gControlServer.resolvedSocketPath,
+                                          programVersion: LinuxAppMetadata.version, pane: pane,
+                                          paneToken: paneIdentity?.uuidString)
     }
 
     /// Each session's deck page is an outer GtkStack ("main" = a GtkPaned holding the
@@ -63,26 +68,15 @@ extension AppController {
             (OpaquePointer?, Int32, Double, Double, gpointer?) -> Void, to: GCallback.self))
         gtk_widget_add_controller(W(paned), dividerClick)
         sessionStacks[s.id] = stack
-        let pendingForeground = s.takePendingForegroundCommand(pane: .left)
-        let hadForeground = pendingForeground != nil
-        let restoreInput = restoreInput(from: pendingForeground)
-        let inputs = CommandRestore.RestoreInputs(
-            wasRestored: s.wasRestored,
-            restoreEnabled: restoreEnabled,
-            hadForeground: hadForeground,
-            foregroundInput: restoreInput,
-            initialCommand: s.initialCommand,
-            restoreOverride: s.takePendingRestoreOverride(pane: .left)
-        )
-        let plan = CommandRestore.restorePlan(inputs)
-        let surf = GhosttySurface(sessionID: s.id, cwd: s.effectiveCwd, command: plan.command,
-                                  env: sessionEnv(for: s, pane: .left), controller: self,
-                                  waitAfterCommand: s.commandWait, fontSize: s.fontSize,
-                                  initialInput: plan.initialInput)
-        let sid = s.id
-        surf.onExit = { [weak self] in self?.closePrimaryPane(sid) }
+        let launch = paneLaunchProvider(for: s, pane: .left)
+        let surf = GhosttySurface(sessionID: s.id, cwd: s.effectiveCwd,
+                                  env: launch.environment, controller: self,
+                                  fontSize: s.fontSize, backedByZmx: launch.backedByZmx)
+        surf.launchSeed = launch
+        gSpawnRegistry.enqueue(surf, key: s.paneIdentity, shouldPace: launch.shouldPace)
         s.surface = surf
         surfaces[s.id] = surf
+        installPaneExitHandler(surf, sessionID: s.id)
         let paneHost = OpaquePointer(gtk_overlay_new())
         gtk_overlay_set_child(paneHost, W(surf.rootWidget))
         primaryPaneHosts[s.id] = paneHost
@@ -342,14 +336,6 @@ extension AppController {
         }
     }
 
-    private var restoreEnabled: Bool { linuxSettingsStore().load().restoreRunningCommand ?? false }
-
-    private func restoreInput(from captured: [String]?) -> String? {
-        guard let captured else { return nil }
-        guard restoreEnabled else { return nil }
-        return CommandRestore.shellQuotedLine(captured) + "\n"
-    }
-
     func runCustomCommand(_ cmd: CustomCommand, origin: GhosttySurface? = nil,
                           allowSessionless: Bool = false) {
         let s = store.activeSession
@@ -431,20 +417,18 @@ extension AppController {
         // freshly created split host would stay unparented and floating forever.
         guard let paned = sessionPanes[s.id], let primaryHost = primaryPaneHosts[s.id] else { return }
         if s.isSplit, splitSurfaces[s.id] == nil {
-            let capturedInput = restoreInput(from: s.takePendingForegroundCommand(pane: .right))
-            let restoreInput = CommandRestore.restoreInput(
-                restoreEnabled: restoreEnabled,
-                restoreOverride: s.takePendingRestoreOverride(pane: .right),
-                capturedInput: capturedInput
-            )
+            let launch = paneLaunchProvider(for: s, pane: .right)
             let split = GhosttySurface(sessionID: s.id, cwd: s.initialSplitCwd ?? s.effectiveCwd,
-                                       env: sessionEnv(for: s, pane: .right), controller: self,
+                                       env: launch.environment, controller: self,
                                        role: .split, fontSize: s.fontSize,
-                                       initialInput: restoreInput)
-            let sid = s.id
-            split.onExit = { [weak self] in self?.closeSplitPane(sid) }
+                                       backedByZmx: launch.backedByZmx)
+            split.launchSeed = launch
+            if let identity = s.splitPaneIdentity {
+                gSpawnRegistry.enqueue(split, key: identity, shouldPace: launch.shouldPace)
+            }
             s.splitSurface = split
             splitSurfaces[s.id] = split
+            installPaneExitHandler(split, sessionID: s.id)
             let paneHost = OpaquePointer(gtk_overlay_new())
             gtk_overlay_set_child(paneHost, W(split.rootWidget))
             splitPaneHosts[s.id] = paneHost
@@ -464,6 +448,25 @@ extension AppController {
             }
         }
         updatePaneDim(s)
+    }
+
+    /// Pane roles are mutable (`session.swap`), so child exit must resolve the surface's current
+    /// model role rather than retain the role it had when its GTK host was created.
+    func installPaneExitHandler(_ surface: GhosttySurface, sessionID: UUID) {
+        surface.onExit = { [weak self, weak surface] in
+            guard let self, let surface,
+                  let session = self.store.session(withID: sessionID) else {
+                self?.reconcile()
+                return
+            }
+            if session.surface === surface {
+                self.closePrimaryPane(sessionID)
+            } else if session.splitSurface === surface {
+                self.closeSplitPane(sessionID)
+            } else {
+                self.reconcile()
+            }
+        }
     }
 
     /// Collapse a split onto its surviving host: free the DEAD host's slot, leaving the survivor's — and so
@@ -801,19 +804,19 @@ extension AppController {
         title.withCString { gtk_window_set_title(WIN(window), $0) }
         if let titleWidget {
             let hidden = settings.resolvedHiddenInterfaceElements
-            let sessionPart = hidden.contains(.sessionName) ? nil : (store.activeSession?.displayName ?? "agterm")
-            let windowPart = hidden.contains(.windowName) || windowInfo?.hasCustomName != true ? nil : windowInfo?.name
-            let visibleTitle: String
-            switch (sessionPart, windowPart) {
-            case let (session?, window?): visibleTitle = "\(session) — \(window)"
-            case let (session?, nil): visibleTitle = session
-            case let (nil, window?): visibleTitle = window
-            case (nil, nil): visibleTitle = ""
-            }
-            visibleTitle.withCString { adw_window_title_set_title(titleWidget, $0) }
-            let subtitle = settings.effectiveToolbarMode == .normal
-                ? (store.activeSession?.subtitleDetail ?? "") : ""
-            subtitle.withCString { adw_window_title_set_subtitle(titleWidget, $0) }
+            let composition = TitlebarComposition.compose(
+                .init(
+                    sessionName: hidden.contains(.sessionName)
+                        ? nil : (store.activeSession?.displayName ?? "agterm"),
+                    windowName: hidden.contains(.windowName) || windowInfo?.hasCustomName != true
+                        ? nil : windowInfo?.name,
+                    context: hidden.contains(.sessionContext) ? nil : store.activeSession?.context,
+                    detail: store.activeSession?.subtitleDetail ?? ""
+                ),
+                mode: settings.effectiveToolbarMode
+            )
+            composition.title.withCString { adw_window_title_set_title(titleWidget, $0) }
+            composition.subtitle.withCString { adw_window_title_set_subtitle(titleWidget, $0) }
         }
         normalTitle.withCString { value in
             if let zoomTitleLabel { gtk_label_set_text(zoomTitleLabel, value) }

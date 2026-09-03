@@ -132,7 +132,9 @@ let onDeckOverlayChildPosition: @MainActor @convention(c)
             let headerHeight = controller.contentHeader.map { gtk_widget_get_visible(W($0)) != 0 ? gtk_widget_get_height(W($0)) : 0 } ?? 0
             let card = LinuxQuickCardPolicy.cardAllocation(overlayWidth: gtk_widget_get_width(W(overlay)),
                                                            overlayHeight: gtk_widget_get_height(W(overlay)),
-                                                           headerHeight: headerHeight)
+                                                           headerHeight: headerHeight,
+                                                           sizePercent: linuxSettingsStore().load()
+                                                               .quickTerminalSizePercent)
             // Assigned WHOLE: GTK passes an uninitialized stack rectangle, so a field-by-field fill that
             // ever misses one yields garbage rather than a default.
             allocation.pointee = GdkRectangle(x: card.x, y: card.y, width: card.width, height: card.height)

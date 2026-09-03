@@ -13,7 +13,7 @@ description: >
 when_to_use: >
   Trigger on: agterm, agtermctl, AGTERM_SESSION_ID, and, from inside a session, plain requests such as
   split the pane, close the overlay, show a message over the session, show an image inline, search the
-  scrollback, attach a session from another Mac, clear recent items, what recipes are there, the keymap editor will not open.
+  scrollback, attach a session from another host, clear recent items, what recipes are there, the keymap editor will not open.
 allowed-tools: Bash(agtermctl *)
 ---
 
@@ -139,7 +139,8 @@ you open overlays / type into whatever the user has selected, not your own sessi
 - **Fresh shells** restores the saved windows, workspaces, sessions, directories, and split layout with new shells.
 - **Re-run commands** starts each captured foreground command again. It does not reconnect to the old process.
 - **Live sessions** runs every primary and split pane through zmx and reattaches to the same process. It requires
-  zsh as the macOS login shell. Scratch, overlay, and quick terminals stay temporary.
+  zsh as the password-database login shell plus bundled zmx and zsh integration on both frontends.
+  Scratch, overlay, and quick terminals stay temporary.
 
 On a clean quit, agterm leaves live daemons running and captures each open pane's foreground command as a
 fallback. A surviving daemon ignores that payload on the next launch. If an orderly machine restart removed
@@ -565,7 +566,7 @@ refusing outright on an incomplete or conflicted inventory, and reporting each d
 stale-socket cleanup is not a kill · `zmx kill --target ID --pane left|right --force` - destroy one pane's
 daemon and the process in it; all three are required because this kills a backend process that reaches a
 pane no window is showing and every client attached to it, and none of its outcomes gets the undo grace ·
-`zmx tree [HOST]` - attachable sessions across EVERY open window, on another Mac with a HOST or this app
+`zmx tree [HOST]` - attachable sessions across EVERY open window, on another SSH host with a HOST or this app
 without one (the bare form is exactly what the remote call runs on the far side). Each row carries the id
 `zmx attach` takes plus `windowID`/`windowName`, `workspaceID`/`workspaceName` (show the names, group by
 the ids: neither is unique), `context` when set, and per-pane `foreground`; only a session whose every pane

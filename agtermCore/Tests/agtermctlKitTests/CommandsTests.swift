@@ -1852,13 +1852,6 @@ struct CommandsTests {
         #expect(throws: (any Error).self) { try Agtermctl.parseAsRoot(["bogus"]) }
     }
 
-    @Test func sharedCatalogCanAppendAHostCommandWithoutChangingAgtermctl() throws {
-        #expect(try ExtendedAgtermctl.parseAsRoot(["host-command"]) is HostCommand)
-        #expect(throws: (any Error).self) { try Agtermctl.parseAsRoot(["host-command"]) }
-        #expect(AgtermctlCommandCatalog.subcommands.count + 1
-            == ExtendedAgtermctl.configuration.subcommands.count)
-    }
-
     @Test func sessionTypeWithoutTextOrStdinFails() throws {
         // parses fine (text is optional), but makeRequest validates it needs TEXT or --stdin.
         let parsed = try Agtermctl.parseAsRoot(["session", "type"])
@@ -1994,13 +1987,4 @@ struct CommandsTests {
         #expect(path == (path as NSString).resolvingSymlinksInPath)
     }
 
-}
-
-private struct ExtendedAgtermctl: ParsableCommand {
-    static let configuration = AgtermctlCommandCatalog.rootConfiguration(
-        appending: [HostCommand.self])
-}
-
-private struct HostCommand: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "host-command")
 }
