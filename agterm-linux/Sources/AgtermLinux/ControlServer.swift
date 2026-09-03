@@ -19,13 +19,22 @@ final class ControlServer: @unchecked Sendable {
     private static let readTimeoutMS: Int32 = 5_000
     static let unavailableSuffix = ".unavailable"
 
+    private let logger = LinuxStructuredLogger(category: "ControlServer")
+    private let setSocketPermissions: (String, Int32) -> Int32
+
     /// The socket path once actually bound (nil before bind / after a bind failure), so a spawned
     /// shell's `AGTERM_SOCKET` only advertises a socket that exists. Mirrors macOS `boundSocketPath`.
     var boundSocketPath: String? { listenFD >= 0 ? path : nil }
     var resolvedSocketPath: String { refused ? path + Self.unavailableSuffix : path }
 
-    init(path: String? = nil) {
+    init(
+        path: String? = nil,
+        setSocketPermissions: ((String, Int32) -> Int32)? = nil
+    ) {
         self.path = path ?? Self.defaultSocketPath()
+        self.setSocketPermissions = setSocketPermissions ?? { path, _ in
+            path.withCString { chmod($0, 0o600) }
+        }
         _ = acquireOwnership()
     }
 
@@ -37,10 +46,17 @@ final class ControlServer: @unchecked Sendable {
     func start() {
         guard listenFD < 0 else { return }
         signal(SIGPIPE, SIG_IGN)
-        guard path.utf8.count < 104 else { return }
+        guard path.utf8.count < 104 else {
+            logger.notice("control socket path too long (\(path.utf8.count) bytes): \(path)")
+            return
+        }
         guard lockFD >= 0 || acquireOwnership() else { return }
         let fd = socket(AF_UNIX, Int32(SOCK_STREAM.rawValue), 0)
-        guard fd >= 0 else { return }
+        guard fd >= 0 else {
+            let reason = String(cString: strerror(errno))
+            logger.notice("control socket() failed: \(reason)")
+            return
+        }
 
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
@@ -56,13 +72,32 @@ final class ControlServer: @unchecked Sendable {
                 bind(fd, sa, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
-        guard bound == 0, listen(fd, 8) == 0 else { close(fd); return }
-        // Restrict the socket to the owner (mirrors the macOS server's chmod 0600) so another local
-        // user can't drive this terminal over the control channel.
-        _ = path.withCString { chmod($0, 0o600) }
+        guard bound == 0 else {
+            let reason = String(cString: strerror(errno))
+            logger.notice("control bind(\(path)) failed: \(reason)")
+            close(fd)
+            return
+        }
+        // Secure the pathname before listen makes connections queueable. A permissive process umask can
+        // otherwise leave a short cross-user connection window, and a failed chmod must never be ignored.
+        guard setSocketPermissions(path, fd) == 0 else {
+            let errorNumber = errno
+            let reason = String(cString: strerror(errorNumber))
+            logger.notice("control chmod(\(path), 0600) failed: \(reason)")
+            close(fd)
+            unlink(path)
+            return
+        }
+        guard listen(fd, 8) == 0 else {
+            let reason = String(cString: strerror(errno))
+            logger.notice("control listen() failed: \(reason)")
+            close(fd)
+            unlink(path)
+            return
+        }
         listenFD = fd
         Thread.detachNewThread { [self] in acceptLoop(fd) }
-        FileHandle.standardError.write(Data("agterm: control socket at \(path)\n".utf8))
+        logger.notice("control socket at \(path)")
     }
 
     func stop() {
@@ -77,15 +112,14 @@ final class ControlServer: @unchecked Sendable {
         let lockPath = path + ".lock"
         let fd = open(lockPath, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
         guard fd >= 0 else {
-            FileHandle.standardError.write(Data("agterm: could not open control lock \(lockPath)\n".utf8))
+            let reason = String(cString: strerror(errno))
+            logger.notice("control lock open(\(lockPath)) failed: \(reason)")
             return false
         }
         guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
             close(fd)
             refused = true
-            FileHandle.standardError.write(
-                Data("agterm: control socket already owned; refusing \(path)\n".utf8)
-            )
+            logger.notice("control socket \(path) is already served by another instance — not binding")
             return false
         }
         lockFD = fd
