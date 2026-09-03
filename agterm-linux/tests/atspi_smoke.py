@@ -1795,6 +1795,192 @@ def verify_split_exit_sidebar(env):
         stop(process)
 
 
+def verify_split_primary_exit(env):
+    """Exiting the PRIMARY pane's shell must promote the split survivor without freeing its widgets.
+
+    A GTK4 container holds the sole reference to a sunk child, so clearing both paned slots before
+    re-adding the survivor finalizes it and relinks freed memory into the live tree; the next layout
+    pass then calls through a NULLed class pointer. Readiness and pane identity are marker writes, not
+    OSC titles: the pane shell is `$SHELL`, whose prompt rewrites the title on every line.
+    """
+    process, app = launch(env)
+    try:
+        primary_window = wait_for(
+            lambda: next(iter(window_list(env)), None),
+            "primary window did not register",
+        )
+        window_id = primary_window["id"]
+        session_id = window_tree(env, window_id)["workspaces"][0]["sessions"][0]["id"]
+
+        def session_state():
+            return window_tree(env, window_id)["workspaces"][0]["sessions"][0]
+
+        def pane_reports(pane, marker_path, expression, expected=None):
+            # Typing before a login shell reaches its prompt loses the line for good and `wait_for`
+            # cannot resend, so retype the idempotent marker write; the leading newline discards whatever
+            # half-line a lost attempt left behind. `AGTERM_PANE`/`AGTERM_PANE_ID` are baked at spawn,
+            # which is what makes the value identify the PROCESS rather than the slot it now occupies.
+            command = f'\nprintf %s "{expression}" > {shlex.quote(marker_path)}\n'
+
+            def reported():
+                try:
+                    with open(marker_path, encoding="utf-8") as marker:
+                        value = marker.read()
+                except OSError:
+                    return None
+                return value if expected is None or value == expected else None
+
+            # The budget matches `wait_for`'s own 12 s default, spent as 12 attempts one second apart.
+            retype_attempts, retype_interval = 12, 1.0
+            for _ in range(retype_attempts):
+                control_json(
+                    env, "session", "type", command, "--target", session_id,
+                    "--pane", pane, "--window", window_id, "--json",
+                )
+                value = wait_for(reported, "", timeout=retype_interval, required=False)
+                if value:
+                    return value
+                # A death here would otherwise surface as a CalledProcessError naming agtermctl.
+                assert process.poll() is None, (
+                    f"the app died while writing the {pane}-pane marker (rc={process.returncode})"
+                )
+            return None
+
+        def exit_primary_pane():
+            # Focus the pane about to exit, as a user typing `exit` there does. GTK holds a SECOND
+            # reference on a container's focus child, so a survivor that still owns the keyboard survives
+            # the unparent by accident and the promotion reads as healthy. Use the MODEL role: after the
+            # first promotion, physical left is the newly split pane in the freed start slot.
+            control_json(
+                env, "session", "focus", "primary", "--target", session_id,
+                "--window", window_id, "--json",
+            )
+            wait_for(
+                lambda: session_state().get("splitFocused") is False,
+                "the primary pane never took keyboard focus",
+            )
+            # Sent ONCE: after promotion `--pane left` resolves to the survivor, so a retry kills it.
+            control_json(
+                env, "session", "type", "exit\n", "--target", session_id,
+                "--pane", "left", "--window", window_id, "--json",
+            )
+            # Before any further control call: a dead app would otherwise surface as a CalledProcessError
+            # naming agtermctl instead of the crash this scenario exists to attribute.
+            poll(lambda: process.poll() is not None, NEGATIVE_SETTLE_SECONDS)
+            assert process.poll() is None, f"primary-pane exit killed the app (rc={process.returncode})"
+            wait_for(
+                lambda: not session_state().get("hasSplit"),
+                "primary-pane exit did not collapse the split",
+            )
+
+        state = env["AGTERM_STATE_DIR"]
+        assert pane_reports("left", os.path.join(state, "primary-exit-left"), "$AGTERM_PANE", "left"), (
+            "the primary pane shell never answered input"
+        )
+        control_json(
+            env, "session", "split", "on", "--target", session_id,
+            "--window", window_id, "--json",
+        )
+        wait_for(lambda: session_state().get("hasSplit"), "session split did not become active")
+        split_id = pane_reports("right", os.path.join(state, "primary-exit-right"), "$AGTERM_PANE_ID")
+        assert split_id, "the split pane shell never answered input"
+
+        offset = os.path.getsize(env["AGTERM_UI_APP_STDERR"])
+        exit_primary_pane()
+        assert pane_reports(
+            "left", os.path.join(state, "primary-exit-promoted"), "$AGTERM_PANE", "right"
+        ), "the promoted pane is not the original split shell answering input"
+
+        # The survivor now holds the paned's END slot, which only a promotion produces. Re-splitting into
+        # the freed slot, driving both panes there, and promoting a SECOND time is the only coverage of
+        # that inverted state.
+        control_json(
+            env, "session", "split", "on", "--target", session_id,
+            "--window", window_id, "--json",
+        )
+        wait_for(lambda: session_state().get("hasSplit"), "the promoted pane did not re-split")
+        assert pane_reports("left", os.path.join(state, "resplit-left"), "$AGTERM_PANE_ID", split_id), (
+            "the promoted pane stopped answering input after the re-split"
+        )
+        resplit_id = pane_reports("right", os.path.join(state, "resplit-right"), "$AGTERM_PANE_ID")
+        assert resplit_id, "the re-split pane shell never answered input"
+
+        def assert_focus(pane, split_focused, message):
+            control_json(
+                env, "session", "focus", pane, "--target", session_id,
+                "--window", window_id, "--json",
+            )
+            wait_for(
+                lambda: session_state().get("splitFocused") is split_focused,
+                message,
+            )
+
+        def resize(option, amount, expected, message):
+            control_json(
+                env, "session", "resize", option, str(amount), "--target", session_id,
+                "--window", window_id, "--json",
+            )
+            wait_for(
+                lambda: abs((session_state().get("splitRatio") or 0) - expected) < 0.001,
+                message,
+            )
+
+        # The promoted primary is fixed in the END slot and the new split is in the START slot. Physical
+        # selectors must therefore resolve opposite the model roles rather than retaining their historical
+        # aliases. Exercise both focus and relative resizing before and after transposing the GtkPaned.
+        assert_focus("left", True, "physical left did not focus the start-slot split pane")
+        assert_focus("right", False, "physical right did not focus the end-slot primary pane")
+        assert_focus("split", True, "the split role did not focus its start-slot pane")
+        assert_focus("primary", False, "the primary role did not focus its end-slot pane")
+        resize("--split-ratio", 0.5, 0.5, "the inverted split did not reset to an even primary share")
+        resize("--grow-left", 0.1, 0.4, "growing physical left did not grow the start-slot split")
+        resize("--grow-right", 0.1, 0.5, "growing physical right did not grow the end-slot primary")
+        resize("--grow-primary", 0.1, 0.6, "growing primary did not follow its end-slot role")
+        resize("--grow-split", 0.1, 0.5, "growing split did not follow its start-slot role")
+
+        control_json(
+            env, "session", "split", "on", "--axis", "horizontal", "--target", session_id,
+            "--window", window_id, "--json",
+        )
+        wait_for(
+            lambda: session_state().get("splitAxis") == "horizontal",
+            "the inverted split did not transpose to top/bottom",
+        )
+        resize(
+            "--split-ratio", 0.5, 0.5,
+            "the transposed inverted split did not settle at an even primary share",
+        )
+        assert_focus("top", True, "physical top did not focus the start-slot split pane")
+        assert_focus("bottom", False, "physical bottom did not focus the end-slot primary pane")
+        resize("--grow-top", 0.1, 0.4, "growing physical top did not grow the start-slot split")
+        resize("--grow-bottom", 0.1, 0.5, "growing physical bottom did not grow the end-slot primary")
+
+        # `splitRatio` is the PRIMARY's share on both sides of the conversion the inverted slots need, so
+        # a half-applied conversion mirrors the value on the way back.
+        resize(
+            "--split-ratio", 0.25, 0.25,
+            "the primary's split ratio did not read back in the inverted slot state",
+        )
+        exit_primary_pane()
+        assert pane_reports(
+            "left", os.path.join(state, "second-promoted"), "$AGTERM_PANE_ID", resplit_id
+        ), "the second promotion did not leave the re-split shell answering as the primary"
+
+        with open(env["AGTERM_UI_APP_STDERR"], encoding="utf-8", errors="replace") as source:
+            source.seek(offset)
+            faults = [
+                line.strip() for line in source
+                if "assertion 'GTK_IS_" in line or "GLArea re-realized" in line
+            ]
+        assert not faults, f"primary-pane promotion damaged the pane tree: {faults[0]}"
+        print("OK: primary-pane exit promotes the live split survivor")
+    except AssertionError:
+        describe_tree(app)
+        raise
+    finally:
+        stop(process)
+
+
 def verify_window_callback_ownership(env):
     process, app = launch(env)
     try:
@@ -5121,7 +5307,7 @@ def main():
         for child_scenario in (
             "normal", "upstream-controls", "dashboard-modal", "context-menu",
             "window-key-dispatch",
-            "split-exit", "window-ownership", "preferences-pages",
+            "split-exit", "split-primary-exit", "window-ownership", "preferences-pages",
             "notification-reveal", "notification-focus", "session-pickers", "child-gdk-env",
             "child-gdk-env-inverted",
             "custom-command-failures", "surface-lifetimes", "surface-failures",
@@ -5184,6 +5370,9 @@ def main():
     if scenario in ("preferences-pages", "auto-follow"):
         # Page inspection and auto-follow need an already-mapped modal while another process owns focus.
         env["AGTERM_ATSPI_OPEN_PREFERENCES"] = "general"
+    if scenario == "split-primary-exit":
+        # Poison freed memory so a use-after-free on a promoted pane cannot read as still-valid.
+        env["MALLOC_PERTURB_"] = "170"
     try:
         Atspi.init()
         if scenario == "normal":
@@ -5198,6 +5387,8 @@ def main():
             verify_context_menu(env)
         elif scenario == "split-exit":
             verify_split_exit_sidebar(env)
+        elif scenario == "split-primary-exit":
+            verify_split_primary_exit(env)
         elif scenario == "window-ownership":
             verify_window_callback_ownership(env)
         elif scenario == "notification-reveal":
