@@ -16,8 +16,8 @@ Full detail for every `agtermctl` command. See `SKILL.md` for the model and addr
 - **Response shape**: `{"ok": true, "result": {…}}` or `{"ok": false, "error": "<message>"}`.
   `result` carries one of: `id` (affected/new session/workspace/window), `text` (session copy/text),
   `exitCode` (overlay result), `count` (diagnostics/search), `affected` (sessions actually changed by a
-  batch close/move), `tree` (the tree), `windows` (window list). The process exit code is non-zero when
-  `ok` is false.
+  batch close/move, or recent entries removed), `tree` (the tree), `windows` (window list).
+  The process exit code is non-zero when `ok` is false.
 - **Options go after the subcommand**: `agtermctl session type "ls" --target active`, never before it.
 
 ## events
@@ -1205,6 +1205,13 @@ returns `unknown theme: <name>`; a positional name combined with `--light` is a 
 output prints `ok`. App-global (no `--window`). The GUI's live-preview picker (View ▸ Select Theme…)
 is keyboard-only — committing it replaces the CURRENT appearance's side when syncing (the pair is
 kept); over the socket `theme set` is the commit, with no preview.
+
+## recent
+
+`agtermctl recent clear` — clear the app-wide list of recently closed sessions and workspaces.
+The same operation is available as **Clear Recent Items** in the Linux command palette and
+**File ▸ Open Recent ▸ Clear Menu** on macOS.
+Returns `result.affected`, the number of entries removed; app-global (no `--window`).
 
 ## restore
 

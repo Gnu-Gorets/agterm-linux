@@ -433,7 +433,7 @@ final class ControlServer {
                 .windowNew, .windowList, .windowSelect,
                 .windowClose, .windowRename, .windowDelete, .windowResize, .windowMove, .windowZoom,
                 .windowFullscreen, .windowMinimize,
-                .restoreClear, .dashboard:
+                .restoreClear, .recentClear, .dashboard:
             return ControlResponse(ok: false, error: "control dispatcher did not handle \(request.cmd.rawValue)")
         case .debugAppearance:
             return setDebugAppearance(args: request.args)
@@ -490,6 +490,14 @@ final class ControlServer {
         }
         library.saveAllOpen()
         return ControlResponse(ok: true)
+    }
+
+    func clearRecentClosedItems() -> ControlResponse {
+        let affected = library.recentClosedItems.count
+        guard library.clearRecentClosedItems() else {
+            return ControlResponse(ok: false, error: RecentClearError.persistenceFailed)
+        }
+        return ControlResponse(ok: true, result: ControlResult(affected: affected))
     }
 
     /// Open or close the target window's dashboard overlay — the app side of the host-free `dashboard`
