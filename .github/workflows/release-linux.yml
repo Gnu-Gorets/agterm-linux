@@ -133,9 +133,14 @@ jobs:
           nfpm --version
           linuxdeploy-x86_64.AppImage --appimage-extract-and-run --version
 
-      - name: Test shared core
+      # The Swift container is root, but persistence failure tests intentionally depend on normal-user
+      # POSIX write permissions. Run them at the same privilege level as the desktop application.
+      - name: Test shared core as an unprivileged user
         working-directory: agtermCore
-        run: swift test
+        run: |
+          useradd --create-home --user-group agterm-test
+          chown -R agterm-test:agterm-test "$GITHUB_WORKSPACE"
+          runuser --user agterm-test -- env HOME=/home/agterm-test swift test
 
       - name: Reject Linux CLI parser drift
         run: scripts/check-linux-cli-drift.sh

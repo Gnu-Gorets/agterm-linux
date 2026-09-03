@@ -77,9 +77,15 @@ jobs:
         run: |
           git tag --force "$UPSTREAM_BASE_TAG" "$UPSTREAM_BASE_COMMIT"
           git merge-base --is-ancestor "$UPSTREAM_BASE_TAG" HEAD
-      - name: swift test
+      # Two persistence tests deliberately verify write failures through POSIX directory permissions.
+      # The official Swift container runs as root, which bypasses those permissions, so exercise the
+      # package as an ordinary desktop user like the application itself.
+      - name: swift test as an unprivileged user
         working-directory: agtermCore
-        run: swift test
+        run: |
+          useradd --create-home --user-group agterm-test
+          chown -R agterm-test:agterm-test "$GITHUB_WORKSPACE"
+          runuser --user agterm-test -- env HOME=/home/agterm-test swift test
       - name: Enforce host-free core boundary
         run: scripts/check-linux-core-boundary.sh "$UPSTREAM_BASE_TAG"
       - name: Reject Linux CLI parser drift
