@@ -43,8 +43,10 @@ export AGTERM_TEST_CTL="$CTL"
 if [[ -z "${AGTERM_RESOURCE_ROOT:-}" ]]; then
   resource_root="$RUN_ROOT/resources"
   mkdir -p "$resource_root"
-  ln -s "$ROOT/agterm/Resources/agent-status" "$resource_root/agent-status"
-  ln -s "$ROOT/plugins/agterm/skills/agterm" "$resource_root/agent-skill"
+  # Integration installers stage and customize bundled resources. Real copies keep those writes inside
+  # this disposable root instead of following a fixture symlink back into the checkout.
+  cp -R "$ROOT/agterm/Resources/agent-status" "$resource_root/agent-status"
+  cp -R "$ROOT/plugins/agterm/skills/agterm" "$resource_root/agent-skill"
   export AGTERM_RESOURCE_ROOT="$resource_root"
 fi
 export GDK_BACKEND=x11
@@ -53,6 +55,9 @@ export NO_AT_BRIDGE=0
 export LIBGL_ALWAYS_SOFTWARE=1
 export GALLIUM_DRIVER=llvmpipe
 export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
+# Keep GLVND on the same Mesa software path. On hosts with NVIDIA installed, Xvfb can otherwise
+# select libEGL_nvidia during GLX initialization and abort before the test session starts.
+export __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json
 export XDG_SESSION_TYPE=x11
 unset WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE SWAYSOCK
 # The app must see GDK_DEBUG/GDK_DISABLE UNSET. LinuxGdkPolicy APPENDS to whatever the launching
