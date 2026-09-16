@@ -81,6 +81,19 @@ C-boundary concurrency before changing the bridge.
   via `-only-testing:<Target>/<Class>/<test>`. Never re-run a whole XCUITest suite to verify a narrow
   change; `agtermUITests/ControlAPIUITests` alone is 82 methods and about 7.5 minutes, and tells you
   nothing the targeted run did not.
+- **An XCUITest run started from a shell inside a live agterm window can die at runner init** with
+  `Failed to initialize for UI testing ... Timed out while enabling automation mode` after 60s, before any
+  test case runs. The block is at runner initialization, so app code under test cannot reach it, and a
+  quiet retry fails identically - it is not a defect in the diff under test and not contention.
+  [Unverified] cause: TCC attributes the authorization to the responsible process,
+  `/Applications/agterm.app/Contents/MacOS/agterm-session-host` hosting that shell; when a deploy replaced
+  the app after that process launched, the running image stops matching the file and tccd logs
+  `IDENTITY_ATTRIBUTION: Failed to copy signing info for <pid> ... #-67034` (errSecCSStaticCodeChanged) in
+  the same window. The correlation is measured; the causal link to the timeout is not. Diagnose with
+  `log show --predicate 'subsystem == "com.apple.TCC"' --last 6m --style compact` plus
+  `ps -p <pid> -o lstart` against the binary's mtime. The fix is restarting agterm, which is Eugene's call
+  and never the agent's. Hosted `agtermTests` are unaffected; only the XCUITest runner needs the
+  automation grant.
 - For maintainer work, ask before splitting a touched long file and do not raise limits reflexively.
   Contributors need not refactor preexisting length; mention it without blocking or suggesting a limit bump.
 
