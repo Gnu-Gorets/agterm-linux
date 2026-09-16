@@ -695,6 +695,13 @@
               normally in it. It opens in the session's own working directory, and it disappears when the program exits, leaving
               the shell underneath untouched.
             </p>
+            <p style="font-size: 16px; line-height: 1.7; color: #cbc6bc; margin: 16px 0 0">
+              When a command fails, a panel appears over the session it fired in for ten seconds, carrying the command's name
+              and either its exit status or, for one that never started, why it could not run. The last line it wrote to
+              standard error is shown below that when there is one. A command that exits cleanly reports nothing,
+              whatever it printed. The panel is skipped while a program overlay is running in that session, since a message
+              never takes the screen from a program.
+            </p>
             <div
               style="
                 background: rgba(242, 180, 92, 0.07);
@@ -2421,6 +2428,9 @@ agtermctl notify "needs input" --target "$AGT_SESSION_ID" --socket "$AGT_SOCKET"
                 ># repaint in place, no re-spawn and no blink</span
               ><br />agtermctl session hud update <span style="color: #f2b45c">"ready"</span> --detail
               <span style="color: #f2b45c">"pick a branch"</span> --target
+              <span style="color: #f2b45c">"$AGTERM_SESSION_ID"</span><br /><br /><span style="color: #6b727a"
+                ># let it take itself down after ten seconds; omit the flag and it stays until you close it</span
+              ><br />agtermctl session hud <span style="color: #f2b45c">"deploy finished"</span> --hide-after 10 --target
               <span style="color: #f2b45c">"$AGTERM_SESSION_ID"</span><br /><br /><span style="color: #6b727a"
                 ># anchor it and set its width by hand instead of measuring the message</span
               ><br />agtermctl session hud <span style="color: #f2b45c">"deploying"</span> --position top-right --size-percent

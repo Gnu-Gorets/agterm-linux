@@ -81,8 +81,19 @@ paths:
   `KeymapUITests.testCloseSessionReclaimsCommandWAfterReload`.
 - `CustomCommandRunner` uses an app-wide local `.keyDown` monitor. Its `KeybindMatcher` supports simple
   chords and leaders such as `ctrl+a>g`, ignores repeats, and times leaders out after 1.5 seconds.
-  `.fired` launches detached `/bin/sh -c` with cwd, selection, and `$AGT_*`; non-zero exit calls
-  `notifyCommandFailure`. `.firedBuiltin` routes through `AppActions.perform(_:in:)`, a reverse lookup over
+  `.fired` launches detached `/bin/sh -c` with cwd, selection, and `$AGT_*`; stdin and stdout go to
+  `/dev/null` while stderr goes to a temp FILE, whose last 16 KiB the termination handler reads before
+  removing it (`StderrFile`, `CommandFailure`). A pipe would be wrong here in both directions: its read end
+  dies with agterm, so a background process a chord started would take SIGPIPE where `/dev/null` let it run
+  on, and it needs a live reader or a full buffer blocks the command. The accepted cost is disk: the 16 KiB
+  is a READ cap, so a command that logs heavily writes all of it, and a descendant that inherited the file
+  goes on growing the unlinked inode until it exits. `/dev/null` grew nothing. A spawn error or non-zero exit calls `notifyCommandFailure` AND posts
+  a HUD over the firing session through the injected `FailureHud`, carrying the name, the exit status or
+  launch error, and the last nonblank stderr line; the banner obeys the notifications setting, so with
+  banners off the panel is the only report. It clears itself through the HUD's own `--hide-after`, posted
+  with `failureHudSeconds`, so the runner holds no clock and no close of its own; [[control-api]] owns that
+  contract and the ownership question with it. A program overlay owning the slot refuses the open, which is
+  logged and never evicts the program. Exit 0 reports nothing whatever it printed. `.firedBuiltin` routes through `AppActions.perform(_:in:)`, a reverse lookup over
   `PaletteCommand.allCases` on `builtinAction`, falling
   back to `paletteLessHandler(for:)` — the sole listing of the actions holding no palette row, partitioned
   against `PaletteCommand` by `AppActionsPaletteTests`. Rebuild the matcher from commands AND

@@ -111,7 +111,17 @@ struct agtermApp: App {
         _customCommandRunner = State(initialValue: CustomCommandRunner(
             library: library, settings: settingsModel, actions: actions,
             usage: CustomCommandUsageStore(directory: stateDirectory),
-            socketProvider: { controlServer.resolvedSocketPath }))
+            socketProvider: { controlServer.resolvedSocketPath },
+            // the panel a failed command shows, through the same path `session.hud` takes: it owns helper
+            // resolution, geometry and the body file, none of which the runner should learn. The slot
+            // generation goes back with the open and is checked on close, so the timer cannot take down a
+            // panel something else has posted since.
+            failureHud: FailureHud(
+                open: { [weak controlServer] sessionID, message, detail in
+                    let spec = HudSpec(message: message, detail: detail, position: .bottomRight,
+                                       hideAfter: CustomCommandRunner.failureHudSeconds)
+                    return controlServer?.openHud(sessionID, window: nil, spec: spec).ok == true
+                })))
         // hooks.conf scripts: fed by the library's post-append observer, applied from the settings model.
         let hookController = HookController(library: library, settings: settingsModel,
                                             socketProvider: { controlServer.resolvedSocketPath })
