@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.30.1 - 2026-09-16
+
+### Improved
+
+- a custom command that fails posts a panel over the session carrying the command name, the exit status or launch error, and the last usable line of stderr when the command wrote one. A failure previously reported only through a macOS banner, so with notifications off a broken chord looked identical to one that did nothing. The panel clears after ten seconds and does not replace a running program overlay #613 @umputun
+- `session hud open` and `session hud update` take `--hide-after SECONDS`, so a HUD can carry its own lifetime instead of staying until something takes it down #613 @umputun
+- the bundled zmx 0.8.1 is rebuilt for the app's arm64 and macOS 14 baseline #616 @umputun
+
+### Bug Fixes
+
+- on macOS 27 with a comma-decimal locale, SF Symbols drew missing or malformed and a modal alert could take the app down. libghostty adopts the user's locale during init and CoreSVG parses symbol geometry through it, so a comma decimal separator mis-sized symbols and a zero-sized rasterization inside a modal's render aborted the process. A crash during quit also skipped the final session-state save. The numeric locale is now pinned after init, and spawned shells keep the user's locale #615 @umputun #611
+- building zmx from source failed under the macOS 27 SDK, which needs a protocol zig 0.16's bundled `float.h` does not implement. Setup applies a compatibility shim to the installed zig's header and keeps the original as a backup #615 @umputun #611
+- close the excess gap between sidebar disclosure triangles and row icons on macOS 27; earlier macOS layouts are unchanged a883cc18 @umputun
+
 ## v0.30.0 - 2026-09-15
 
 ### New Features
