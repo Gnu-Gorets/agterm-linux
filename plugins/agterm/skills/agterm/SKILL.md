@@ -4,10 +4,10 @@ description: >
   Drive agterm, a native macOS terminal, through its agtermctl CLI and local control socket. Use when
   running inside an agterm session and asked to control the terminal: create, rename, close, select or
   reorder sessions and workspaces; split panes; toggle the scratch terminal; run a program in an overlay
-  and read its exit status; post a HUD panel or a desktop notification; show a native picker with
-  caller-supplied choices or a question dialog with named buttons; display an image inline; type into a
-  session, copy its selection or search its scrollback; manage windows; change font size; set the theme;
-  reload or edit the keymap, the event hooks and the agterm-scoped ghostty config; subscribe to status,
+  and read its exit status; post a HUD panel or a desktop notification; show a native picker or a
+  question dialog; display an image inline; type into a session, copy its selection or search its
+  scrollback; manage windows; change font size; set the theme; reload or edit the keymap, event hooks
+  and agterm-scoped ghostty config; subscribe to status,
   notification, lifecycle, pane-visibility and tree-change events.
   Covers the window/workspace/session addressing model and the AGTERM_* environment a spawned shell sees,
   attaching a session running on another Mac, the cookbook recipes, the running version, and diagnosing
