@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.31.0 - 2026-09-20
+
+### New Features
+
+- **remote presentation for attached sessions.** a session attached from another Mac drew its agent status, control notifications, HUD, asks and overlays on the origin only, because the programs and their `agtermctl` run there. The attaching Mac now opens a presentation stream and mirrors status, control notifications and HUD onto its own row and pane. One attached Mac also becomes the session's presenter, the first whose stream asks for the role while none holds it, so an `ask open` or `session overlay open` newly aimed at that session opens there instead. The overlay's program still runs once on the origin, under an ssh terminal the presenting Mac opens, and its exit status answers the caller. Other viewers mirror and ask for the role again only when they reconnect. `presentation.mode` on an attached row reads `presenter` or `mirror`, `presenters` on the origin counts the streams mirroring it and says whether one presents it, and a remote row whose stream is connecting or failed swaps its cloud glyph for `icloud.slash` with the reason in the tooltip. Losing the stream is the only revocation: a terminal ask goes back to the origin and waits there like a local one, a GUI ask the origin cannot place ends cancelled with `presentation-lost`, a finished `--wait` surface closes, and a running overlay keeps its program until its own ssh ends. Two limits in this first version: closing a viewer pane can clear the origin's still-current mirrored status and HUD until the next update or reconnect, and a GUI ask replica hides rather than cancels when its target leaves the screen #629 #630 @umputun
+- **workspace tree for the flagged view.** the flagged view can nest its rows under their workspaces instead of listing them flat; a workspace holding nothing flagged is left out. **Settings ▸ General ▸ Flagged view layout** picks it for every window, a workspace badge counts unseen notifications only from its flagged sessions, a group shares its collapse state with the ordinary tree, and switching mode or layout reveals the selected session. `agtermctl sidebar flagged-layout [flat|tree|toggle]` sets it and the tree reads it back #621 @umputun
+- **f1 through f20 as keymap keys.** `keymap.conf` rejected every F-key name, so no built-in, custom command or global hotkey could use one. They now work with or without modifiers, as a leader, and as `global-hotkey f5`, which takes that key from every application including agterm. A bound F-key keeps ownership of its press through the repeats and the release, so a held key neither refires the action nor leaks the key into the terminal. On an Apple keyboard, use Fn/Globe or enable standard function keys to send F1-F12 #619 @umputun
+
+### Improved
+
+- the custom command failure panel is now opt-in per command, where 0.30.1 posted one for every custom command that failed. A command turns it on with `--error-hud` in `keymap.conf`, placed with `--error-position POS` and `--error-pane left|right`. macOS banners are unchanged, an opted-out command creates no stderr capture file, and `keymap list` reads all three options back #622 @umputun
+- `statusChangedAt` is stamped on every accepted status set, idle included, and the tree reports it whenever it exists, so a script can tell when an idle session's status was last set. A session that never had a status, or was restored, still reads nil. Asked for in discussion #196 #617 @umputun
+- a new cookbook recipe, `truthful-agent-lights`, replaces the Stop hook's unconditional `completed --auto-reset` with a classifier over the tool processes still running under Claude Code, and adds a scheduled sweeper that clears a stale glyph or restores an activity one #462 @x9x9x9x9x9x91
+
+### Bug Fixes
+
+- `tree` and `window list` stalled the app's main thread for the full three-second zmx timeout once four Live daemons existed, so the UI froze on every call and stuttered continuously while agent hooks polled it. The app read the child's stdout only after it exited and zmx writes its listing row by row, so the 512-byte pipe buffer filled and both sides blocked. Each pipe is now drained to EOF while the call waits, and the pipe fds are close-on-exec so a surface spawn cannot carry a write end into a long-lived `zmx attach` #624 @p4elkin #623
+- a write end inherited by a long-lived surface child could leave reader threads, their descriptors and their buffers stuck for that child's lifetime. The zmx and ssh runners now share one cancellable capture, a missed output deadline cancels both read channels, and the ssh runner gets the same close-on-exec pipes and bounded post-exit join #627 @umputun
+- `agtermctl --json` re-encoded the decoded response, so any field the CLI build did not model was dropped with `ok` true and exit 0. The server's line is now printed unchanged #628 @umputun #625
+- deleting a window before its scene claimed it left the id queued, so the next window to appear popped the dead id and closed itself as a stray 11015c33 @umputun #626
+- a cookbook stuck-shape comparison treated every row carrying no shape override as stuck when `AGT_SHAPE_STUCK` was blank, so the sweeper pulsed over the machinery tint #620 @x9x9x9x9x9x91
+- the bundled agent skill's description exceeded the 1024-character agent skills limit after 0.30.0's event hooks additions, which pi warns about. It is trimmed to 975 and a test fails past the limit 8abf983b @umputun #631
+
 ## v0.30.1 - 2026-09-16
 
 ### Improved
