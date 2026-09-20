@@ -161,8 +161,8 @@ public struct ControlSessionNode: Codable, Sendable, Equatable {
     public let ask: ControlSessionAsk?
     public let scratch: Bool
     public let flagged: Bool
-    /// What the session is FOR, the read side of `session.context`; nil/omitted when none is set. Durable
-    /// purpose, so it survives a relaunch and only an explicit `session.context clear` removes it.
+    /// What the session is FOR: `Session.effectiveContext`, so the local `session.context` value or, on an
+    /// attached row without one, the origin's mirrored context. Nil/omitted when neither is set.
     public let context: String?
     /// For a `--command` session, whether it HOLDS its surface after the command exits (`session.new
     /// --command … --wait`) instead of closing; nil/omitted for a plain or non-holding session. The read
@@ -257,7 +257,7 @@ public struct ControlSessionNode: Codable, Sendable, Equatable {
 
     /// This Mac's presentation stream to the session's origin, on an attached session only. `state` is
     /// `connecting`, `connected`, `unsupported` for an origin that predates the stream, or `failed` with
-    /// the reason in `error`. It says whether status, notifications and HUD are being mirrored, never
+    /// the reason in `error`. It says whether status, context, notifications and HUD are being mirrored, never
     /// whether the panes' own ssh connections are up.
     public let presentation: ControlPresentationNode?
     /// The presentation streams on this session: how many mirror it, a count of connections so two rows

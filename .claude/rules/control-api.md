@@ -726,8 +726,10 @@ side, and reads `lastAppliedIsDark` when bare. Refuse it outside XCUITest; provi
   neither is refused. The server trims outer spaces and rejects a blank result, over 256 UTF-8 bytes, or
   any control character or line/paragraph separator (U+2028/U+2029 included); a rejected call leaves the
   previous value standing, so `clear` is the ONLY route to unset. Persisted, surviving relaunch and
-  restore, and never inherited by `session.duplicate`. A set or clear that CHANGES the value saves and
-  emits `tree.changed`; re-setting the same value does neither.
+  restore, and never inherited by `session.duplicate`. A set or clear that CHANGES the value saves, and
+  emits `tree.changed` when the shown value changed; re-setting the same value does neither. The tree's
+  `context` is the shown value: an attached row also shows its origin's context, and the Remote sessions
+  section owns that rule.
 
 ## Keymap, config, theme, and sidebar
 
@@ -1161,7 +1163,7 @@ side, and reads `lastAppliedIsDark` when bare. Refuse it outside XCUITest; provi
 - `ZmxLaunch.wrapsLocally` is the one gate both surface factories read, so a remote pane is never wrapped
   in a local daemon. Wrapping buys nothing for a session that never restores, and under live mode window
   close would drop the local client while the daemon kept ssh connected with no UI showing it.
-- Presentation is what a program asks agterm to draw: status, notifications and the HUD. Such a program runs
+- Presentation is what a program asks agterm to draw: status, context, notifications and the HUD. Such a program runs
   on the origin and reaches the origin's socket, so without a stream the viewer sees terminal bytes only.
   Every attach opens one: the viewer runs `ssh -T <host> agtermctl zmx present <session>`, whose far end
   bridges stdio to a `zmx.present` connection. The far-side `agtermctl` PATH precondition above applies.
@@ -1182,6 +1184,14 @@ side, and reads `lastAppliedIsDark` when bare. Refuse it outside XCUITest; provi
   it: one arrives with every reconnect, so `applyRemoteSnapshotStatus` skips such a row, which also holds
   back an origin write made while the stream was down. A local clear leaves the row idle, and the next
   snapshot fills it.
+- The origin's `session.context` is mirrored into `Session.mirroredContext`, never into the row's own
+  `context`. The title bar and the tree's `context` show `effectiveContext`: the local value when one is
+  set, else the mirrored one. A local value wins over snapshots and live updates alike, unlike status,
+  and the mirror keeps updating underneath it, so `clear` on an attached row removes the local override
+  and reveals the origin's latest context. It cannot blank the origin's. `tree.changed` follows the
+  effective value: setting the text the mirror already shows emits nothing. Attach does not seed the
+  context from `zmx.tree`, which would make the origin's label a local override that wins forever, so an
+  origin predating the `context` frame mirrors none.
 - A mirrored HUD carries the origin's REMAINING time, and the viewer counts that down on its own clock.
   The two expiries are not synchronized, so the panels can close a moment apart; the origin's withdrawal
   frame closes the viewer's early. A mirrored HUD yields to a HUD or program overlay this Mac's own caller
@@ -1189,8 +1199,8 @@ side, and reads `lastAppliedIsDark` when bare. Refuse it outside XCUITest; provi
 - Only a `notify` command is mirrored. A terminal notification (OSC 9/777) already reaches the viewer in
   the pane's bytes and its libghostty raises it, so mirroring it would show it twice. Each app records
   its own `notify` event. Notifications are not part of the snapshot: one raised while the stream is down
-  is never shown on the viewer, where status and HUD are restored on reconnect.
-- When the stream ends, the mirrored status and HUD are cleared, since nothing would ever clear them. The
+  is never shown on the viewer, where status, context and HUD are restored on reconnect.
+- When the stream ends, the mirrored status, context and HUD are cleared, since nothing would ever clear them. The
   client retries after 1, 2, 4, 8, 16 then 30 seconds, moves to a 300-second cap after eight failures in a
   row, and never gives up; 30 seconds without a frame counts as a failure against the origin's 10-second
   ping. One warning per failure episode or changed reason. A soft close stops the client and undo starts a
@@ -1240,7 +1250,7 @@ side, and reads `lastAppliedIsDark` when bare. Refuse it outside XCUITest; provi
 - The origin bounds each stream: 256 KiB a line checked before delivery, a bounded outbound queue whose
   overflow closes the subscriber, a hello deadline, and a drop when the source session leaves.
 - XCUITest exemption: `zmx.present` needs a second app as its peer, and its effects on a viewer are the
-  existing status, notification and HUD paths those suites already cover. `ControlServerRemotePresentationTests`
+  existing status, context, notification and HUD paths those suites already cover. `ControlServerRemotePresentationTests`
   runs both roles in one process over the real bridge binary instead.
 - Accepted v1 limitations, documented rather than built around. Pinned zmx keeps one `leader_client_fd` and
   our attach is a follower, so the snapshot arrives at the FAR side's geometry and does not resize until
