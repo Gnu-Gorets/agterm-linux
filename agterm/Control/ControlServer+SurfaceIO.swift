@@ -36,6 +36,7 @@ extension ControlServer {
             guard let surface = chosen as? GhosttySurfaceView else {
                 return ControlResponse(ok: false, error: "session not realized")
             }
+            if let refusal = self.coveredRefusal(surface) { return refusal }
             surface.expediteSpawn()
             // the cast alone only proves the SLOT is filled; a false return is the view without a surface.
             guard surface.performBindingAction(action) else {
@@ -113,6 +114,7 @@ extension ControlServer {
             guard surface.isRealized else {
                 return ControlResponse(ok: false, error: "session not realized")
             }
+            if let refusal = self.coveredRefusal(surface) { return refusal }
             guard let text = surface.readSelection() else {
                 return ControlResponse(ok: false, error: "no selection")
             }
@@ -286,6 +288,7 @@ extension ControlServer {
             guard surface.isRealized else {
                 return ControlResponse(ok: false, error: "session not realized")
             }
+            if let covered = self.coveredText(surface, all: all, lines: lines) { return covered }
             guard let text = surface.readScreenText(all: all, lines: lines) else {
                 return ControlResponse(ok: false, error: "failed to read surface buffer")
             }
@@ -362,6 +365,7 @@ extension ControlServer {
         guard surface.isRealized else {
             return ControlResponse(ok: false, error: "surface not realized")
         }
+        if let covered = coveredCursor(surface, controlID: controlID) { return covered }
         guard let column = surface.readCursorColumn() else {
             return ControlResponse(ok: false, error: "failed to read cursor position")
         }
@@ -412,6 +416,13 @@ extension ControlServer {
             }
         }
 
+        // the PINNED owner when a search is open, else the pane an open would land on: split focus can move
+        // while a search stays bound to its pane. Close, above, stays available as cleanup.
+        if let owner = (session.searchSurface ?? session.onScreenSurface) as? GhosttySurfaceView,
+           let refusal = coveredRefusal(owner) {
+            return refusal
+        }
+
         // open/needle/navigate need the bar + highlights visible, so select the target (which also realizes
         // a never-shown surface). The OPEN uses the search target — a covering scratch wins, mirroring
         // `AppActions.searchTarget()`, else the focused pane; the factory pins it as `searchSurface`.
@@ -432,6 +443,8 @@ extension ControlServer {
             return ControlResponse(ok: false, error: "session not realized")
         }
 
+        // the role can change across every wait below, so the owner is re-checked before each mutation
+        if let refusal = coveredRefusal((session.searchSurface as? GhosttySurfaceView) ?? openSurface) { return refusal }
         openSurface.expediteSpawn()
         // `searchActive` here means a prior open settled (set by the async START callback); two rapid
         // scripted opens could mis-toggle, but the GUI's single-⌘F path is the common case.
@@ -450,6 +463,7 @@ extension ControlServer {
             if needleChanged {
                 await Task.yield()
                 try? await Task.sleep(nanoseconds: 30_000_000)
+                if let refusal = coveredRefusal(surface) { return refusal }
                 session.searchTotal = nil
                 session.searchSelected = nil
             }
@@ -474,6 +488,7 @@ extension ControlServer {
             try? await Task.sleep(nanoseconds: 30_000_000)
             if session.searchTotal != nil { break }
         }
+        if let refusal = coveredRefusal(surface) { return refusal }
         // an empty display string (the bar opened with no query yet) maps to nil so the CLI prints `ok`
         // rather than a blank line; the count is nil until a query runs.
         let display = session.searchDisplayText
@@ -507,6 +522,13 @@ extension ControlServer {
     /// only reached once that probe has already failed.
     func injectText(_ text: String, into id: UUID, store: AppStore, select: Bool,
                     pane: StatusPane?) async -> ControlResponse {
+        // a pane that does not lead its daemon takes scripted input through the daemon, never through
+        // its own surface, whose keystrokes the daemon drops
+        let session = store.session(withID: id)
+        let slot = pane == .right ? session?.splitSurface : (pane == .scratch ? nil : session?.surface)
+        if let surface = slot as? GhosttySurfaceView, let covered = coveredType(text, into: surface, session: id) {
+            return covered
+        }
         switch pane {
         case nil, .left:
             break
@@ -550,8 +572,12 @@ extension ControlServer {
             try? await Task.sleep(nanoseconds: 30_000_000)
             // poll for the surface AND its realization (a false inject keeps polling), so a just-created or
             // just-selected session isn't reported ok before its libghostty surface is up.
-            if let surface = store.session(withID: id)?.surface as? GhosttySurfaceView, surface.injectAsUserInput(text: text) {
-                return ControlResponse(ok: true, result: ControlResult(id: id.uuidString))
+            if let surface = store.session(withID: id)?.surface as? GhosttySurfaceView {
+                // a pane that realized during the wait may have come up managed, or following
+                if let covered = coveredType(text, into: surface, session: id) { return covered }
+                if surface.injectAsUserInput(text: text) {
+                    return ControlResponse(ok: true, result: ControlResult(id: id.uuidString))
+                }
             }
         }
         return ControlResponse(ok: false, error: "session not realized")
