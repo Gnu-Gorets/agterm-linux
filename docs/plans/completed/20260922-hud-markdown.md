@@ -357,7 +357,7 @@
 - [x] run `cd agtermCore && swift test`
 - [x] run `make test-app`
 - [x] run `make lint`
-- [ ] move this plan to `docs/plans/completed/`
+- [x] move this plan to `docs/plans/completed/`
 
 ## Post-Completion
 
