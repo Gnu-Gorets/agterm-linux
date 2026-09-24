@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.32.0 - 2026-09-24
+
+### New Features
+
+- **explicit pane lead for attached sessions.** a session attached from another Mac shares each pane's zmx daemon between two terminals, and only the one leading the pane sets its size. The lead used to follow whichever side last sent input, so a freshly attached pane kept the origin's size until a key was pressed there. A remote attach now claims the lead in every pane, so the panes take the attaching Mac's size at once. A pane that does not lead is covered by a panel saying where it is in use, and a keypress without Command, or `agtermctl session lead`, takes the lead back. When the leader goes away the pane re-attaches by itself, and `surfaces[].lead` in `tree` reads the role back. On the Mac a covered pane runs on, `session type`, `session text` and `surface cursor` keep working under the cover; commands that act only on the local surface refuse there and name `session lead`. Both Macs need 0.32.0, and a Live session still running an older zmx keeps the old behaviour until it is recreated #635 @umputun
+- **attached Macs follow the origin's split layout.** the origin publishes its split layout on the presentation stream, and a Mac that attached the session applies the axis, hide and show, and swap to the panes it already has, and closes a pane the origin removed. A layout never opens a pane: a split opened on the origin after attach appears on the next attach. Local panes, the divider ratio and keyboard focus stay local #636 @umputun
+- **title-bar context mirrored to attached Macs.** an attached session shows the origin's `session context`. A context set on the attached row overrides it, and `session context --clear` there brings the origin's latest value back #634 @umputun
+- **markdown HUD.** `session hud open --markdown` renders headings, emphasis, lists, code blocks, quotes, rules and tables, with a 4096-character cap in place of plain text's 256, so an agent can keep a multiline status panel over the session. `--font-size PT` sets the panel's own font size at open and stays fixed for its life, an `update` must repeat `--markdown` or the panel returns to plain text, `--file FILE` reads the message from a file, and the tree's `hud` node reads back `markdown` and a requested `fontSize` #641 @umputun
+- **per-pane session background.** `session background image|text|color|clear` take `--pane left|right|scratch`, so each pane of a split can carry its own tint or watermark over the session default. Left and right overrides follow their terminal through swaps and relaunch, a scratch override ends when that scratch terminal closes, and `tree` reports `paneBackgrounds` next to `background`. Asked for in discussion #643 #647 @umputun
+
+### Improved
+
+- `agtermctl` answered every refused or missing control socket with `is agterm running?`, although macOS refuses a live app with a full backlog the same way. It now checks the app's ownership lock and says the owner is present but not accepting connections when the lock is held #633 @umputun
+- a new cookbook recipe, `remote-image-paste`, copies the image on this Mac's clipboard to the Mac a `zmx attach` session runs on with one chord, so ctrl+v pastes it there as a real image. Related to discussion #645 #648 @umputun
+- the `two-agent-chat` cookbook recipe lets the two agents sit in either pane, where a split arranged the other way refused every send 8981b754 0d9a5471 @paskal
+
 ## v0.31.0 - 2026-09-20
 
 ### New Features
