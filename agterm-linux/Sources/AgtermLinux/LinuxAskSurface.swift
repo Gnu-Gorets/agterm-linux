@@ -33,6 +33,8 @@ extension AppController {
             return false
         }
         guiAskWindow = win
+        suppressAutoFollow()
+        guiAskSuppressesAutoFollow = true
         attachControllerContext(to: win, windowID: windowID)
         gtk_window_set_transient_for(WIN(win), WIN(windowPointer))
         gtk_window_set_modal(WIN(win), 1)
@@ -57,6 +59,7 @@ extension AppController {
     func dismissGUIAsk() {
         guard let win = guiAskWindow else { return }
         guiAskWindow = nil
+        finishGUIAskAutoFollowSuppression()
         replicaGUIAskSessionID = nil
         guiAskButtons = []
         guiAskNavigation = nil
@@ -66,6 +69,7 @@ extension AppController {
     func guiAskWasDestroyed() {
         guard guiAskWindow != nil else { return }
         guiAskWindow = nil
+        finishGUIAskAutoFollowSuppression()
         guiAskButtons = []
         guiAskNavigation = nil
         if let id = replicaGUIAskSessionID {
@@ -76,6 +80,12 @@ extension AppController {
         } else {
             pickController.escapeAsk()
         }
+    }
+
+    private func finishGUIAskAutoFollowSuppression() {
+        guard guiAskSuppressesAutoFollow else { return }
+        guiAskSuppressesAutoFollow = false
+        resumeAutoFollow()
     }
 
     func escapeGUIAsk() {

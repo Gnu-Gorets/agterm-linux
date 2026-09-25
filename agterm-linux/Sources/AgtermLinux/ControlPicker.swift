@@ -11,6 +11,7 @@ struct LinuxControlPickRow {
 @MainActor
 extension AppController {
     func openPick(_ pick: PendingPick, window: String?, follow: Bool) -> ControlResponse {
+        guard guiAskWindow == nil else { return ControlResponse(ok: false, error: "ask already pending") }
         guard pickController.open(pick) else {
             return ControlResponse(ok: false, error: pickController.pendingModalError ?? "pick already pending")
         }

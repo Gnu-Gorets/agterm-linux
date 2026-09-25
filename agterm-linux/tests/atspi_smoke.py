@@ -2043,6 +2043,40 @@ def verify_control_ask(env):
         control_json(env, "session", "scratch", "off", "--target", session_id,
                      "--window", window_id, "--json")
 
+        control_json(env, "session", "focus", "left", "--target", session_id,
+                     "--window", window_id, "--json")
+        held = raw_control_json(env, {
+            "cmd": "ask.open", "target": session_id,
+            "args": {"title": "Held choice", "buttons": [{"id": "hold", "label": "Keep focus"}],
+                     "window": window_id},
+        })
+        assert held["ok"], held
+        held_button = wait_for(lambda: named(app, "Keep focus", role="button"),
+                               "a session-wide ask was not visible")
+        wait_for(lambda: held_button.get_state_set().contains(Atspi.StateType.FOCUSED),
+                 "a session-wide ask did not receive focus")
+        assert raw_control_json(env, {
+            "cmd": "session.hud.open", "target": session_id,
+            "args": {"message": "Preserve ask focus", "window": window_id},
+        })["ok"]
+        assert held_button.get_state_set().contains(Atspi.StateType.FOCUSED), (
+            "reconcile moved focus from the visible ask into its terminal"
+        )
+        assert raw_control_json(env, {
+            "cmd": "session.hud.close", "target": session_id, "args": {"window": window_id},
+        })["ok"]
+        control_json(env, "session", "new", "--name", "ask-other",
+                     "--window", window_id, "--json")
+        wait_for(lambda: not named(app, "Keep focus", role="button"),
+                 "a deselected session's ask stayed visible over the deck")
+        control_json(env, "session", "select", "--target", session_id,
+                     "--window", window_id, "--json")
+        wait_for(lambda: named(app, "Keep focus", role="button")
+                 and named(app, "Keep focus", role="button").get_state_set()
+                 .contains(Atspi.StateType.SHOWING),
+                 "a pending ask did not reappear when its session was selected")
+        assert raw_control_json(env, {"cmd": "ask.cancel", "target": held["result"]["id"]})["ok"]
+
         gui = raw_control_json(env, {
             "cmd": "ask.open", "args": {"title": "GUI choice", "style": "gui",
                                           "buttons": [{"id": "yes", "label": "Accept"},
@@ -3231,6 +3265,12 @@ def verify_remote_presentation(env):
                                            "buttons": [{"id": "local", "label": "Local"}]},
         })
         assert not collision["ok"] and collision.get("error") == "ask already pending", collision
+        pick_collision = raw_control_json(viewer_env, {
+            "cmd": "pick.open", "args": {"items": [{"id": "local", "label": "Local"}]},
+        })
+        assert not pick_collision["ok"] and pick_collision.get("error") == "ask already pending", (
+            pick_collision
+        )
         assert named(viewer_app, "Remote GUI ask", role="frame"), (
             "a rejected local ask replaced the remote GUI ask"
         )
@@ -6652,7 +6692,27 @@ def verify_auto_follow(env, state):
         set_status("blocked")
         time.sleep(NEGATIVE_SETTLE_SECONDS)
         assert not auto_followed(), "auto-follow changed sessions while Preferences was open"
-        print("OK: GTK/GLib auto-follow pauses for Preferences")
+        press_escape(process.pid)
+        wait_for(lambda: not preferences_window(app), "Preferences did not close")
+        set_status("idle")
+        selected_id = next(session["id"] for session in
+                           control_json(auto_env, "tree", "--json")["result"]["tree"]["workspaces"][0]["sessions"]
+                           if session.get("active"))
+        ask = raw_control_json(auto_env, {
+            "cmd": "ask.open", "target": selected_id,
+            "args": {"title": "Auto-follow GUI ask", "style": "gui",
+                     "buttons": [{"id": "stay", "label": "Stay here"}]},
+        })
+        assert ask["ok"], ask
+        wait_for(lambda: named(app, "Auto-follow GUI ask", role="frame"),
+                 "GUI ask did not open for auto-follow test")
+        set_status("blocked")
+        time.sleep(NEGATIVE_SETTLE_SECONDS)
+        assert not auto_followed(), "auto-follow changed sessions while a GUI ask was open"
+        assert raw_control_json(auto_env, {"cmd": "ask.result", "target": ask["result"]["id"]})[
+            "result"]["ask"]["result"] == "pending", "auto-follow cancelled the GUI ask"
+        assert raw_control_json(auto_env, {"cmd": "ask.cancel", "target": ask["result"]["id"]})["ok"]
+        print("OK: GTK/GLib auto-follow pauses for Preferences and GUI asks")
     finally:
         stop(process)
 

@@ -696,6 +696,11 @@ extension AppController {
     /// goes inactive rather than keeping whatever the last selection left behind.
     func showActive(focus: Bool = true) {
         let active = store.activeSession
+        let focusedAsk = active.flatMap { terminalAskSurfaces[$0.id] }.map { ask in
+            gtk_window_get_focus(WIN(windowPointer)).map {
+                gtk_widget_is_ancestor($0, W(ask.root)) != 0
+            } == true && gtk_widget_get_visible(W(ask.root)) != 0
+        } == true
         for (id, stack) in sessionStacks {
             let presentation = DeckPagePresentation(pageID: id, activeID: active?.id, dashboardOpen: dashboard.isOpen)
             gtk_widget_set_opacity(W(stack), presentation.opacity)
@@ -704,7 +709,7 @@ extension AppController {
         }
         updateFloatingOverlayVisibility(activeID: active?.id)
         updateCoverDimming()
-        if focus, let active {
+        if focus, !focusedAsk, let active {
             if active.programOverlayActive {
                 overlaySurfaces[active.id]?.grabFocus()
             } else if active.scratchActive {
@@ -718,6 +723,7 @@ extension AppController {
             }
         }
         updateToggleIcons()
+        syncAskSurfaces()
     }
 
     /// Put keyboard focus back on the active surface when GTK has just stranded it.

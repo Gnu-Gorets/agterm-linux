@@ -65,6 +65,7 @@ final class AppController {
     var controlPickEntry: OpaquePointer?
     var controlPickRows: [LinuxControlPickRow] = []
     var controlPickSuppressesAutoFollow = false
+    var guiAskSuppressesAutoFollow = false
     var guiAskWindow: OpaquePointer?
     var replicaGUIAskSessionID: UUID?
     var guiAskButtons: [OpaquePointer] = []
