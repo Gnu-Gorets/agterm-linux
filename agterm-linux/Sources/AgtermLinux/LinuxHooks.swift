@@ -70,7 +70,7 @@ private final class LinuxHookLauncher: HookLauncher {
         environment["AGT_SESSION_ID"] = event.session ?? ""
         environment["AGT_WORKSPACE_ID"] = event.workspace ?? ""
         environment["AGT_WINDOW_ID"] = event.window ?? ""
-        environment["AGT_SOCKET"] = gControlServer.boundSocketPath ?? ""
+        environment["AGT_SOCKET"] = gControlServer.resolvedSocketPath
         let executableDirectory = URL(fileURLWithPath: CommandLine.arguments[0])
             .standardizedFileURL.resolvingSymlinksInPath().deletingLastPathComponent().path
         environment["PATH"] = CommandPath.widened(environment["PATH"], bundledCLIDirectory: executableDirectory)

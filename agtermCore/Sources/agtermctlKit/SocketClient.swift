@@ -111,7 +111,7 @@ struct SocketClient {
     }
 
     /// The sentence after a failed `connect`. A refusal and a missing socket are the two the ownership
-    /// lock narrows, and only to an owner being there: `ControlServer.start` keeps the lock after a failed
+    /// lock narrows on Darwin, and only to an owner being there: `ControlServer.start` keeps the lock after a failed
     /// bind, so a held lock never says how the socket came to be unreachable.
     private static func hint(forConnect failure: Int32, path: String) -> String {
         guard failure == ECONNREFUSED || failure == ENOENT else { return "is agterm running?" }
@@ -122,8 +122,8 @@ struct SocketClient {
     }
 
     /// Whether a process holds the server's ownership lock on `<socketPath>.lock`, nil when that cannot be
-    /// answered. Darwin's `F_GETLK` observes a `flock` without competing for it; taking a shared lock to
-    /// test instead would fail a starting instance's own `LOCK_EX|LOCK_NB`.
+    /// answered. Darwin's `F_GETLK` observes a `flock` without competing for it. Linux has no equivalent
+    /// non-competing probe for BSD `flock`, so its failure hint stays generic.
     private static func ownershipLockHeld(socketPath: String) -> Bool? {
         #if canImport(Darwin)
         let fd = open(ControlResolve.ownershipLockPath(forSocket: socketPath), O_RDONLY | O_CLOEXEC)
@@ -138,14 +138,7 @@ struct SocketClient {
         guard queried == 0 else { return nil }
         return query.l_type != Int16(F_UNLCK)
         #elseif canImport(Glibc)
-        let fd = open(ControlResolve.ownershipLockPath(forSocket: socketPath), O_RDONLY | O_CLOEXEC)
-        guard fd >= 0 else { return nil }
-        defer { close(fd) }
-        if flock(fd, LOCK_SH | LOCK_NB) == 0 {
-            _ = flock(fd, LOCK_UN)
-            return false
-        }
-        return errno == EWOULDBLOCK ? true : nil
+        return nil
         #else
         return nil
         #endif

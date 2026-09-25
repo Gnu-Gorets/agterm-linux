@@ -1131,7 +1131,11 @@ struct SocketClientTests {
         defer { close(lock) }
 
         let error = try #require(throws: SocketClientError.self) { _ = try SocketClient(path: socket.path).connect() }
+        #if os(Linux)
+        #expect(error.description.contains("agterm may be stopped or unable to accept connections"))
+        #else
         #expect(error.description.contains("the socket owner is present but not accepting connections"))
+        #endif
         #expect(error.description.contains("Connection refused"))
     }
 
@@ -1164,7 +1168,11 @@ struct SocketClientTests {
         try #require(flock(lock, LOCK_EX | LOCK_NB) == 0)
 
         let error = try #require(throws: SocketClientError.self) { _ = try SocketClient(path: path).connect() }
+        #if os(Linux)
+        #expect(error.description.contains("agterm may be stopped or unable to accept connections"))
+        #else
         #expect(error.description.contains("the socket owner is present but not accepting connections"))
+        #endif
         #expect(error.description.contains("No such file or directory"))
     }
 

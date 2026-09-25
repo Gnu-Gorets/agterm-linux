@@ -19,9 +19,14 @@ private final class LinuxPresentationLink: RemotePresentationLink {
     private let logger = LinuxStructuredLogger(category: "RemotePresentation")
     private let onClose: @MainActor (String) -> Void
     private var closed = false
+    private var stopping = false
     private var outputEnded = false
     private var readersEnded = false
     private var exitReason: String?
+    private var pendingLines: [Data] = []
+    private var pendingOffset = 0
+    private var pendingBytes = 0
+    private var waitingForWritable = false
 
     init(argv: [String], onLine: @escaping @MainActor (Data) -> Void,
          onClose: @escaping @MainActor (String) -> Void) {
@@ -64,17 +69,69 @@ private final class LinuxPresentationLink: RemotePresentationLink {
     }
 
     func send(_ line: Data) {
-        guard !closed else { return }
+        guard !closed, !stopping else { return }
+        guard !line.isEmpty else { return }
+        guard pendingBytes + line.count <= 4 * PresentationCodec.maxFrameBytes else {
+            logger.notice("presentation bridge input backlog exceeded the frame limit")
+            stop()
+            return
+        }
+        pendingLines.append(line)
+        pendingBytes += line.count
+        drainPendingInput()
+    }
+
+    private func drainPendingInput() {
+        guard !closed, !stopping else { return }
         let fd = input.fileHandleForWriting.fileDescriptor
-        let written = line.withUnsafeBytes { Glibc.write(fd, $0.baseAddress, $0.count) }
-        guard written == line.count else {
+        while let line = pendingLines.first {
+            let written = line.withUnsafeBytes { raw in
+                Glibc.write(fd, raw.baseAddress?.advanced(by: pendingOffset), raw.count - pendingOffset)
+            }
+            if written > 0 {
+                pendingOffset += written
+                pendingBytes -= written
+                if pendingOffset == line.count {
+                    pendingLines.removeFirst()
+                    pendingOffset = 0
+                }
+                continue
+            }
+            if written < 0, errno == EINTR { continue }
+            if written == 0 || errno == EAGAIN || errno == EWOULDBLOCK {
+                waitForWritable(fd)
+                return
+            }
             logger.notice("presentation bridge stopped taking input")
             stop()
             return
         }
     }
 
+    private func waitForWritable(_ fd: Int32) {
+        guard !waitingForWritable else { return }
+        waitingForWritable = true
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            var descriptor = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+            var ready: Int32
+            repeat { ready = poll(&descriptor, 1, 5_000) } while ready < 0 && errno == EINTR
+            runOnMain { MainActor.assumeIsolated {
+                guard let self else { return }
+                self.waitingForWritable = false
+                guard !self.closed, !self.stopping, !self.pendingLines.isEmpty else { return }
+                if ready > 0 {
+                    self.drainPendingInput()
+                } else {
+                    self.logger.notice("presentation bridge input remained blocked")
+                    self.stop()
+                }
+            } }
+        }
+    }
+
     func stop() {
+        guard !stopping else { return }
+        stopping = true
         endReaders()
         if process.isRunning { process.terminate() }
     }
@@ -99,6 +156,8 @@ private final class LinuxPresentationLink: RemotePresentationLink {
     private func finish(_ reason: String) {
         guard !closed else { return }
         closed = true
+        pendingLines.removeAll()
+        pendingBytes = 0
         try? input.fileHandleForWriting.close()
         endReaders()
         onClose(reason)

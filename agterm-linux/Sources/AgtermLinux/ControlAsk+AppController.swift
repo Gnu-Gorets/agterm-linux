@@ -32,6 +32,7 @@ extension AppController {
                                  buttons: ask.buttons, defaultID: ask.defaultID,
                                  destructiveID: ask.destructiveID, style: ask.style,
                                  align: ask.align, width: ask.width, anchor: anchor)
+        guard guiAskWindow == nil else { return err("ask already pending") }
         guard pickController.openAsk(pending) else {
             return err(pickController.pendingAsk == nil ? "pick already pending" : "ask already pending")
         }

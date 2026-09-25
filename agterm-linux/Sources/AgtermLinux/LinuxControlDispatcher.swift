@@ -262,6 +262,13 @@ struct LinuxControlDispatcher {
             if let color = request.args?.color, !WatermarkConfig.isValidColorHex(color) {
                 return ControlResponse(ok: false, error: "invalid color (expected #rrggbb)")
             }
+            var shape: StatusShape?
+            if let raw = request.args?.shape {
+                guard let parsed = StatusShape(rawValue: raw) else {
+                    return ControlResponse(ok: false, error: "invalid shape: \(raw) (\(StatusShape.validNamesList))")
+                }
+                shape = parsed
+            }
             var pane: StatusPane?
             if let rawPane = request.args?.pane {
                 guard let parsed = StatusPane(rawValue: rawPane) else {
@@ -272,6 +279,7 @@ struct LinuxControlDispatcher {
             let update = ControlSessionStatusUpdate(status: status, blink: request.args?.blink,
                                                     autoReset: request.args?.autoReset,
                                                     sound: request.args?.sound, color: request.args?.color,
+                                                    shape: shape,
                                                     pane: pane, paneID: request.args?.paneID)
             return actions.setSessionStatus(request.target, window: request.args?.window, update: update)
         case .sessionRestore:

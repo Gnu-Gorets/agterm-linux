@@ -1496,6 +1496,22 @@ def verify_upstream_control_parity(env):
             "args": {"window": window_id},
         })["ok"]
 
+        shaped = raw_control_json(env, {
+            "cmd": "session.status", "target": initial_session,
+            "args": {"status": "blocked", "shape": "star", "pane": "right", "window": window_id},
+        })
+        assert shaped["ok"] and parity_session().get("statusShape") == "star", shaped
+        competing = raw_control_json(env, {
+            "cmd": "session.status", "target": initial_session,
+            "args": {"status": "active", "pane": "left", "window": window_id},
+        })
+        assert not competing["ok"] and competing.get("error") == "blocked status owned by pane right", competing
+        assert parity_session().get("status") == "blocked"
+        assert raw_control_json(env, {
+            "cmd": "session.status", "target": initial_session,
+            "args": {"status": "idle", "pane": "right", "window": window_id},
+        })["ok"]
+
         bootstrap = raw_control_json(env, {"cmd": "events.read"})
         assert bootstrap["ok"], f"events.read bootstrap failed: {bootstrap}"
         anchor = bootstrap["result"]["events"]
@@ -1972,6 +1988,8 @@ def verify_control_ask(env):
         session_id = window_tree(env, window_id)["workspaces"][0]["sessions"][0]["id"]
         control_json(env, "session", "split", "on", "--target", session_id,
                      "--window", window_id, "--json")
+        control_json(env, "session", "focus", "left", "--target", session_id,
+                     "--window", window_id, "--json")
 
         terminal = raw_control_json(env, {
             "cmd": "ask.open", "target": session_id,
@@ -1988,12 +2006,42 @@ def verify_control_ask(env):
         assert pending["ok"] and pending["result"]["ask"]["result"] == "pending", pending
         answer = wait_for(lambda: named(app, "Proceed", role="button"),
                           "terminal ask button was not visible")
+        assert not answer.get_state_set().contains(Atspi.StateType.FOCUSED), (
+            "opening a right-pane ask moved keyboard focus off the left pane"
+        )
+        hud = raw_control_json(env, {
+            "cmd": "session.hud.open", "target": session_id,
+            "args": {"message": "Focus probe", "window": window_id},
+        })
+        assert hud["ok"], hud
+        owner = keyboard_owner(os.path.join(env["AGTERM_STATE_DIR"], "ask-focus-owner"), process.pid)
+        assert owner == f"owner={session_id}/{window_id}/left", (
+            f"reconciling a pending right-pane ask moved focus off the left pane: {owner!r}"
+        )
+        assert raw_control_json(env, {
+            "cmd": "session.hud.close", "target": session_id, "args": {"window": window_id},
+        })["ok"]
         activate(answer)
         wait_for(lambda: raw_control_json(env, {"cmd": "ask.result", "target": ask_id})
                  .get("result", {}).get("ask", {}).get("result") == "answered",
                  "terminal ask answer was not retained")
         terminal_result = raw_control_json(env, {"cmd": "ask.result", "target": ask_id})["result"]["ask"]
         assert terminal_result.get("id") == "go" and terminal_result.get("index") == 0, terminal_result
+
+        control_json(env, "session", "scratch", "on", "--target", session_id,
+                     "--window", window_id, "--json")
+        scratch_ask = raw_control_json(env, {
+            "cmd": "ask.open", "target": session_id,
+            "args": {"title": "Scratch-wide choice", "buttons": [{"id": "ok", "label": "Scratch OK"}],
+                     "window": window_id},
+        })
+        assert scratch_ask["ok"], scratch_ask
+        wait_for(lambda: (button := named(app, "Scratch OK", role="button"))
+                 and button.get_state_set().contains(Atspi.StateType.SHOWING),
+                 "a session-wide ask hid under the active scratch")
+        assert raw_control_json(env, {"cmd": "ask.cancel", "target": scratch_ask["result"]["id"]})["ok"]
+        control_json(env, "session", "scratch", "off", "--target", session_id,
+                     "--window", window_id, "--json")
 
         gui = raw_control_json(env, {
             "cmd": "ask.open", "args": {"title": "GUI choice", "style": "gui",
@@ -2777,11 +2825,20 @@ def verify_notification_focus_policy(env):
             "new foreground session did not become the visible GTK surface",
         )
         time.sleep(0.5)
+        events_anchor = raw_control_json(env, {"cmd": "events.read"})["result"]["events"]
         emit_osc(initial["id"], "Hidden")
         wait_for(
             lambda: unseen(initial["id"]) == 1,
             "hidden pane OSC notification did not create an unseen badge",
         )
+        notifications = raw_control_json(env, {
+            "cmd": "events.read", "args": {"run": events_anchor["run"],
+                                          "after": str(events_anchor["next"]), "kinds": ["notify"]},
+        })
+        assert notifications["ok"] and any(
+            item["session"] == initial["id"] and item["kind"] == "notify"
+            for item in notifications["result"]["events"]["items"]
+        ), "hidden OSC notification did not reach the control event ring"
 
         control_json(
             env, "notify", "--title", "Explicit", "--target", foreground_id,
@@ -3169,6 +3226,14 @@ def verify_remote_presentation(env):
         assert gui_ask["ok"], gui_ask
         gui_window = wait_for(lambda: named(viewer_app, "Remote GUI ask", role="frame"),
                               "viewer did not show the GUI ask window")
+        collision = raw_control_json(viewer_env, {
+            "cmd": "ask.open", "args": {"title": "Local GUI ask", "style": "gui",
+                                           "buttons": [{"id": "local", "label": "Local"}]},
+        })
+        assert not collision["ok"] and collision.get("error") == "ask already pending", collision
+        assert named(viewer_app, "Remote GUI ask", role="frame"), (
+            "a rejected local ask replaced the remote GUI ask"
+        )
         activate(wait_for(lambda: named(gui_window, "Remote Accept", role="button"),
                           "viewer did not show the GUI ask button"))
         wait_for(lambda: raw_control_json(origin_env, {"cmd": "ask.result", "target": gui_ask["result"]["id"]})

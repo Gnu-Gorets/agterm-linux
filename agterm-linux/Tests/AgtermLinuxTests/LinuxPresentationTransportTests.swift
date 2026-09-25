@@ -27,4 +27,24 @@ struct LinuxPresentationTransportTests {
         #expect(closed == "exit 7")
         link.stop()
     }
+
+    @Test("a full child pipe drains a short nonblocking write")
+    @MainActor
+    func backpressure() {
+        let payload = Data(repeating: UInt8(ascii: "x"), count: 256 * 1_024) + Data("\n".utf8)
+        var received: Data?
+        var closed: String?
+        let link = LinuxPresentationTransport().open(
+            ["/bin/sh", "-c", "sleep 0.2; head -c 262145"],
+            onLine: { received = $0 }, onClose: { closed = $0 })
+        link.send(payload)
+        let deadline = Date().addingTimeInterval(5)
+        while closed == nil && Date() < deadline {
+            while g_main_context_iteration(nil, 0) != 0 {}
+            usleep(10_000)
+        }
+        #expect(received == payload.dropLast())
+        #expect(closed == "exit 0")
+        link.stop()
+    }
 }

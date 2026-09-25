@@ -403,9 +403,12 @@ extension AppController: ControlActions {
             let wasBlocked = store.session(withID: id)?.agentIndicator.status == .blocked
             let pane = update.paneID.flatMap { store.session(withID: id)?.paneRole(forToken: $0) }
                 ?? update.pane
-            store.setAgentIndicator(AgentIndicator(status: update.status, blink: update.blink ?? false,
-                                                   autoReset: update.autoReset ?? false,
-                                                   color: update.color, statusPane: pane), forSession: id)
+            let indicator = AgentIndicator(status: update.status, blink: update.blink ?? false,
+                                           autoReset: update.autoReset ?? false,
+                                           color: update.color, shape: update.shape, statusPane: pane)
+            if case .refused(let owner) = store.applyControlStatus(indicator, forSession: id) {
+                return err("blocked status owned by pane \(owner.rawValue)")
+            }
             let blockedDefault = wasBlocked ? nil : linuxSettingsStore().load().blockedStatusSoundName
             if let sound = update.status.effectiveSound(perCall: update.sound, blockedDefault: blockedDefault) {
                 StatusSoundPlayer.shared.play(sound)

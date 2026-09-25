@@ -287,10 +287,7 @@ final class GhosttySurface: PaneRoleMutableSurface {
         ghostty_surface_set_focus(surface, true)
         applyColorScheme(appearanceSide)   // report the system light/dark scheme (OSC color-scheme queries)
         feed(GhosttyApp.shared.currentThemeOSC)   // push theme colors the embedded GL renderer won't adopt from config
-        if fixedBackgroundColor != nil
-                || usesSessionWatermark && controller?.store.session(withID: sessionID)?.backgroundWatermark != nil {
-            applyWatermarkFromSession()
-        }
+        reapplyWatermarkIfNeeded()
     }
 
     private func showCreationFailure() {

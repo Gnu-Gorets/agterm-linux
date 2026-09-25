@@ -127,6 +127,14 @@ extension AppController {
     /// Create/show/hide the ephemeral overlay terminal (runs `overlayCommand` over the session).
     private func syncOverlay(_ s: Session, allowFocus: Bool) {
         guard let stack = sessionStacks[s.id] else { return }
+        if s.hudActive, let frame = floatingOverlayFrames[s.id],
+           let parent = gtk_widget_get_parent(W(frame)),
+           OpaquePointer(parent) != floatingOverlayHost(for: s, pane: s.hudTargetPane) {
+            // A GtkGLArea loses its context permanently when its frame is unparented. Restart only
+            // a HUD whose target pane moved; its helper can read the current body file again.
+            overlaySurfaces[s.id]?.teardown()
+            s.overlaySurface = nil
+        }
         if let cached = overlaySurfaces[s.id], s.overlaySurface !== cached {
             if let frame = floatingOverlayFrames[s.id] {
                 removeFloatingOverlayFrame(frame)

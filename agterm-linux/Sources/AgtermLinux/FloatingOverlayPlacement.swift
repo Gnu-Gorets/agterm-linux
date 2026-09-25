@@ -18,17 +18,12 @@ extension AppController {
 
     func placeFloatingOverlayFrame(_ frame: OpaquePointer, for session: Session) -> OpaquePointer {
         let host = floatingOverlayHost(for: session, pane: session.hudTargetPane)
-        if let parent = gtk_widget_get_parent(W(frame)), OpaquePointer(parent) != host {
-            // GTK containers own sunk children; hold the frame while moving it between pane hosts.
-            g_object_ref(RAW(frame))
-            gtk_overlay_remove_overlay(OpaquePointer(parent), W(frame))
-            gtk_overlay_add_overlay(host, W(frame))
-            g_object_unref(RAW(frame))
-            return host
+        if let parent = gtk_widget_get_parent(W(frame)) {
+            // A live GtkGLArea must stay under its original host. syncOverlay recreates the HUD
+            // surface when its target pane changes, before this geometry path runs.
+            return OpaquePointer(parent)
         }
-        if gtk_widget_get_parent(W(frame)) == nil {
-            gtk_overlay_add_overlay(host, W(frame))
-        }
+        gtk_overlay_add_overlay(host, W(frame))
         return host
     }
 }

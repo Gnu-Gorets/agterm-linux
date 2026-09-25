@@ -26,6 +26,7 @@ final class LinuxAskSurface {
 @MainActor
 extension AppController {
     func showGUIAsk(_ ask: PendingAsk) -> Bool {
+        guard guiAskWindow == nil else { return false }
         guard let win = op(gtk_window_new()) else { return false }
         guard let panel = buildAskPanel(ask) else {
             gtk_window_destroy(WIN(win))
@@ -131,17 +132,25 @@ extension AppController {
             guard let ask = session.askPending, ask.style == .terminal,
                   !session.askPresentedRemotely else { continue }
             let visible = store.selectedSessionID == session.id && terminalZoom.target == nil
-                && !dashboard.isOpen && !session.scratchActive
+                && !dashboard.isOpen && (session.askPaneIdentity == nil || !session.scratchActive)
                 && (session.askPaneIdentity == nil || session.askTargetPane.map(session.rendersPane) == true)
                 && !pickController.modalPending && paletteWindow == nil
+            let newlyCreated = terminalAskSurfaces[session.id] == nil
+            let host = askHost(for: session)
+            let focusWasInRegion = host.flatMap { host in
+                gtk_window_get_focus(WIN(windowPointer)).map { focus in
+                    gtk_widget_is_ancestor(focus, W(host)) != 0
+                }
+            } == true && !searchEntryHoldsKeyboard()
             if terminalAskSurfaces[session.id] == nil {
-                guard let host = askHost(for: session), let panel = buildAskPanel(ask) else { continue }
+                guard let host, let panel = buildAskPanel(ask) else { continue }
                 gtk_overlay_add_overlay(host, W(panel.root))
                 terminalAskSurfaces[session.id] = panel
                 installAskKeyController(on: panel.root)
             }
             guard let surface = terminalAskSurfaces[session.id] else { continue }
-            if let host = askHost(for: session),
+            let wasVisible = !newlyCreated && gtk_widget_get_visible(W(surface.root)) != 0
+            if let host,
                let parent = gtk_widget_get_parent(W(surface.root)), OpaquePointer(parent) != host {
                 g_object_ref(RAW(surface.root))
                 gtk_overlay_remove_overlay(OpaquePointer(parent), W(surface.root))
@@ -149,7 +158,8 @@ extension AppController {
                 g_object_unref(RAW(surface.root))
             }
             gtk_widget_set_visible(W(surface.root), visible ? 1 : 0)
-            if visible, gtk_window_is_active(WIN(windowPointer)) != 0 { surface.focusSelection() }
+            if visible, newlyCreated || !wasVisible, focusWasInRegion,
+               gtk_window_is_active(WIN(windowPointer)) != 0 { surface.focusSelection() }
         }
     }
 
