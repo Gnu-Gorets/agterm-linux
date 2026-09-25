@@ -85,7 +85,7 @@ jobs:
         run: |
           useradd --create-home --user-group agterm-test
           chown -R agterm-test:agterm-test "$GITHUB_WORKSPACE"
-          runuser --user agterm-test -- env HOME=/home/agterm-test swift test
+          runuser --user agterm-test -- env HOME=/home/agterm-test swift test --no-parallel
       - name: Enforce host-free core boundary
         run: scripts/check-linux-core-boundary.sh "$UPSTREAM_BASE_TAG"
       - name: Reject Linux CLI parser drift
