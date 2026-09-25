@@ -150,6 +150,12 @@ extension AppController {
         while sidebarRuntime.syncGate.takePending() {
             runSidebarSyncPass(force: false, preferMoving: [])
         }
+        // A status change in this store also changes the app-wide attention feed in other windows.
+        let settings = linuxSettingsStore().load()
+        for controller in gWindows.values where controller !== self {
+            controller.updateAttentionButton(settings: settings, refocusOnDismiss: false)
+            controller.updateSessionPickerStatusIcons(settings: settings)
+        }
     }
 
     /// The snapshot and the effective expansion it was built from — `SidebarRevealState.syncedExpansion`

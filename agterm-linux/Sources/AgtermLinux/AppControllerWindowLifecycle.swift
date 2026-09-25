@@ -34,7 +34,8 @@ extension AppController {
         if confirmedClose { return true }
         let counts = library.openCounts()
         guard counts.windows <= 1, counts.sessions > 0 else { return true }
-        let body = QuitPrompt.message(windows: counts.windows, sessions: counts.sessions)
+        let body = QuitPrompt.message(windows: counts.windows, sessions: counts.sessions,
+                                      mode: gRestoreLaunchDecision.active)
         let dialog = OpaquePointer("Quit agterm?".withCString { h in body.withCString { b in adw_alert_dialog_new(h, b) } })
         attachControllerContext(to: dialog, windowID: windowID)
         "cancel".withCString { i in "Cancel".withCString { l in adw_alert_dialog_add_response(cast(dialog), i, l) } }
@@ -63,6 +64,9 @@ extension AppController {
         // deferred grab would fire after that against a finalized window.
         dismissSessionPicker(refocus: false)
         dismissControlPick(retainResultThroughRegistry: true, refocus: false)
+        dismissGUIAsk()
+        for session in store.workspaces.flatMap(\.sessions) { session.cancelPendingAsk() }
+        for id in Array(terminalAskSurfaces.keys) { removeTerminalAskSurface(id) }
         // Not optional cleanup: a popover left parented at destroy hangs the close, and GTK emits no
         // `"closed"` then, so this call is the only notice.
         dismissContextMenu(refocus: false)
@@ -102,6 +106,7 @@ extension AppController {
         closeDashboard(refocus: false)
         DashboardControllerRegistry.shared.unregister(windowID)
         PickRegistry.shared.unregister(windowID)
+        stopRemotePresentations()
         autoFollowCoordinator.stop()
         let w = gtk_widget_get_width(W(window)), h = gtk_widget_get_height(W(window))
         if w > 0, h > 0 { library.setGeometry(WindowGeometry.Size(width: Double(w), height: Double(h)), forWindow: windowID) }
@@ -126,5 +131,6 @@ extension AppController {
         library.closeWindow(windowID)
         gWindows[windowID] = nil
         if gController === self { gController = gWindows.values.first }
+        for controller in gWindows.values { controller.updateAttentionButton(refocusOnDismiss: false) }
     }
 }

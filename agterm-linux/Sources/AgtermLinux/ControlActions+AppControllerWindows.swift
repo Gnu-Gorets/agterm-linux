@@ -44,8 +44,20 @@ extension AppController {
         case .failure(let response): return response
         case .success(let id):
             openWindow(id)
+            library.frontmostWindowID = id
+            if let controller = gWindows[id] { gController = controller }
             return ok(id)
         }
+    }
+
+    func windowGo(direction: WorkspaceNavigation) -> ControlResponse {
+        guard let id = library.navigateWindow(direction) else {
+            return err("no other open window to navigate to")
+        }
+        guard gWindows[id] != nil else { return err("window not on screen yet — retry") }
+        openWindow(id)
+        library.frontmostWindowID = id
+        return ok(id)
     }
 
     func windowClose(_ target: String?) async -> ControlResponse {

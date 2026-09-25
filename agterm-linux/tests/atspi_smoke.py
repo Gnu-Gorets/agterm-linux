@@ -1469,6 +1469,33 @@ def verify_upstream_control_parity(env):
         assert hud_close["ok"], f"HUD close failed: {hud_close}"
         wait_for(lambda: not parity_session().get("hud"), "HUD stayed open after close")
 
+        pane_hud = raw_control_json(env, {
+            "cmd": "session.hud.open", "target": initial_session,
+            "args": {"message": "Right pane", "pane": "right", "window": window_id},
+        })
+        assert pane_hud["ok"], f"right-pane HUD open failed: {pane_hud}"
+        wait_for(lambda: parity_session().get("hud", {}).get("pane") == "right",
+                 "tree did not report the HUD's right-pane anchor")
+        moved_hud = raw_control_json(env, {
+            "cmd": "session.hud.update", "target": initial_session,
+            "args": {"message": "Left pane", "pane": "left", "window": window_id},
+        })
+        assert moved_hud["ok"], f"HUD pane update failed: {moved_hud}"
+        wait_for(lambda: parity_session().get("hud", {}).get("pane") == "left",
+                 "tree did not report the HUD's updated pane anchor")
+        invalid_hud = raw_control_json(env, {
+            "cmd": "session.hud.update", "target": initial_session,
+            "args": {"message": "Invalid", "pane": "scratch", "window": window_id},
+        })
+        assert not invalid_hud["ok"] and invalid_hud.get("error") == "--pane must be left or right", (
+            f"invalid HUD pane was accepted: {invalid_hud}"
+        )
+        assert parity_session().get("hud", {}).get("pane") == "left"
+        assert raw_control_json(env, {
+            "cmd": "session.hud.close", "target": initial_session,
+            "args": {"window": window_id},
+        })["ok"]
+
         bootstrap = raw_control_json(env, {"cmd": "events.read"})
         assert bootstrap["ok"], f"events.read bootstrap failed: {bootstrap}"
         anchor = bootstrap["result"]["events"]
@@ -1938,6 +1965,86 @@ def verify_dashboard_modal(env):
         stop(process)
 
 
+def verify_control_ask(env):
+    process, app = launch(env)
+    try:
+        window_id = next(item["id"] for item in window_list(env) if item["open"])
+        session_id = window_tree(env, window_id)["workspaces"][0]["sessions"][0]["id"]
+        control_json(env, "session", "split", "on", "--target", session_id,
+                     "--window", window_id, "--json")
+
+        terminal = raw_control_json(env, {
+            "cmd": "ask.open", "target": session_id,
+            "args": {"title": "Terminal choice", "message": "Choose a path",
+                     "buttons": [{"id": "go", "label": "Proceed"}, {"id": "stop", "label": "Stop"}],
+                     "defaultButton": "go", "pane": "right", "window": window_id},
+        })
+        assert terminal["ok"], f"terminal ask did not open: {terminal}"
+        ask_id = terminal["result"]["id"]
+        assert terminal["result"].get("pane") == "right"
+        wait_for(lambda: window_tree(env, window_id)["workspaces"][0]["sessions"][0]
+                 .get("ask", {}).get("id") == ask_id, "tree did not report the terminal ask")
+        pending = raw_control_json(env, {"cmd": "ask.result", "target": ask_id})
+        assert pending["ok"] and pending["result"]["ask"]["result"] == "pending", pending
+        answer = wait_for(lambda: named(app, "Proceed", role="button"),
+                          "terminal ask button was not visible")
+        activate(answer)
+        wait_for(lambda: raw_control_json(env, {"cmd": "ask.result", "target": ask_id})
+                 .get("result", {}).get("ask", {}).get("result") == "answered",
+                 "terminal ask answer was not retained")
+        terminal_result = raw_control_json(env, {"cmd": "ask.result", "target": ask_id})["result"]["ask"]
+        assert terminal_result.get("id") == "go" and terminal_result.get("index") == 0, terminal_result
+
+        gui = raw_control_json(env, {
+            "cmd": "ask.open", "args": {"title": "GUI choice", "style": "gui",
+                                          "buttons": [{"id": "yes", "label": "Accept"},
+                                                      {"id": "no", "label": "Decline"}],
+                                          "window": window_id},
+        })
+        assert gui["ok"], f"GUI ask did not open: {gui}"
+        gui_id = gui["result"]["id"]
+        wait_for(lambda: window_tree(env, window_id).get("askPending") == gui_id,
+                 "tree did not report the window-owned GUI ask")
+        gui_window = wait_for(lambda: named(app, "GUI choice", role="frame"),
+                              "GUI ask window was not visible")
+        activate(wait_for(lambda: named(gui_window, "Decline", role="button"),
+                          "GUI ask button was missing"))
+        wait_for(lambda: raw_control_json(env, {"cmd": "ask.result", "target": gui_id})
+                 .get("result", {}).get("ask", {}).get("result") == "answered",
+                 "GUI ask answer was not retained")
+        gui_result = raw_control_json(env, {"cmd": "ask.result", "target": gui_id})["result"]["ask"]
+        assert gui_result.get("id") == "no" and gui_result.get("index") == 1, gui_result
+
+        escaped = raw_control_json(env, {
+            "cmd": "ask.open", "args": {"title": "Dismiss me", "style": "gui",
+                                          "buttons": [{"id": "stay", "label": "Stay"}],
+                                          "window": window_id},
+        })
+        assert escaped["ok"], escaped
+        wait_for(lambda: named(app, "Dismiss me", role="frame"), "second GUI ask was not visible")
+        press_escape(process.pid, window_title="Dismiss me")
+        wait_for(lambda: raw_control_json(env, {"cmd": "ask.result", "target": escaped["result"]["id"]})
+                 .get("result", {}).get("ask", {}).get("result") == "escaped",
+                 "Escape did not dismiss the GUI ask")
+
+        cancelled = raw_control_json(env, {
+            "cmd": "ask.open", "target": session_id,
+            "args": {"title": "Cancel me", "buttons": [{"id": "ok", "label": "Okay"}],
+                     "window": window_id},
+        })
+        assert cancelled["ok"], cancelled
+        cancelled_id = cancelled["result"]["id"]
+        assert raw_control_json(env, {"cmd": "ask.cancel", "target": cancelled_id})["ok"]
+        assert (raw_control_json(env, {"cmd": "ask.result", "target": cancelled_id})
+                ["result"]["ask"]["result"] == "cancelled")
+        print("OK: terminal and GUI asks answer, escape, cancel, and report their owning tree slots")
+    except AssertionError:
+        describe_tree(app)
+        raise
+    finally:
+        stop(process)
+
+
 def verify_context_menu(env):
     process, app = launch(env)
     try:
@@ -2259,6 +2366,8 @@ def verify_split_primary_exit(env):
 
 
 def verify_window_callback_ownership(env):
+    with open(os.path.join(env["AGTERM_STATE_DIR"], "settings.json"), "w", encoding="utf-8") as destination:
+        json.dump({"attentionButtonEnabled": True}, destination)
     process, app = launch(env)
     try:
         primary_id = wait_for(
@@ -2277,7 +2386,26 @@ def verify_window_callback_ownership(env):
             lambda: named(app, "secondary-session", role="frame"),
             "secondary window did not expose its unique session title",
         )
-        select_window(env, secondary_id)
+        secondary_session = window_tree(env, secondary_id)["workspaces"][0]["sessions"][0]["id"]
+        control_json(env, "session", "status", "blocked", "--target", secondary_session,
+                     "--window", secondary_id, "--json")
+        attention = wait_for(
+            lambda: actionable(primary, "Show sessions that need attention (Ctrl+Shift+I)"),
+            "primary window did not show attention from the secondary window",
+        )
+        activate(attention)
+        cross_window_row = wait_for(
+            lambda: next((button for button in collect(primary, role="button")
+                          if "secondary-session" in (button.get_name() or "")
+                          and "secondary ·" in (button.get_name() or "")
+                          and not descendants(button, role="button")), None),
+            "primary attention picker did not list the secondary window's session",
+        )
+        activate(cross_window_row)
+        wait_for(
+            lambda: next(item for item in window_list(env) if item["id"] == secondary_id)["active"],
+            "cross-window attention selection did not raise its owning window",
+        )
         before_primary = session_count(window_tree(env, primary_id))
         before_secondary = session_count(window_tree(env, secondary_id))
         activate(wait_for(
@@ -2759,6 +2887,8 @@ def verify_custom_command_failures(env):
             'command "Launch Failure" true\n'
             'command "Exit Failure" exit 23\n'
             'command "Slow Failure" sleep 1; exit 29\n'
+            'command "HUD Failure" --error-hud --error-position top-right '
+            'echo failure-detail >&2; exit 71\n'
             # never fired — it exists so one palette row carries all three labels at once. ctrl+shift+e
             # is free in both the Linux and the upstream default chord tables, so it survives keymap
             # validation and reaches the row as the user's own raw token.
@@ -2795,6 +2925,24 @@ def verify_custom_command_failures(env):
         # fixture instead of launching a scenario of their own. Each restores keymap.conf before returning.
         check_keymap_reload_fanout(app, process.pid, env, "command-origin-a", "command-origin-b")
         check_keymap_error_banner(app, env, "command-origin-a", "command-origin-b")
+        run_palette_action(app, process.pid, "command-origin-a", "HUD Failure", badge="custom")
+
+        def command_hud():
+            tree = window_tree(env, first_window)
+            session = next(
+                item for workspace in tree["workspaces"] for item in workspace["sessions"]
+                if item["id"] == first_session
+            )
+            return session.get("hud") or {}
+
+        wait_for(
+            lambda: command_hud().get("message") == "HUD Failure: exit 71",
+            "custom-command failure did not open its opt-in HUD",
+        )
+        assert command_hud().get("detail") == "failure-detail", command_hud()
+        assert command_hud().get("position") == "top-right", command_hud()
+        control_json(env, "session", "hud", "close", "--target", first_session,
+                     "--window", first_window, "--json")
         time.sleep(0.5)
         shutil.rmtree(first_cwd)
         shutil.rmtree(second_cwd)
@@ -2854,6 +3002,283 @@ def verify_custom_command_failures(env):
     except AssertionError:
         describe_tree(app)
         raise
+    finally:
+        stop(process)
+
+
+def verify_remote_presentation(env):
+    """Two isolated apps exchange the real zmx presentation stream through a local SSH stand-in."""
+    assert shutil.which("cc"), "remote presentation smoke needs a C compiler"
+    assert shutil.which("zsh"), "remote presentation smoke needs zsh"
+    root = env["AGTERM_STATE_DIR"]
+    origin_state = os.path.join(root, "origin")
+    viewer_state = os.path.join(root, "viewer")
+    fake_bin = os.path.join(root, "remote-bin")
+    for path in (origin_state, viewer_state, fake_bin):
+        os.makedirs(path)
+    fixture = os.path.join(root, "login-shell-zsh.so")
+    subprocess.run(["cc", "-shared", "-fPIC", "-o", fixture,
+                    os.path.join(ROOT, "tests/login_shell_zsh_fixture.c"), "-ldl"], check=True)
+    with open(os.path.join(origin_state, "settings.json"), "w", encoding="utf-8") as destination:
+        json.dump({"restoreMode": "live", "closeGraceUndoEnabled": False}, destination)
+    os.makedirs(os.path.join(origin_state, "config"))
+    with open(os.path.join(origin_state, "config", "ghostty.conf"), "w", encoding="utf-8") as destination:
+        destination.write("title = Static Origin\n")
+    ssh = os.path.join(fake_bin, "ssh")
+    with open(ssh, "w", encoding="utf-8") as destination:
+        destination.write(
+            "#!/bin/sh\n"
+            "for argument do remote=$argument; done\n"
+            'export AGTERM_STATE_DIR="$AGTERM_TEST_ORIGIN_STATE"\n'
+            'export AGTERM_CONTROL_SOCKET="$AGTERM_TEST_ORIGIN_SOCKET"\n'
+            'exec /bin/sh -c "$remote"\n'
+        )
+    os.chmod(ssh, 0o755)
+    os.symlink(CTL, os.path.join(fake_bin, "agtermctl"))
+    origin_env = dict(
+        env, AGTERM_STATE_DIR=origin_state,
+        AGTERM_CONTROL_SOCKET=os.path.join(origin_state, "agterm.sock"),
+        AGTERM_APP_ID=env["AGTERM_APP_ID"] + ".origin",
+        AGTERM_ZMX_PATH=os.path.join(ROOT, "vendor/zmx/zmx"),
+        LD_PRELOAD=fixture,
+    )
+    viewer_env = dict(
+        env, AGTERM_STATE_DIR=viewer_state,
+        AGTERM_CONTROL_SOCKET=os.path.join(viewer_state, "agterm.sock"),
+        AGTERM_APP_ID=env["AGTERM_APP_ID"] + ".viewer",
+        AGTERM_TEST_ORIGIN_STATE=origin_state,
+        AGTERM_TEST_ORIGIN_SOCKET=origin_env["AGTERM_CONTROL_SOCKET"],
+        PATH=fake_bin + ":" + env["PATH"],
+    )
+    origin_process = viewer_process = None
+    origin_id = None
+    try:
+        origin_process, origin_app = launch(origin_env)
+        def origin_tree():
+            response = raw_control_json(origin_env, {"cmd": "zmx.tree"})
+            return response.get("result", {}).get("remote", {}) if response["ok"] else {}
+
+        offered = wait_for(lambda: origin_tree().get("sessions"),
+                           "live origin did not offer a zmx session", timeout=10, required=False)
+        assert offered, (
+            "live origin did not offer a zmx session: "
+            f"restore={raw_control_json(origin_env, {'cmd': 'restore.mode'})} "
+            f"tree={raw_control_json(origin_env, {'cmd': 'tree'})} "
+            f"zmx={raw_control_json(origin_env, {'cmd': 'zmx.list'})} "
+            f"remote={origin_tree()}"
+        )
+        origin_id = offered[0]["id"]
+        assert origin_tree().get("presentation") is not None, origin_tree()
+        split = raw_control_json(origin_env, {
+            "cmd": "session.split", "target": origin_id, "args": {"mode": "on"},
+        })
+        assert split["ok"], split
+        wait_for(lambda: len(next(session for session in origin_tree()["sessions"]
+                                  if session["id"] == origin_id)["panes"]) == 2,
+                 "origin did not offer its split pane")
+        viewer_process, viewer_app = launch(viewer_env)
+        discovered = control_json(viewer_env, "zmx", "tree", "local-test", "--json")
+        assert discovered["ok"] and discovered["result"]["remote"]["presentation"], discovered
+        attached = control_json(viewer_env, "zmx", "attach", "local-test", origin_id, "--json")
+        assert attached["ok"], attached
+        viewer_id = attached["result"]["id"]
+
+        def viewer_session():
+            tree = control_json(viewer_env, "tree", "--json")["result"]["tree"]
+            return next(
+                item for workspace in tree["workspaces"] for item in workspace["sessions"]
+                if item["id"] == viewer_id
+            )
+
+        wait_for(lambda: viewer_session().get("presentation", {}).get("state") == "connected",
+                 "attached viewer did not connect its presentation stream", timeout=20)
+        wait_for(lambda: viewer_session().get("hasSplit") is True,
+                 "attached viewer did not mirror the origin split")
+        wait_for(lambda: next((surface.get("lead") for surface in viewer_session().get("surfaces", [])
+                               if surface.get("kind") == "left"), None) == "leader",
+                 "attached viewer did not claim the primary pane lead")
+        status = raw_control_json(origin_env, {
+            "cmd": "session.status", "target": origin_id, "args": {"status": "active"},
+        })
+        assert status["ok"], status
+        wait_for(lambda: viewer_session().get("status") == "active",
+                 "origin status did not reach the viewer")
+        context = raw_control_json(origin_env, {
+            "cmd": "session.context", "target": origin_id,
+            "args": {"text": "remote-context", "mode": "set"},
+        })
+        assert context["ok"], context
+        wait_for(lambda: viewer_session().get("context") == "remote-context",
+                 "origin context did not reach the viewer")
+        local_context = raw_control_json(viewer_env, {
+            "cmd": "session.context", "target": viewer_id,
+            "args": {"text": "viewer-context", "mode": "set"},
+        })
+        assert local_context["ok"], local_context
+        changed_context = raw_control_json(origin_env, {
+            "cmd": "session.context", "target": origin_id,
+            "args": {"text": "new-origin-context", "mode": "set"},
+        })
+        assert changed_context["ok"], changed_context
+        assert viewer_session().get("context") == "viewer-context", viewer_session()
+        cleared_context = raw_control_json(viewer_env, {
+            "cmd": "session.context", "target": viewer_id, "args": {"mode": "clear"},
+        })
+        assert cleared_context["ok"], cleared_context
+        wait_for(lambda: viewer_session().get("context") == "new-origin-context",
+                 "viewer clear did not restore the latest origin context")
+        notice = raw_control_json(origin_env, {
+            "cmd": "notify", "target": origin_id,
+            "args": {"title": "origin notice", "body": "shown in viewer"},
+        })
+        assert notice["ok"], notice
+        wait_for(lambda: viewer_session().get("unseen") == 1,
+                 "origin notification did not reach the viewer badge")
+        hud = raw_control_json(origin_env, {
+            "cmd": "session.hud.open", "target": origin_id,
+            "args": {"message": "origin HUD", "detail": "mirrored", "hideAfter": 10},
+        })
+        assert hud["ok"], hud
+        wait_for(lambda: viewer_session().get("hud", {}).get("message") == "origin HUD",
+                 "origin HUD did not reach the viewer")
+        assert viewer_session().get("hud", {}).get("detail") == "mirrored", viewer_session()
+        raw_control_json(origin_env, {"cmd": "session.hud.close", "target": origin_id})
+        wait_for(lambda: not viewer_session().get("hud"),
+                 "origin HUD withdrawal did not reach the viewer")
+        wait_for(lambda: viewer_session().get("presentation", {}).get("mode") == "presenter",
+                 "viewer was not granted presenter ownership")
+        terminal_ask = raw_control_json(origin_env, {
+            "cmd": "ask.open", "target": origin_id,
+            "args": {"title": "Remote terminal ask",
+                     "buttons": [{"id": "go", "label": "Remote Proceed"}]},
+        })
+        assert terminal_ask["ok"], terminal_ask
+        terminal_ask_id = terminal_ask["result"]["id"]
+        wait_for(lambda: viewer_session().get("ask", {}).get("id") == terminal_ask_id,
+                 "terminal ask was not handed to the viewer")
+        activate(wait_for(lambda: named(viewer_app, "Remote Proceed", role="button"),
+                          "viewer did not show the terminal ask button"))
+        wait_for(lambda: raw_control_json(origin_env, {"cmd": "ask.result", "target": terminal_ask_id})
+                 .get("result", {}).get("ask", {}).get("result") == "answered",
+                 "origin did not receive the terminal ask answer")
+        gui_ask = raw_control_json(origin_env, {
+            "cmd": "ask.open", "target": origin_id,
+            "args": {"title": "Remote GUI ask", "style": "gui",
+                     "buttons": [{"id": "accept", "label": "Remote Accept"}]},
+        })
+        assert gui_ask["ok"], gui_ask
+        gui_window = wait_for(lambda: named(viewer_app, "Remote GUI ask", role="frame"),
+                              "viewer did not show the GUI ask window")
+        activate(wait_for(lambda: named(gui_window, "Remote Accept", role="button"),
+                          "viewer did not show the GUI ask button"))
+        wait_for(lambda: raw_control_json(origin_env, {"cmd": "ask.result", "target": gui_ask["result"]["id"]})
+                 .get("result", {}).get("ask", {}).get("result") == "answered",
+                 "origin did not receive the GUI ask answer")
+        overlay_marker = os.path.join(origin_state, "remote-overlay.marker")
+        overlay = raw_control_json(origin_env, {
+            "cmd": "session.overlay.open", "target": origin_id,
+            "args": {"command": "printf 'origin-job' > " + shlex.quote(overlay_marker),
+                     "sizePercent": 60},
+        })
+        assert overlay["ok"], overlay
+        wait_for(lambda: os.path.exists(overlay_marker), "remote overlay job did not run on origin")
+        with open(overlay_marker, encoding="utf-8") as source:
+            assert source.read() == "origin-job"
+        wait_for(lambda: raw_control_json(origin_env, {
+            "cmd": "session.overlay.result", "target": origin_id,
+        }).get("result", {}).get("exitCode") == 0,
+                 "origin did not receive the remote overlay exit code")
+        def origin_lead():
+            tree = raw_control_json(origin_env, {"cmd": "tree"})["result"]["tree"]
+            session = next(item for workspace in tree["workspaces"] for item in workspace["sessions"]
+                           if item["id"] == origin_id)
+            return next(surface.get("lead") for surface in session["surfaces"]
+                        if surface["kind"] == "left")
+
+        wait_for(lambda: origin_lead() == "follower", "origin did not report its follower role")
+        typed_marker = os.path.join(origin_state, "follower-type.marker")
+        typed = raw_control_json(origin_env, {
+            "cmd": "session.type", "target": origin_id,
+            "args": {"text": "printf 'daemon-typed' > " + shlex.quote(typed_marker) + "\n"},
+        })
+        assert typed["ok"], typed
+        wait_for(lambda: os.path.exists(typed_marker), "origin could not type through its daemon while following")
+        with open(typed_marker, encoding="utf-8") as source:
+            assert source.read() == "daemon-typed"
+        text_read = raw_control_json(origin_env, {
+            "cmd": "session.text", "target": origin_id, "args": {"all": True},
+        })
+        assert text_read["ok"], text_read
+        refused = raw_control_json(origin_env, {"cmd": "session.paste", "target": origin_id})
+        assert not refused["ok"] and "covered" in refused["error"], refused
+        activate(wait_for(lambda: named(origin_app, "Pane in use elsewhere · Take lead", role="button"),
+                          "origin did not cover its follower pane"))
+        wait_for(lambda: origin_lead() == "leader", "origin did not take back the pane lead")
+        wait_for(lambda: viewer_session()["surfaces"][0].get("lead") == "follower",
+                 "viewer did not become a follower")
+        reclaimed = raw_control_json(viewer_env, {"cmd": "session.lead", "target": viewer_id})
+        assert reclaimed["ok"], reclaimed
+        wait_for(lambda: viewer_session()["surfaces"][0].get("lead") == "leader",
+                 "viewer did not reclaim the pane lead")
+        swapped = raw_control_json(origin_env, {"cmd": "session.swap", "target": origin_id})
+        assert swapped["ok"], swapped
+        wait_for(lambda: viewer_session().get("hasSplit") is True and
+                 viewer_session().get("presentation", {}).get("state") == "connected",
+                 "viewer lost its split after origin swap")
+        closed = raw_control_json(origin_env, {"cmd": "session.split.close", "target": origin_id})
+        assert closed["ok"], closed
+        wait_for(lambda: viewer_session().get("hasSplit") is None,
+                 "viewer did not remove the origin's closed split")
+        handback = raw_control_json(origin_env, {
+            "cmd": "ask.open", "target": origin_id,
+            "args": {"title": "Returned GUI ask", "style": "gui",
+                     "buttons": [{"id": "return", "label": "Answer at origin"}]},
+        })
+        assert handback["ok"], handback
+        stop(viewer_process)
+        viewer_process = None
+        returned_window = wait_for(lambda: named(origin_app, "Returned GUI ask", role="frame"),
+                                   "origin did not take back the viewer's GUI ask")
+        activate(wait_for(lambda: named(returned_window, "Answer at origin", role="button"),
+                          "origin did not show the returned ask button"))
+        wait_for(lambda: raw_control_json(origin_env, {
+            "cmd": "ask.result", "target": handback["result"]["id"],
+        }).get("result", {}).get("ask", {}).get("result") == "answered",
+                 "origin did not retain the returned GUI ask answer")
+        print("OK: remote presentation, overlay jobs, pane leadership, split layout, and ask handback")
+    finally:
+        if viewer_process is not None:
+            stop(viewer_process)
+        if origin_process is not None:
+            if origin_id is not None and origin_process.poll() is None:
+                raw_control_json(origin_env, {"cmd": "session.close", "target": origin_id})
+            stop(origin_process)
+
+
+def verify_control_hooks(env):
+    """A Linux hooks.conf line receives a real control event from the running app."""
+    process, _ = launch(env)
+    try:
+        tree = control_json(env, "tree", "--json")["result"]["tree"]
+        session = tree["workspaces"][0]["sessions"][0]["id"]
+        marker = os.path.join(env["AGTERM_STATE_DIR"], "hook.marker")
+        config = os.path.join(env["AGTERM_STATE_DIR"], "config")
+        os.makedirs(config, exist_ok=True)
+        with open(os.path.join(config, "hooks.conf"), "w", encoding="utf-8") as destination:
+            destination.write("on status printf '%s %s' \"$AGT_SESSION_ID\" "
+                              "\"$AGT_EVENT_STATUS\" > " + shlex.quote(marker) + "\n")
+        reloaded = raw_control_json(env, {"cmd": "hooks.reload"})
+        assert reloaded["ok"] and reloaded["result"]["count"] == 0, reloaded
+        status = raw_control_json(env, {
+            "cmd": "session.status", "target": session, "args": {"status": "active"},
+        })
+        assert status["ok"], status
+        wait_for(lambda: os.path.exists(marker), "status hook did not run")
+        with open(marker, encoding="utf-8") as source:
+            assert source.read() == session + " active"
+        listed = raw_control_json(env, {"cmd": "hooks.list"})
+        assert listed["ok"] and listed["result"]["hooks"]["hooks"], listed
+        print("OK: hooks reload/list and status-event shell delivery")
     finally:
         stop(process)
 
@@ -6072,6 +6497,50 @@ def verify_recent_clear(env):
         stop(process)
 
 
+def verify_control_picker(env):
+    """A prefilled query and selection reach GTK; an empty item list accepts a custom answer."""
+    process, app = launch(env)
+    try:
+        items = [{"id": "alpha", "label": "Alpha"},
+                 {"id": "bravo", "label": "Bravo"},
+                 {"id": "broom", "label": "Broom"}]
+        rejected = raw_control_json(env, {
+            "cmd": "pick.open", "args": {"items": items, "selection": "missing"},
+        })
+        assert not rejected["ok"] and rejected["error"] == "pick select must name an item id"
+
+        opened = raw_control_json(env, {
+            "cmd": "pick.open", "args": {"items": items, "query": "br", "selection": "broom"},
+        })
+        assert opened["ok"], opened
+        picker = wait_for(lambda: named(app, "Select", role="frame"), "control picker did not open")
+        wait_for(lambda: palette_row_labels(picker) == [["Bravo"], ["Broom"]],
+                 "prefilled picker query did not filter to Bravo and Broom")
+        press_return(process.pid, window_title="Select")
+        picked = raw_control_json(env, {"cmd": "pick.result", "target": opened["result"]["id"]})
+        assert picked["result"]["pick"]["result"] == "picked", picked
+        assert picked["result"]["pick"]["id"] == "broom", picked
+        wait_for(lambda: not named(app, "Select", role="frame"), "answered picker stayed open")
+
+        opened = raw_control_json(env, {
+            "cmd": "pick.open", "args": {"items": [], "allowCustom": True, "query": "free answer"},
+        })
+        assert opened["ok"], opened
+        picker = wait_for(lambda: named(app, "Select", role="frame"), "custom picker did not open")
+        wait_for(lambda: palette_row_labels(picker) == [['Use "free answer"']],
+                 "custom answer row did not appear")
+        press_return(process.pid, window_title="Select")
+        custom = raw_control_json(env, {"cmd": "pick.result", "target": opened["result"]["id"]})
+        assert custom["result"]["pick"]["result"] == "custom", custom
+        assert custom["result"]["pick"]["query"] == "free answer", custom
+        print("OK: control picker query, selection, validation, and empty-list custom answer")
+    except AssertionError:
+        describe_tree(app)
+        raise
+    finally:
+        stop(process)
+
+
 def verify_auto_follow(env, state):
     auto_state = state + "-auto-follow"
     os.makedirs(auto_state)
@@ -6139,7 +6608,8 @@ def main():
             "notification-reveal", "notification-focus", "session-pickers",
             "session-switch-commit", "child-gdk-env",
             "child-gdk-env-inverted",
-            "custom-command-failures", "surface-lifetimes", "surface-failures",
+            "custom-command-failures", "remote-presentation", "control-hooks",
+            "surface-lifetimes", "surface-failures",
             "background-overlay-grid",
             "sidebar-row-height",
             "sidebar-narrow-clipping",
@@ -6148,7 +6618,7 @@ def main():
             "sidebar-incremental",
             "sidebar-multiselect",
             "chrome-focus-buttons", "chrome-focus-sidebar", "chrome-focus-popovers",
-            "recent-clear", "auto-follow", "hidden-toolbar", "desktop-actions",
+            "recent-clear", "control-picker", "control-ask", "auto-follow", "hidden-toolbar", "desktop-actions",
         ):
             child_env = dict(os.environ, AGTERM_ATSPI_SCENARIO=child_scenario)
             result = subprocess.run([sys.executable, __file__], env=child_env)
@@ -6211,6 +6681,8 @@ def main():
             verify_window_key_dispatch(env)
         elif scenario == "upstream-controls":
             verify_upstream_control_parity(env)
+        elif scenario == "control-ask":
+            verify_control_ask(env)
         elif scenario == "dashboard-modal":
             verify_dashboard_modal(env)
         elif scenario == "context-menu":
@@ -6233,6 +6705,10 @@ def main():
             verify_notification_banner_round_trip(env)
         elif scenario == "custom-command-failures":
             verify_custom_command_failures(env)
+        elif scenario == "remote-presentation":
+            verify_remote_presentation(env)
+        elif scenario == "control-hooks":
+            verify_control_hooks(env)
         elif scenario == "surface-lifetimes":
             verify_surface_configuration_lifetimes(env)
         elif scenario == "surface-failures":
@@ -6271,6 +6747,8 @@ def main():
             verify_auto_follow(env, state)
         elif scenario == "recent-clear":
             verify_recent_clear(env)
+        elif scenario == "control-picker":
+            verify_control_picker(env)
         elif scenario == "session-pickers":
             verify_session_pickers(env, state)
         elif scenario == "session-switch-commit":

@@ -15,6 +15,7 @@ final class LinuxZmxClient: @unchecked Sendable {
         let arguments: [String]
         let environment: [String: String]
         let timeout: TimeInterval
+        let input: Data?
     }
 
     enum CommandError: Error, Equatable {
@@ -73,6 +74,15 @@ final class LinuxZmxClient: @unchecked Sendable {
         try? ZmxListParser.parse(invoke(["list"]))
     }
 
+    func screen(name: String, all: Bool) -> ZmxScreen? {
+        guard let output = try? invoke(["screen", name] + (all ? ["--all"] : [])) else { return nil }
+        return ZmxScreen(output: output)
+    }
+
+    func type(name: String, bytes: [UInt8]) -> Bool {
+        (try? invoke(["type", name], input: Data(bytes))) != nil
+    }
+
     func sessionLeaderPIDs() -> [String: Int32]? {
         listSessions().map(ZmxLeaderMap.leaders(in:))
     }
@@ -119,40 +129,25 @@ final class LinuxZmxClient: @unchecked Sendable {
         return (try? invoke(["kill"] + unique + ["--force"])) != nil
     }
 
-    private func invoke(_ arguments: [String], timeout timeoutOverride: TimeInterval? = nil) throws -> String {
+    private func invoke(_ arguments: [String], timeout timeoutOverride: TimeInterval? = nil,
+                        input: Data? = nil) throws -> String {
         var environment = ProcessInfo.processInfo.environment
         environment["ZMX_DIR"] = socketDirectory
         environment.removeValue(forKey: "ZMX_SESSION")
         environment.removeValue(forKey: "ZMX_SESSION_PREFIX")
         return try runner(.init(executablePath: executablePath, arguments: arguments,
-                                environment: environment, timeout: timeoutOverride ?? timeout))
+                                environment: environment, timeout: timeoutOverride ?? timeout, input: input))
     }
 
     private static func run(_ invocation: Invocation) throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: invocation.executablePath)
-        process.arguments = invocation.arguments
-        process.environment = invocation.environment
-        let output = Pipe()
-        let errors = Pipe()
-        process.standardOutput = output
-        process.standardError = errors
-        let finished = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in finished.signal() }
-        try process.run()
-        if finished.wait(timeout: .now() + invocation.timeout) == .timedOut {
-            process.terminate()
-            if finished.wait(timeout: .now() + terminationGrace) == .timedOut {
-                _ = Glibc.kill(process.processIdentifier, SIGKILL)
-                process.waitUntilExit()
-            }
-            throw CommandError.timedOut
+        let argv = ["ZMX_DIR=" + (invocation.environment["ZMX_DIR"] ?? ""),
+                    "ZMX_SESSION=", "ZMX_SESSION_PREFIX=",
+                    invocation.executablePath] + invocation.arguments
+        let result = LinuxRemoteCommand.run(argv, deadline: invocation.timeout, input: invocation.input)
+        if result.status == 124 { throw CommandError.timedOut }
+        guard result.status == 0 else {
+            throw CommandError.failed(result.status, result.stdout + result.stderr)
         }
-        let stdout = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        let stderr = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        guard process.terminationStatus == 0 else {
-            throw CommandError.failed(process.terminationStatus, stdout + stderr)
-        }
-        return stdout
+        return result.stdout
     }
 }

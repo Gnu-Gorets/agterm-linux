@@ -1469,9 +1469,11 @@ so `{AGT_SESSION_NAME}` and `{AGT_SESSION_PWD}` are as untrusted as `{AGT_SELECT
   pane the overlay covers, the one `{AGT_PANE}` names. Empty for a launcher fired with no session.
 - Plus the other `$AGT_*` context vars the runner exports.
 
-Linux runs custom commands detached with stdin, stdout, and stderr connected to `/dev/null`.
-A spawn error or non-zero exit appears as a transient toast only in the originating window while that
+Linux runs custom commands detached with stdin and stdout connected to `/dev/null`.
+A spawn error or non-zero exit appears as a transient toast in the originating window while that
 controller incarnation remains open.
+With `--error-hud`, stderr is captured and a short-lived HUD shows the failure and diagnostic on the
+target session or pane; without that option stderr is discarded.
 
 Built-in action names for `map` include: `new_window`, `new_workspace`, `new_session`,
 `open_directory`, `rename_session`, `duplicate_session`, `close_session`, `reopen_recent`, `undo_close`, `clear_status`, `increase_font_size`,
@@ -1679,6 +1681,10 @@ same answer a target that does not exist gets.
 `agtermctl zmx tree [HOST]` — attachable sessions across EVERY open window. With a `HOST` it reads another
 Mac over ssh; with none it reports this app's own, which is exactly the form the remote call runs on the
 far side, so it is also how to see what another machine would answer without sshing anywhere.
+The Linux port supports `zmx tree`, `attach`, `present`, and `session lead` between Linux hosts with
+the same protocol and presenter behavior described below. In that workflow, references to a Mac mean
+the corresponding origin or attaching Linux host. The origin must run Live sessions with bundled zmx,
+and noninteractive SSH must find its `agtermctl`.
 `result.remote` carries `endpoint` (the zmx `executable` and `socketDirectory`), `host` when one was given,
 `presentation` (the presentation protocol version, absent from an app too old to stream),
 and `sessions`, each with `id`, `name`, `windowID`/`windowName` and `workspaceID`/`workspaceName` (show the

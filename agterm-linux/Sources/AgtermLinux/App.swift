@@ -214,12 +214,22 @@ private let onOpen: @MainActor @convention(c) (OpaquePointer?, UnsafeMutablePoin
         launchPaneDrop: { identities in identities.forEach(gSpawnRegistry.pacer.discard) },
         defaultSessionCwd: ConfigPaths.defaultNewSessionCwd()
     )
+    AskRegistry.shared.resolveOwner = { owner in
+        switch owner {
+        case .window(let id): PickRegistry.shared.controller(for: id)?.pendingAsk
+        case .session(let id, let window): gLibrary.store(for: window)?.session(withID: id)?.askPending
+        }
+    }
     let spawnPlan = gLibrary.launchSpawnPlan()
     gSpawnRegistry.pacer.arm(order: spawnPlan.order, burst: spawnPlan.burst)
     ensureStarterFiles()
     installAppCSS()
     installAppIcons()
     gControlServer.start()
+    gHooks = LinuxHooks(library: gLibrary, configDirectory: ConfigPaths.configDirectory(
+        setting: currentSettings.configDirectory,
+        stateDir: ProcessInfo.processInfo.environment["AGTERM_STATE_DIR"],
+        home: FileManager.default.homeDirectoryForCurrentUser))
     // Quit cleanly on SIGTERM/SIGINT (session logout, `kill`, Ctrl+C) so flushOnQuit captures the
     // foreground commands + snapshot — without this a signal kills the process and loses the capture
     // (the macOS path runs through applicationWillTerminate). g_application_quit emits "shutdown".
@@ -295,6 +305,8 @@ private let onShutdown: @MainActor @convention(c) (OpaquePointer?, gpointer?) ->
         colorSchemeChangeDebouncer.cancel()
         gLibrary?.isTerminating = true
         flushOnQuit()
+        gControlServer.shutdownPresentationStreams()
+        gControlServer.shutdownOverlayJobs()
         gControlServer.stop()
     }
 }

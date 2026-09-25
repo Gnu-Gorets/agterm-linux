@@ -37,10 +37,15 @@ extension AppController {
         return ControlResponse(ok: true, result: result)
     }
 
-    func applySessionWatermark(_ id: UUID) {
-        surfaces[id]?.applyWatermarkFromSession()
-        splitSurfaces[id]?.applyWatermarkFromSession()
-        scratchSurfaces[id]?.applyWatermarkFromSession()
+    func applySessionWatermark(_ id: UUID, pane: StatusPane?) {
+        guard let session = store.session(withID: id) else { return }
+        let surfacesByPane: [(StatusPane, GhosttySurface?)] = [
+            (.left, surfaces[id]), (.right, splitSurfaces[id]), (.scratch, scratchSurfaces[id])
+        ]
+        for (slot, surface) in surfacesByPane
+            where pane == slot || (pane == nil && session.paneBackgrounds[slot] == nil) {
+            surface?.applyWatermarkFromSession()
+        }
     }
 
     func readEvents(_ options: ControlEventReadOptions) -> ControlResponse {
@@ -150,6 +155,7 @@ extension AppController {
             return err("surface not available: \(resolved.controlID)")
         }
         guard surface.isRealized else { return err("surface not realized") }
+        if let response = leadCursor(surface, controlID: resolved.controlID) { return response }
         guard let column = surface.readCursorColumn() else { return err("failed to read cursor position") }
         return ControlResponse(
             ok: true,

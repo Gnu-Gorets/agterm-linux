@@ -35,13 +35,13 @@ final class GhosttySurface: PaneRoleMutableSurface {
 
     /// The owning session's id (so the host can route close/title back to the model).
     let sessionID: UUID
-    fileprivate weak var controller: AppController?
+    weak var controller: AppController?
     /// Concrete host role; unlike a split boolean this distinguishes notification and focus behavior
     /// for main, split, overlay, scratch, and quick surfaces.
     private(set) var role: LinuxSurfaceRole
     var isSplitPane: Bool { role == .split }
     /// The shell's working directory.
-    private let cwd: String
+    let cwd: String
     /// Optional explicit command; nil runs the user's default login shell.
     var command: String?
     /// A fixed background owned by an overlay surface rather than the underlying session.
@@ -54,6 +54,7 @@ final class GhosttySurface: PaneRoleMutableSurface {
     /// Scratch/overlay/quick terminals are transient covers; their OSC title/PWD must not overwrite the
     /// owning session's primary/split pane state.
     private let reportsPaneState: Bool
+    var leadCover: OpaquePointer?
     /// Per-session font-size override (points) to seed at creation, restoring a persisted ⌘+/⌘− zoom;
     /// nil uses the config default.
     private let fontSize: Double?
@@ -401,14 +402,16 @@ final class GhosttySurface: PaneRoleMutableSurface {
                                           force: Bool = false) {
         guard let surface else { return }
         let session = controller?.store.session(withID: sessionID)
+        let pane = role.statusPane
         let watermark = oscBackgroundColorHex.map {
             BackgroundWatermark(kind: .color, colorHex: $0)
         } ?? fixedBackgroundColor.map {
             BackgroundWatermark(kind: .color, colorHex: $0)
-        } ?? (usesSessionWatermark ? session?.backgroundWatermark : nil)
+        } ?? (usesSessionWatermark ? pane.flatMap { session?.effectiveBackground(for: $0) } : nil)
         guard force || watermark != nil || dashboardFontOverride != nil || session?.fontSize != nil else { return }
-        let resolvedImagePath = session.flatMap {
-            WatermarkRenderer.materialize(watermark, sessionID: $0.id)
+        let resolvedImagePath = session.flatMap { session in
+            let paneKey = pane.flatMap { session.paneBackgrounds[$0] == nil ? nil : session.backgroundFileKey(for: $0) }
+            return WatermarkRenderer.materialize(watermark, sessionID: session.id, paneKey: paneKey)
         }
         let effectiveWindowOpacity = windowOpacity ?? linuxSettingsStore().load().backgroundOpacity ?? 1
         let overlay = WatermarkConfig.overlayText(watermark: watermark,
@@ -425,10 +428,12 @@ final class GhosttySurface: PaneRoleMutableSurface {
     }
 
     func reapplyWatermarkIfNeeded(windowOpacity: Double? = nil, settings: AppSettings? = nil) {
+        let inherited = role.statusPane.flatMap { pane in
+            controller?.store.session(withID: sessionID)?.effectiveBackground(for: pane)
+        }
         guard oscBackgroundColorHex != nil
                 || fixedBackgroundColor != nil
-                || usesSessionWatermark
-                    && controller?.store.session(withID: sessionID)?.backgroundWatermark != nil else { return }
+                || usesSessionWatermark && inherited != nil else { return }
         reapplyBackgroundOverlay(windowOpacity: windowOpacity, settings: settings)
     }
 
@@ -444,7 +449,7 @@ final class GhosttySurface: PaneRoleMutableSurface {
     func applyOSCBackground(red: UInt8, green: UInt8, blue: UInt8) {
         let hex = String(format: "#%02X%02X%02X", red, green, blue)
         let inheritedColor = usesSessionWatermark
-            ? controller?.store.session(withID: sessionID)?.backgroundWatermark
+            ? role.statusPane.flatMap { controller?.store.session(withID: sessionID)?.effectiveBackground(for: $0) }
                 .flatMap { $0.kind == .color ? $0.colorHex : nil }
             : nil
         let sessionColor = fixedBackgroundColor ?? inheritedColor
@@ -642,8 +647,10 @@ final class GhosttySurface: PaneRoleMutableSurface {
         let hasOtherModifiers = (state & ((1 << 0) | (1 << 3) | (1 << 26))) != 0
         let baseScalar = Unicode.Scalar(gdk_keyval_to_unicode(gdk_keyval_to_lower(keyval)))
         let isInterrupt = keyval == 0xFF1B || (control && !hasOtherModifiers && baseScalar?.value == 0x63)
+        let keystroke: StatusKeystroke = isInterrupt ? .interrupt
+            : (keyval == 0xFF0D || keyval == 0xFF8D ? .submit : .other)
         if let pane = role.statusPane {
-            controller?.clearAttentionStatus(sessionID, pane: pane, isInterrupt: isInterrupt)
+            controller?.clearAttentionStatus(sessionID, pane: pane, keystroke: keystroke)
         }
 
         // App-level shortcuts run first via the shared keymap (rebindable built-ins + custom commands +
@@ -743,9 +750,13 @@ final class GhosttySurface: PaneRoleMutableSurface {
     // MARK: - Actions from libghostty
 
     func applyTitle(_ title: String) {
+        if let notice = ZmxLeadNotice(title: title) {
+            controller?.reportPaneLead(notice, from: self)
+            return
+        }
         guard reportsPaneState, !title.isEmpty else { return }
         controller?.sessionDidReportTitle(
-            sessionID, title, isSplit: isSplitPane, loginShell: loginShellName)
+            sessionID, GhosttyApp.shared.staticTitle ?? title, isSplit: isSplitPane, loginShell: loginShellName)
     }
 
     func applyPwd(_ pwd: String) {
@@ -780,6 +791,13 @@ final class GhosttySurface: PaneRoleMutableSurface {
         let exit = onExit
         onExit = nil
         exit?()
+    }
+
+    func handleHeldProcessExit() {
+        guard waitAfterCommand, let pane = UUID(uuidString: paneToken) else { return }
+        ZmxLeadBook.shared.forget(pane: pane)
+        syncLeadCover()
+        controller?.store.leadRoleChanged()
     }
 
     func captureExitCode(from file: String, onCapture: @escaping (Int) -> Void) {

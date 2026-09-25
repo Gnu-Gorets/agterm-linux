@@ -391,6 +391,13 @@ extension AppController {
         if let value { StatusSoundPlayer.shared.play(value) }
     }
 
+    func setStatusResetAtIndex(_ index: Int) {
+        let modes = StatusReset.allCases
+        guard modes.indices.contains(index) else { return }
+        let mode = modes[index]
+        persist(\.statusReset, mode == .firstKey ? nil : mode.rawValue)
+    }
+
     func setAutoFollowAtIndex(_ index: Int) {
         let values = AppSettings.AutoFollowAttention.allCases
         guard values.indices.contains(index) else { return }
@@ -464,6 +471,7 @@ extension AppController {
         settings.blockedStatusShape = nil
         settings.completedStatusShape = nil
         settings.blockedStatusSoundName = nil
+        settings.statusReset = nil
         try? linuxSettingsStore().save(settings)
         refreshLiveStatusGlyphs()
         rebuildSettings(page: .agentStatus)

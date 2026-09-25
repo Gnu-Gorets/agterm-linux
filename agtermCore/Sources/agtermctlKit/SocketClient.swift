@@ -137,6 +137,15 @@ struct SocketClient {
         let queried = withUnsafeMutablePointer(to: &query) { fcntl(fd, F_GETLK, $0) }
         guard queried == 0 else { return nil }
         return query.l_type != Int16(F_UNLCK)
+        #elseif canImport(Glibc)
+        let fd = open(ControlResolve.ownershipLockPath(forSocket: socketPath), O_RDONLY | O_CLOEXEC)
+        guard fd >= 0 else { return nil }
+        defer { close(fd) }
+        if flock(fd, LOCK_SH | LOCK_NB) == 0 {
+            _ = flock(fd, LOCK_UN)
+            return false
+        }
+        return errno == EWOULDBLOCK ? true : nil
         #else
         return nil
         #endif

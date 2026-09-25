@@ -450,11 +450,11 @@ extension AppController {
         guard let button = attentionButton else { return }
         let enabled = (settings ?? linuxSettingsStore().load()).attentionButtonEnabled ?? false
         gtk_widget_set_visible(W(button), enabled ? 1 : 0)
-        let sessions = store.attentionSessions
-        gtk_widget_set_sensitive(W(button), sessions.isEmpty ? 0 : 1)
-        let hasBlocked = sessions.contains { $0.agentIndicator.status == .blocked }
+        let entries = library.attentionAcrossWindows
+        gtk_widget_set_sensitive(W(button), entries.isEmpty ? 0 : 1)
+        let hasBlocked = entries.contains { $0.session.agentIndicator.status == .blocked }
         gtk_button_set_icon_name(BUTTON(button), hasBlocked ? "dialog-warning-symbolic" : "emblem-important-symbolic")
-        if !enabled || sessions.isEmpty, sessionPickerPopover != nil, sessionPickerShowsAttention {
+        if !enabled || entries.isEmpty, sessionPickerPopover != nil, sessionPickerShowsAttention {
             dismissSessionPicker(refocus: refocusOnDismiss)
         }
     }

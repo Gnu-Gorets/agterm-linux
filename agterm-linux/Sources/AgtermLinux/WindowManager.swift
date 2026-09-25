@@ -94,6 +94,7 @@ extension WindowLibrary {
     }
     ensure(ConfigPaths.ghosttyConfigPath(configDirectory: dir), ConfigPaths.starterGhosttyConfig())
     ensure(ConfigPaths.keymapPath(configDirectory: dir), ConfigPaths.starterKeymapConf())
+    ensure(ConfigPaths.hooksPath(configDirectory: dir), ConfigPaths.starterHooksConf())
     ensure(ConfigPaths.restoreDenylistPath(configDirectory: dir), ConfigPaths.starterRestoreDenylist())
 }
 
@@ -154,4 +155,6 @@ extension WindowLibrary {
     }
     _ = gLibrary.loadStore(for: id)
     gWindows[id] = AppController(app: gApp, windowID: id, library: gLibrary)
+    gControlServer.attachPresentationHub()
+    for controller in gWindows.values { controller.updateAttentionButton(refocusOnDismiss: false) }
 }

@@ -20,6 +20,12 @@ final class ControlServer: @unchecked Sendable {
     static let unavailableSuffix = ".unavailable"
 
     private let logger = LinuxStructuredLogger(category: "ControlServer")
+    @MainActor lazy var presentationHub = PresentationHub(staleTimeout: 30)
+    @MainActor var presentationStreams: [LinuxPresentationStream] = []
+    @MainActor var presentationHeartbeatCancel: (@MainActor () -> Void)?
+    @MainActor lazy var overlayJobs = OverlayJobs()
+    @MainActor var overlayJobStreams: [String: LinuxOverlayJobStream] = [:]
+    @MainActor var pendingJobCancels: Set<String> = []
     private let setSocketPermissions: (String, Int32) -> Int32
 
     /// The socket path once actually bound (nil before bind / after a bind failure), so a spawned
@@ -143,23 +149,45 @@ final class ControlServer: @unchecked Sendable {
                 continue
             }
             Thread.detachNewThread { [self] in
-                handle(conn)
-                close(conn)
+                if !handle(conn) { close(conn) }
             }
         }
     }
 
-    private func handle(_ conn: Int32) {
-        guard let line = readLine(conn) else { return }
+    private func handle(_ conn: Int32) -> Bool {
+        guard let line = readLine(conn) else { return false }
         let response: ControlResponse
         if let req = try? JSONDecoder().decode(ControlRequest.self, from: line) {
+            if req.cmd == .zmxPresent {
+                let reply = openPresentationOnMain(req.target)
+                guard writeResponse(conn, reply), reply.ok,
+                      let id = reply.result?.id.flatMap(UUID.init(uuidString:)) else { return false }
+                adoptPresentationOnMain(conn, session: id)
+                return true
+            }
+            if req.cmd == .sessionOverlayJobRun {
+                let reply = claimOverlayJobOnMain(req.target)
+                let written = writeResponse(conn, reply)
+                guard reply.ok, let job = reply.result?.id else { return false }
+                guard written else {
+                    abandonOverlayJobOnMain(job)
+                    return false
+                }
+                adoptOverlayJobOnMain(conn, job: job)
+                return true
+            }
             response = Self.isRemoteZmxRequest(req) ? dispatchRemoteZmx(req) : dispatchOnMain(req)
         } else {
             response = ControlResponse(ok: false, error: "could not decode request")
         }
-        guard var data = try? JSONEncoder().encode(response) else { return }
+        _ = writeResponse(conn, response)
+        return false
+    }
+
+    private func writeResponse(_ conn: Int32, _ response: ControlResponse) -> Bool {
+        guard var data = try? JSONEncoder().encode(response) else { return false }
         data.append(0x0A)
-        writeAll(conn, data)
+        return writeAll(conn, data)
     }
 
     private static func isRemoteZmxRequest(_ request: ControlRequest) -> Bool {
@@ -183,7 +211,8 @@ final class ControlServer: @unchecked Sendable {
                 ? "zmx.attach requires a remote session" : "invalid remote session")
         }
         guard tree.ok, let remote = tree.result?.remote else { return tree }
-        return attachRemoteOnMain(host: host, session: remoteID, tree: remote)
+        return attachRemoteOnMain(host: host, session: remoteID, tree: remote,
+                                  window: request.args?.window)
     }
 
     private func readRemoteTree(host: String) -> ControlResponse {
@@ -201,7 +230,7 @@ final class ControlServer: @unchecked Sendable {
         }
         do {
             let decoded = try RemoteTreeMerger.decode(stdout: result.stdout)
-            let stamped = ControlRemoteTree(host: host, endpoint: decoded.endpoint, sessions: decoded.sessions)
+            let stamped = decoded.stamped(host: host)
             return ControlResponse(ok: true, result: ControlResult(remote: stamped))
         } catch let error as RemoteTreeMerger.MergeError {
             return ControlResponse(ok: false, error: error.message)
@@ -211,13 +240,31 @@ final class ControlServer: @unchecked Sendable {
     }
 
     private func attachRemoteOnMain(host: String, session: String,
-                                    tree: ControlRemoteTree) -> ControlResponse {
+                                    tree: ControlRemoteTree, window: String?) -> ControlResponse {
         let sem = DispatchSemaphore(value: 0)
         let box = ResponseBox()
         runOnMain {
             MainActor.assumeIsolated {
-                box.value = gController?.attachRemoteSession(host: host, session: session, tree: tree)
-                    ?? ControlResponse(ok: false, error: "no window to attach into")
+                let controller: AppController?
+                if let window, !window.isEmpty {
+                    switch gLibrary?.resolveWindow(window) {
+                    case .resolved(let id): controller = gWindows[id]
+                    case .ambiguous(let hits):
+                        box.value = ControlResponse(ok: false,
+                            error: ControlResolve.ambiguousMessage(noun: "window", target: window, hits: hits))
+                        sem.signal()
+                        return
+                    case .notFound, nil:
+                        box.value = ControlResponse(ok: false,
+                            error: ControlResolve.notFoundMessage(noun: "window", target: window))
+                        sem.signal()
+                        return
+                    }
+                } else {
+                    controller = gController
+                }
+                box.value = controller?.attachRemoteSession(host: host, session: session, tree: tree)
+                    ?? ControlResponse(ok: false, error: "window not open")
                 sem.signal()
             }
         }
@@ -282,11 +329,12 @@ final class ControlServer: @unchecked Sendable {
         case .sessionClose, .sessionDuplicate, .sessionSelect, .sessionGo, .sessionRename, .sessionReveal,
              .sessionMove, .sessionType,
              .sessionStatus, .sessionRestore, .sessionFlag, .sessionContext, .sessionSeen,
-             .sessionSplit, .sessionSplitClose, .sessionSwap, .sessionScratch, .sessionFocus,
+             .sessionSplit, .sessionSplitClose, .sessionSwap, .sessionLead, .sessionScratch, .sessionFocus,
              .sessionCopy, .sessionPaste, .sessionSelectAll, .sessionSearch,
              .sessionOverlayOpen, .sessionOverlayClose, .sessionOverlayResize, .sessionOverlayResult,
              .sessionOverlayCopy, .sessionOverlayText,
              .sessionHudOpen, .sessionHudUpdate, .sessionHudClose,
+             .askOpen,
              .sessionBackground, .sessionResize, .sessionText, .notify,
              .fontInc, .fontDec, .fontReset:
             return routeOwningSession(req.target) ?? .controller(gController)
@@ -298,13 +346,14 @@ final class ControlServer: @unchecked Sendable {
         case .surfaceZoom, .surfaceCursor:
             return routeOwningSurface(req.target) ?? .controller(gController)
         case .tree, .eventsRead, .workspaceNew, .workspaceGo, .quick, .quickType, .quickText, .dashboard,
-             .sidebar, .sidebarMode, .sidebarExpand, .sidebarCollapse, .workspaceFilter,
-             .windowNew, .windowList, .windowSelect, .windowClose, .windowRename, .windowDelete,
+             .sidebar, .sidebarMode, .sidebarFlaggedLayout, .sidebarExpand, .sidebarCollapse, .workspaceFilter,
+             .windowNew, .windowList, .windowSelect, .windowGo, .windowClose, .windowRename, .windowDelete,
              .windowResize, .windowMove, .windowZoom, .windowFullscreen, .windowMinimize,
-             .keymapReload, .keymapList, .configReload, .themeSet, .themeList,
-             .pickOpen, .pickResult, .pickCancel, .sidebarWidth,
+             .keymapReload, .keymapList, .hooksReload, .hooksList, .configReload, .themeSet, .themeList,
+             .pickOpen, .pickResult, .pickCancel, .askResult, .askCancel, .sidebarWidth,
              .restoreClear, .restoreCapture, .restoreMode, .recentClear, .version,
-             .zmxList, .zmxPrune, .zmxKill, .zmxTree, .zmxAttach, .debugAppearance:
+             .zmxList, .zmxPrune, .zmxKill, .zmxReset, .zmxTree, .zmxAttach, .zmxPresent,
+             .sessionOverlayJobRun, .debugAppearance:
             return .controller(gController)
         }
     }
@@ -370,15 +419,17 @@ final class ControlServer: @unchecked Sendable {
         }
     }
 
-    private func writeAll(_ conn: Int32, _ data: Data) {
+    private func writeAll(_ conn: Int32, _ data: Data) -> Bool {
         data.withUnsafeBytes { raw in
-            guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return }
+            guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return true }
             var offset = 0
             while offset < data.count {
-                let n = write(conn, base + offset, data.count - offset)
-                if n <= 0 { return }
+                let n = Glibc.send(conn, base + offset, data.count - offset, Int32(MSG_NOSIGNAL))
+                if n < 0, errno == EINTR { continue }
+                if n <= 0 { return false }
                 offset += n
             }
+            return true
         }
     }
 }

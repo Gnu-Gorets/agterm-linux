@@ -83,10 +83,10 @@ verify_payload() {
     fi
   done
   "$payload/bin/agtermctl" --help >/dev/null
-  ZMX_DIR="$WORK/zmx-help" "$payload/bin/zmx" --help >/dev/null
+  ZMX_DIR="$WORK/zmx-help" "$payload/bin/zmx" help >/dev/null
 }
 
-mkdir -p "$WORK/tar" "$WORK/deb" "$WORK/rpm" "$WORK/appimage"
+mkdir -p "$WORK/tar" "$WORK/deb" "$WORK/rpm" "$WORK/rpmdb" "$WORK/appimage"
 tar -xzf "$TAR" -C "$WORK/tar"
 verify_payload "$WORK/tar/agterm-linux"
 
@@ -98,9 +98,9 @@ verify_payload "$WORK/deb/opt/agterm-linux"
 [[ "$(readlink "$WORK/deb/usr/bin/agterm-linux")" == '/opt/agterm-linux/bin/agterm-linux' ]]
 [[ "$(readlink "$WORK/deb/usr/bin/agtermctl")" == '/opt/agterm-linux/bin/agtermctl' ]]
 
-[[ "$(rpm -qp --queryformat '%{NAME}' "$RPM")" == 'agterm-linux' ]]
-[[ "$(rpm -qp --queryformat '%{ARCH}' "$RPM")" == "$HOST_ARCH" ]]
-[[ "$(rpm -qp --queryformat '%{VERSION}-%{RELEASE}' "$RPM")" == "$PACKAGE_VERSION-1" ]]
+[[ "$(rpm --dbpath "$WORK/rpmdb" -qp --queryformat '%{NAME}' "$RPM")" == 'agterm-linux' ]]
+[[ "$(rpm --dbpath "$WORK/rpmdb" -qp --queryformat '%{ARCH}' "$RPM")" == "$HOST_ARCH" ]]
+[[ "$(rpm --dbpath "$WORK/rpmdb" -qp --queryformat '%{VERSION}-%{RELEASE}' "$RPM")" == "$PACKAGE_VERSION-1" ]]
 (
   cd "$WORK/rpm"
   # Ubuntu's rpm2cpio can return 1 after emitting a complete archive. Trust cpio's status here; the
@@ -150,7 +150,7 @@ for binary in agterm-linux.bin agtermctl.bin; do
   fi
 done
 "$APPROOT/usr/bin/agtermctl" --help >/dev/null
-ZMX_DIR="$WORK/zmx-appimage-help" "$APPROOT/usr/bin/zmx" --help >/dev/null
+ZMX_DIR="$WORK/zmx-appimage-help" "$APPROOT/usr/bin/zmx" help >/dev/null
 
 (
   cd "$OUT"

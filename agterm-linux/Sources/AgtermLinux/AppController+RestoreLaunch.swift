@@ -29,15 +29,20 @@ extension AppController {
         let identity = pane == .right ? session.splitPaneIdentity : session.paneIdentity
         let decision = gRestoreLaunchDecision
         let disposition: ZmxSupport.LaunchDisposition
+        let lead = ZmxLeadAttachment(claim: false)
         if decision.requested == .live, session.remoteHost == nil, let identity {
             let configuration = try? LinuxZmxLaunch.configuration(
-                paneIdentity: identity, baseEnvironment: baseEnvironment
+                paneIdentity: identity, baseEnvironment: baseEnvironment, lead: lead
             ).get()
             disposition = ZmxSupport.launchDisposition(
                 requested: decision.requested, active: decision.active, configuration: configuration
             )
         } else {
             disposition = .ordinary
+        }
+        if disposition.backedByZmx, let identity {
+            ZmxLeadBook.shared.begin(lead, pane: identity)
+            gZmxForegroundResolver?.noteLifecycleChange()
         }
         let policy = LinuxLaunchSeedPolicy(
             restoreEnabled: linuxSettingsStore().load().effectiveRestoreMode == .rerun,

@@ -78,11 +78,29 @@ extension SidebarSnapshot {
     static func desired(from store: AppStore, settings: AppSettings,
                         renaming: AppController.RenameTarget?,
                         expandedWorkspaceIDs: Set<UUID>) -> SidebarSnapshot {
-        let flaggedView = store.sidebarMode == .flagged
+        let flaggedMode = store.sidebarMode == .flagged
+        let flaggedTree = flaggedMode && settings.effectiveFlaggedViewLayout == .tree
+        let flaggedView = flaggedMode && !flaggedTree
         let builder = SidebarSnapshotBuilder(store: store, settings: settings,
                                              flaggedView: flaggedView, renamingID: renaming?.id)
         var snapshot = SidebarSnapshot()
-        if flaggedView {
+        if flaggedTree {
+            snapshot.sections = store.workspaces.compactMap { workspace in
+                let flagged = workspace.sessions.filter(\.flagged)
+                guard !flagged.isEmpty else { return nil }
+                let expanded = expandedWorkspaceIDs.contains(workspace.id)
+                let header = HeaderContent(name: workspace.name,
+                                           renaming: builder.renamingID == workspace.id,
+                                           focusMember: store.focusedWorkspaceIDs.contains(workspace.id),
+                                           addVisible: false, expanded: expanded)
+                return builder.section(key: .workspace(workspace.id), header: header,
+                                       sessions: flagged, expanded: expanded, showsHint: false)
+            }
+            if snapshot.sections.isEmpty {
+                snapshot.sections = [builder.section(key: .flagged, header: nil, sessions: [],
+                                                     expanded: true, showsHint: true)]
+            }
+        } else if flaggedView {
             let sessions = store.flaggedSessions
             snapshot.sections = [builder.section(key: .flagged, header: nil, sessions: sessions,
                                                  expanded: true, showsHint: sessions.isEmpty)]

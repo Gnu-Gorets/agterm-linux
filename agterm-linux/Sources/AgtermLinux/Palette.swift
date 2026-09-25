@@ -100,6 +100,8 @@ extension AppController {
     private func run(for cmd: PaletteCommand) -> () -> Void {
         switch cmd {
         case .newSession: return { self.newSession() }
+        case .previousWindow: return { _ = self.windowGo(direction: .previous) }
+        case .nextWindow: return { _ = self.windowGo(direction: .next) }
         case .newWorkspace: return { self.newWorkspace() }
         case .openDirectory: return { self.openDirectory() }
         case .renameSession: return { self.startRenameActive() }
@@ -143,6 +145,8 @@ extension AppController {
         case .collapseWorkspaces: return { self.collapseOtherWorkspaces() }
         case .editKeymap: return { self.editKeymap() }
         case .reloadKeymap: return { reloadKeymapAllWindows(reportingIn: self) }
+        case .editHooks: return { self.editHooks() }
+        case .reloadHooks: return { _ = self.reloadHooks() }
         case .editGhosttyConfig: return { self.editGhosttyConfig() }
         case .reloadConfig: return { self.reloadConfig() }
         case .clearFlagged: return { self.clearFlagged() }
@@ -172,6 +176,17 @@ extension AppController {
         sessions.map { s in
             let ws = store.workspace(forSession: s.id)?.name ?? ""
             return (row: LinuxPaletteRow(title: "\(s.displayName)  —  \(ws)"), run: { self.selectSession(s.id) })
+        }
+    }
+
+    private func attentionRows() -> [LinuxPaletteItem] {
+        library.attentionAcrossWindows.map { entry in
+            let subtitle = library.attentionSubtitle(entry)
+            return (row: LinuxPaletteRow(title: "\(entry.session.displayName)  —  \(subtitle)"), run: {
+                MainTimer.schedule(after: 0) { [weak self] in
+                    self?.selectAttention(windowID: entry.window.id, sessionID: entry.session.id)
+                }
+            })
         }
     }
 
@@ -216,7 +231,7 @@ extension AppController {
         gtk_widget_add_controller(W(win), kc)
 
         if attention {
-            paletteAll = LinuxPaletteList(items: sessionRows(store.attentionSessions), preservesNaturalOrder: true)
+            paletteAll = LinuxPaletteList(items: attentionRows(), preservesNaturalOrder: true)
         } else if recent {
             let sessions = store.navigableRecentSessions(limit: 10).compactMap(store.session(withID:))
             paletteAll = LinuxPaletteList(items: sessionRows(sessions), preservesNaturalOrder: true)

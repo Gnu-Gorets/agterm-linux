@@ -406,6 +406,8 @@ extension AppController {
     private func dispatchBuiltin(_ action: BuiltinAction, sessionID: UUID) {
         switch action {
         case .newWindow: openNewWindow()
+        case .previousWindow: _ = windowGo(direction: .previous)
+        case .nextWindow: _ = windowGo(direction: .next)
         case .renameWindow: renameWindowDialog(windowID)
         case .deleteWindow: confirmDeleteWindow(windowID)
         case .newWorkspace: newWorkspace()

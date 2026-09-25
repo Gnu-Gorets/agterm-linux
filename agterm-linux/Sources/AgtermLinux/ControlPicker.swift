@@ -12,7 +12,7 @@ struct LinuxControlPickRow {
 extension AppController {
     func openPick(_ pick: PendingPick, window: String?, follow: Bool) -> ControlResponse {
         guard pickController.open(pick) else {
-            return ControlResponse(ok: false, error: "pick already pending")
+            return ControlResponse(ok: false, error: pickController.pendingModalError ?? "pick already pending")
         }
         if follow { gtk_window_present(WIN(windowPointer)) }
         closePalette()
@@ -131,7 +131,10 @@ extension AppController {
         ))
         gtk_widget_add_controller(W(win), keys)
 
-        filterControlPick("")
+        if let query = pick.query {
+            query.withCString { gtk_editable_set_text(entry, $0) }
+        }
+        filterControlPick(pick.query ?? "")
         gtk_window_present(WIN(win))
         _ = gtk_widget_grab_focus(W(entry))
     }
@@ -163,8 +166,13 @@ extension AppController {
                 appendControlPickRow(label: value.item.label, subtitle: value.item.subtitle, to: list)
             }
         }
-        if let first = gtk_list_box_get_row_at_index(list, 0) {
-            gtk_list_box_select_row(list, first)
+        let selectedIndex = query == pending.query ? pending.selection.flatMap { selection in
+            controlPickRows.firstIndex(where: { $0.item?.id == selection })
+        } : nil
+        let index = selectedIndex ?? 0
+        if let selected = gtk_list_box_get_row_at_index(list, Int32(index)) {
+            gtk_list_box_select_row(list, selected)
+            if selectedIndex != nil { scrollListBoxRowIntoView(list, toIndex: index) }
         }
     }
 

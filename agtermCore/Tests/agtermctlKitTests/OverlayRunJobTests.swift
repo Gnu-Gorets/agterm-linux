@@ -1,5 +1,8 @@
 import Foundation
 import Testing
+#if canImport(Glibc)
+import Glibc
+#endif
 @testable import agtermCore
 @testable import agtermctlKit
 
@@ -14,9 +17,13 @@ struct OverlayRunJobTests {
 
         init() {
             var pair: [Int32] = [-1, -1]
+            #if canImport(Glibc)
+            socketpair(AF_UNIX, Int32(SOCK_STREAM.rawValue), 0, &pair)
+            #else
             socketpair(AF_UNIX, SOCK_STREAM, 0, &pair)
             var noSigPipe: Int32 = 1
             for fd in pair { setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size)) }
+            #endif
             helper = pair[0]
             origin = pair[1]
         }

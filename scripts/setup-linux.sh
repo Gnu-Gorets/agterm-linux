@@ -14,6 +14,8 @@ GHOSTTY_REPO="https://github.com/ghostty-org/ghostty"
 source "$ROOT/linux/ghostty-resources.env"
 # shellcheck source=../linux/zmx.env
 source "$ROOT/linux/zmx.env"
+ZMX_PATCH_DIGEST="$(cat "$ROOT/scripts/zmx-patches"/*.patch | sha256sum | cut -c1-16)"
+ZMX_STAMP="$ZMX_REV $ZMX_PATCH_DIGEST"
 # shellcheck source=../linux/arch.sh
 source "$ROOT/linux/arch.sh"
 
@@ -113,6 +115,10 @@ if $need_zmx; then
   mkdir -p "$ZMX_BUILD"
   curl -fsSLo "$BUILD_DIR/zmx.tgz" "https://codeload.github.com/$ZMX_SLUG/tar.gz/$ZMX_REV"
   tar -xzf "$BUILD_DIR/zmx.tgz" -C "$ZMX_BUILD" --strip-components=1
+  for zmx_patch in "$ROOT/scripts/zmx-patches"/*.patch; do
+    echo "applying $(basename "$zmx_patch")..."
+    git -C "$ZMX_BUILD" apply --whitespace=nowarn "$zmx_patch"
+  done
   echo "building zmx with zig..."
   (
     cd "$ZMX_BUILD"
@@ -124,7 +130,7 @@ if $need_zmx; then
   mkdir -p "$ZMX_STAGE"
   install -m0755 "$ZMX_BUILD/zig-out/bin/zmx" "$ZMX_STAGE/zmx"
   install -m0644 "$ZMX_BUILD/LICENSE" "$ZMX_STAGE/LICENSE"
-  printf '%s\n' "$ZMX_REV" > "$ZMX_STAGE/REVISION"
+  printf '%s\n' "$ZMX_STAMP" > "$ZMX_STAGE/REVISION"
   "$VERIFY_ZMX_CACHE" "$ZMX_STAGE"
   rm -rf "$ROOT/agterm-linux/vendor/zmx"
   mv "$ZMX_STAGE" "$ROOT/agterm-linux/vendor/zmx"

@@ -17,6 +17,9 @@ final class AppController {
     let windowID: UUID
     let library: WindowLibrary
     let customCommandOrigin: LinuxCustomCommandOrigin
+    let remoteTransport = LinuxPresentationTransport()
+    var remoteClients: [UUID: RemotePresentationClient] = [:]
+    var remoteTickCancel: (@MainActor () -> Void)?
     let window: OpaquePointer        // AdwApplicationWindow
     let deck: OpaquePointer          // GtkOverlay (one stable overlay child per session)
     var contentBox: OpaquePointer?   // vertical box [search + deck-overlay]
@@ -62,6 +65,11 @@ final class AppController {
     var controlPickEntry: OpaquePointer?
     var controlPickRows: [LinuxControlPickRow] = []
     var controlPickSuppressesAutoFollow = false
+    var guiAskWindow: OpaquePointer?
+    var replicaGUIAskSessionID: UUID?
+    var guiAskButtons: [OpaquePointer] = []
+    var guiAskNavigation: AskNavigation?
+    var terminalAskSurfaces: [UUID: LinuxAskSurface] = [:]
     // In-terminal search bar (Ctrl+Shift+F)
     var searchBar: OpaquePointer?
     var searchEntry: OpaquePointer?
@@ -621,9 +629,10 @@ final class AppController {
     }
 
     /// Typing clears blocked/completed status; Escape or bare Ctrl-C also clears active status.
-    func clearAttentionStatus(_ id: UUID, pane: StatusPane, isInterrupt: Bool) {
+    func clearAttentionStatus(_ id: UUID, pane: StatusPane, keystroke: StatusKeystroke) {
         guard let session = store.session(withID: id),
-              session.agentIndicator.clearedBy(pane: pane, isInterrupt: isInterrupt) else { return }
+              session.agentIndicator.clearedBy(pane: pane, keystroke: keystroke,
+                                               reset: linuxSettingsStore().load().effectiveStatusReset) else { return }
         store.setAgentIndicator(AgentIndicator(), forSession: id)
         syncSidebar()
     }

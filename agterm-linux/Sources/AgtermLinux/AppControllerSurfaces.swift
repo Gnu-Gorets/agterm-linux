@@ -15,6 +15,8 @@ extension AppController {
     /// ghostty surfaces (killing the shells) while `undoPendingClose` still offers to bring it back, and
     /// the undo would then silently spawn a brand-new login shell in place of the user's running one.
     func reconcile(focusActive: Bool = true, syncSidebar: Bool = true, preferMoving: Set<UUID> = []) {
+        syncRemotePresentations()
+        syncAskSurfaces()
         let dashboardRestore = prepareDashboardForReconcile()
         clearInvalidTerminalZoom()
         for ws in store.workspaces {
@@ -36,6 +38,7 @@ extension AppController {
         updateAttentionButton()
         updateDashboardButton()
         restoreDashboardAfterReconcile(dashboardRestore)
+        syncAskSurfaces()
     }
 
     /// The `AGTERM_*` env injected into a session's spawned shells (main/split/scratch) so the
@@ -75,6 +78,7 @@ extension AppController {
         surf.launchSeed = launch
         gSpawnRegistry.enqueue(surf, key: s.paneIdentity, shouldPace: launch.shouldPace)
         s.surface = surf
+        if let title = GhosttyApp.shared.staticTitle { surf.applyTitle(title) }
         surfaces[s.id] = surf
         installPaneExitHandler(surf, sessionID: s.id)
         let paneHost = OpaquePointer(gtk_overlay_new())
@@ -125,7 +129,7 @@ extension AppController {
         guard let stack = sessionStacks[s.id] else { return }
         if let cached = overlaySurfaces[s.id], s.overlaySurface !== cached {
             if let frame = floatingOverlayFrames[s.id] {
-                gtk_overlay_remove_overlay(deck, W(frame))
+                removeFloatingOverlayFrame(frame)
                 floatingOverlayFrames[s.id] = nil
             } else {
                 gtk_stack_remove(stack, W(cached.rootWidget))
@@ -146,7 +150,7 @@ extension AppController {
                                         env: ovlEnv, controller: self, waitAfterCommand: s.overlayWait,
                                         role: .overlay,
                                         reportsPaneState: false,
-                                        fontSize: s.fontSize,
+                                        fontSize: s.hudFontSize ?? s.fontSize,
                                         backgroundColor: s.overlayBackgroundColor,
                                         usesSessionWatermark: false)
                 let sid = s.id
@@ -163,7 +167,7 @@ extension AppController {
                 s.overlaySurface = ov
                 overlaySurfaces[s.id] = ov
                 if let pct = s.overlaySizePercent {
-                    let overlay = deck
+                    let overlay = floatingOverlayHost(for: s, pane: s.hudTargetPane)
                     guard let frame = OpaquePointer(gtk_frame_new(nil)) else { return }
                     gtk_widget_add_css_class(W(frame), "card")
                     gtk_widget_add_css_class(W(frame), "agterm-quick")
@@ -183,7 +187,7 @@ extension AppController {
             }
             if floatingOverlayFrames[s.id] != nil {
                 if let frame = floatingOverlayFrames[s.id], let percent = s.overlaySizePercent {
-                    let overlay = deck
+                    let overlay = placeFloatingOverlayFrame(frame, for: s)
                     updateFloatingOverlayFrame(s, frame: frame, overlay: overlay, fallbackPercent: percent)
                 }
                 if allowFocus, !s.hudActive, s.id == store.selectedSessionID {
@@ -197,8 +201,7 @@ extension AppController {
             }
         } else if let ov = overlaySurfaces[s.id], s.overlaySurface == nil {
             if let frame = floatingOverlayFrames[s.id] {
-                let overlay = deck
-                gtk_overlay_remove_overlay(overlay, W(frame))
+                removeFloatingOverlayFrame(frame)
                 floatingOverlayFrames[s.id] = nil
             } else {
                 (s.scratchActive ? "scratch" : "main").withCString { gtk_stack_set_visible_child_name(stack, $0) }
@@ -297,7 +300,8 @@ extension AppController {
         for (id, frame) in floatingOverlayFrames {
             guard let session = store.session(withID: id), session.hudActive,
                   let percent = session.overlaySizePercent else { continue }
-            updateFloatingOverlayFrame(session, frame: frame, overlay: deck, fallbackPercent: percent)
+            let host = placeFloatingOverlayFrame(frame, for: session)
+            updateFloatingOverlayFrame(session, frame: frame, overlay: host, fallbackPercent: percent)
         }
     }
 
@@ -363,24 +367,30 @@ extension AppController {
             pane = .left
             selectionSurface = s.flatMap { surfaces[$0.id] }
         }
+        let reportedCwd = s?.cwd(for: pane) ?? ""
+        let localCwd = s?.localWorkingDirectory(
+            reported: reportedCwd, homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path)
         let context = CommandContext(sessionID: s?.id.uuidString ?? "", sessionName: s?.displayName ?? "",
-                                     sessionPWD: s?.effectiveCwd ?? "",
+                                     sessionPWD: reportedCwd,
+                                     sessionHost: TerminalText.sanitized(s?.remoteHost ?? ""),
                                      workspaceID: workspace?.id.uuidString ?? "",
                                      workspaceName: workspace?.name ?? "",
                                      windowID: windowID.uuidString,
                                      windowName: gLibrary.windows.first(where: { $0.id == windowID })?.name ?? "",
-                                     pane: pane, selection: selectionSurface?.readSelection() ?? "",
+                                     pane: pane, paneID: s?.paneToken(for: pane) ?? "",
+                                     selection: selectionSurface?.readSelection() ?? "",
                                      socket: gControlServer.resolvedSocketPath)
         let controllerOrigin = customCommandOrigin
         let launcher = controllerOrigin.launcher
-        LinuxCustomCommandProcess.launch(command: cmd, context: context, launcher: launcher) { [weak self] failure in
+        LinuxCustomCommandProcess.launch(command: cmd, context: context,
+                                         localWorkingDirectory: localCwd, launcher: launcher) { [weak self] failure in
             runOnMain { [weak self, weak controllerOrigin] in
                 MainActor.assumeIsolated {
                     guard let self, let controllerOrigin,
                           self.customCommandOrigin === controllerOrigin,
                           gWindows[self.windowID] === self else { return }
                     controllerOrigin.deliverIfActive {
-                        self.showToast(failure.toast(commandName: cmd.name))
+                        self.reportCustomCommandFailure(failure, command: cmd, sessionID: context.sessionID)
                     }
                 }
             }
@@ -396,6 +406,13 @@ extension AppController {
     func editKeymap() {
         guard let id = store.selectedSessionID else { return }
         let path = ConfigPaths.keymapPath(configDirectory: configDirectory()).path
+        store.openOverlay(id, command: ConfigPaths.editorCommand(forPath: path), sizePercent: 95)
+        reconcile()
+    }
+
+    func editHooks() {
+        guard let id = store.selectedSessionID else { return }
+        let path = ConfigPaths.hooksPath(configDirectory: configDirectory()).path
         store.openOverlay(id, command: ConfigPaths.editorCommand(forPath: path), sizePercent: 95)
         reconcile()
     }
@@ -427,6 +444,7 @@ extension AppController {
                 gSpawnRegistry.enqueue(split, key: identity, shouldPace: launch.shouldPace)
             }
             s.splitSurface = split
+            if let title = GhosttyApp.shared.staticTitle { split.applyTitle(title) }
             splitSurfaces[s.id] = split
             installPaneExitHandler(split, sessionID: s.id)
             let paneHost = OpaquePointer(gtk_overlay_new())
@@ -605,12 +623,13 @@ extension AppController {
     }
 
     private func removeSession(_ id: UUID) {
+        removeTerminalAskSurface(id)
         abandonSearch(ownedBy: id)
         splitRatioRestore.cancel(sessionID: id)
         scratchSurfaces[id]?.teardown()
         scratchSurfaces[id] = nil
         if let frame = floatingOverlayFrames[id] {
-            gtk_overlay_remove_overlay(deck, W(frame))
+            removeFloatingOverlayFrame(frame)
             floatingOverlayFrames[id] = nil
         }
         overlaySurfaces[id]?.teardown()
@@ -804,18 +823,24 @@ extension AppController {
         title.withCString { gtk_window_set_title(WIN(window), $0) }
         if let titleWidget {
             let hidden = settings.resolvedHiddenInterfaceElements
+            let active = store.activeSession
+            let workspace = active.flatMap { store.workspace(forSession: $0.id) }
             let composition = TitlebarComposition.compose(
                 .init(
+                    workspaceName: hidden.contains(.workspaceName) ? nil : workspace?.name,
                     sessionName: hidden.contains(.sessionName)
-                        ? nil : (store.activeSession?.displayName ?? "agterm"),
+                        ? nil : (active?.displayName ?? "agterm"),
                     windowName: hidden.contains(.windowName) || windowInfo?.hasCustomName != true
                         ? nil : windowInfo?.name,
-                    context: hidden.contains(.sessionContext) ? nil : store.activeSession?.context,
-                    detail: store.activeSession?.subtitleDetail ?? ""
+                    context: hidden.contains(.sessionContext) ? nil : active?.effectiveContext,
+                    detail: active?.subtitleDetail ?? "",
+                    remoteHost: hidden.contains(.remoteHost) ? nil : active?.remoteHost
                 ),
                 mode: settings.effectiveToolbarMode
             )
-            composition.title.withCString { adw_window_title_set_title(titleWidget, $0) }
+            let identity = [composition.title, composition.host].compactMap { $0 }.filter { !$0.isEmpty }
+                .joined(separator: "  ")
+            (identity + composition.tail).withCString { adw_window_title_set_title(titleWidget, $0) }
             composition.subtitle.withCString { adw_window_title_set_subtitle(titleWidget, $0) }
         }
         normalTitle.withCString { value in

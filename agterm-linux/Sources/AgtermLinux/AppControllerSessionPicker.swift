@@ -5,11 +5,13 @@ import agtermCore
 @MainActor
 final class SessionPickerRowContext {
     unowned let controller: AppController
+    let windowID: UUID
     let sessionID: UUID
     let attention: Bool
 
-    init(controller: AppController, sessionID: UUID, attention: Bool) {
+    init(controller: AppController, windowID: UUID, sessionID: UUID, attention: Bool) {
         self.controller = controller
+        self.windowID = windowID
         self.sessionID = sessionID
         self.attention = attention
     }
@@ -124,14 +126,22 @@ extension AppController {
     /// These are interactive-only popovers, so no control-socket command is meaningful.
     func showSessionPicker(attention: Bool, anchor: OpaquePointer?) {
         guard let anchor else { return }
-        let sessions: [Session]
+        let entries: [(windowID: UUID, session: Session, subtitle: String)]
         if attention {
-            sessions = store.attentionSessions
+            entries = library.attentionAcrossWindows.map {
+                ($0.window.id, $0.session, library.attentionSubtitle($0))
+            }
         } else {
-            sessions = store.navigableRecentSessions(limit: SessionSwitcherModel.maxCandidates)
-                .compactMap { store.session(withID: $0) }
+            entries = store.navigableRecentSessions(limit: SessionSwitcherModel.maxCandidates)
+                .compactMap { id -> (UUID, Session, String)? in
+                    guard let session = store.session(withID: id) else { return nil }
+                    let workspace = store.workspace(forSession: id)?.name ?? ""
+                    let subtitle = workspace.isEmpty ? session.subtitleDetail
+                        : "\(workspace) · \(session.subtitleDetail)"
+                    return (windowID, session, subtitle)
+                }
         }
-        guard !sessions.isEmpty else { return }
+        guard !entries.isEmpty else { return }
 
         // Read the capture BEFORE the dismissal consumes it (see `popupPopover`).
         let heldSearchEntry = searchEntryCaptureSurvives(sessionPickerPopover)
@@ -156,7 +166,8 @@ extension AppController {
         // One read for the whole popover — `SettingsStore.load()` is an uncached file read — and only
         // the attention palette renders glyphs at all.
         let glyphSettings = attention ? linuxSettingsStore().load() : nil
-        for session in sessions {
+        for entry in entries {
+            let session = entry.session
             guard let button = op(gtk_button_new()), let row = op(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8)),
                   let labels = op(gtk_box_new(GTK_ORIENTATION_VERTICAL, 1)) else { continue }
             gtk_button_set_has_frame(BUTTON(button), 0)
@@ -178,9 +189,7 @@ extension AppController {
             gtk_label_set_xalign(title, 0)
             gtk_widget_add_css_class(W(title), "heading")
             gtk_box_append(cast(labels), W(title))
-            let workspace = store.workspace(forSession: session.id)?.name ?? ""
-            let detail = workspace.isEmpty ? session.subtitleDetail : "\(workspace) · \(session.subtitleDetail)"
-            let subtitle = op(gtk_label_new(detail))
+            let subtitle = op(gtk_label_new(entry.subtitle))
             gtk_label_set_xalign(subtitle, 0)
             gtk_widget_add_css_class(W(subtitle), "dim-label")
             gtk_box_append(cast(labels), W(subtitle))
@@ -188,7 +197,7 @@ extension AppController {
             gtk_box_append(cast(row), W(labels))
             gtk_button_set_child(BUTTON(button), W(row))
 
-            let context = SessionPickerRowContext(controller: self, sessionID: session.id,
+            let context = SessionPickerRowContext(controller: self, windowID: entry.windowID, sessionID: session.id,
                                                   attention: attention)
             sessionPickerContexts.append(context)
             connect(button, "clicked", unsafeBitCast(onSessionPickerRow as @convention(c)
@@ -213,7 +222,7 @@ extension AppController {
     /// model takes while it is up shows there too instead of waiting for the popover to be rebuilt.
     func updateSessionPickerStatusIcons(settings: AppSettings) {
         for (id, icon) in sidebarRuntime.pickerGlyphs {
-            let indicator = store.session(withID: id)?.agentIndicator ?? AgentIndicator()
+            let indicator = library.store(forSession: id)?.session(withID: id)?.agentIndicator ?? AgentIndicator()
             Self.applyStatusGlyph(indicator, settings: settings,
                                   phase: sidebarRuntime.blinkPhase.phase, to: icon)
         }
@@ -233,18 +242,23 @@ extension AppController {
     func activateSessionPickerRow(_ context: SessionPickerRowContext) {
         let id = context.sessionID
         let attention = context.attention
-        // Snapshotted here, not at row construction: the popover's glyphs are refreshed in place now, so a
-        // row can have gone idle — or changed pane — since it was built, and must not auto-follow to a
-        // status that is gone.
-        let indicator = store.session(withID: id)?.agentIndicator
+        // Resolve the live status after dismissal; a row can go idle or change pane while the picker is open.
+        let targetWindow = context.windowID
         // Read the capture BEFORE the dismissal consumes it; unconditional, NOT through
         // `searchEntryCaptureSurvives` — see that helper's boundary note. `refocus: false` because this
         // handler re-targets focus itself below.
         let popoverHeldSearchEntry = popoverTookKeyboardFromSearchEntry
         dismissSessionPicker(refocus: false)
-        selectSession(id)
-        if attention, let indicator, indicator.status != .idle {
-            handleAutoFollow(id, statusPane: indicator.statusPane)
+        if attention {
+            if targetWindow != windowID {
+                MainTimer.schedule(after: 0) { [weak self] in
+                    self?.selectAttention(windowID: targetWindow, sessionID: id)
+                }
+                return
+            }
+            selectAttention(windowID: targetWindow, sessionID: id)
+        } else {
+            selectSession(id)
         }
         // The attention leg needs this too: `handleAutoFollow` is shared with the auto-follow timer and
         // declines to focus while a quick terminal is visible. Entry restore first.

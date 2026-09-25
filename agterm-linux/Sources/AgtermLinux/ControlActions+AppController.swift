@@ -83,6 +83,8 @@ extension AppController: ControlActions {
             scratchFontSize: { [weak self] in self?.scratchSurfaces[$0.id]?.currentFontSize() },
             quickVisible: { [weak self] in self?.quickVisible ?? false },
             zoomedSurface: { [weak self] in self?.terminalZoom.target?.controlID },
+            pickPending: { [weak self] in self?.pickController.pending?.id },
+            askPending: { [weak self] in self?.pickController.pendingAsk?.id },
             dashboardMembers: { [weak self] in self?.dashboard.isOpen == true
                 ? self?.dashboard.members.map(\.controlRef) : nil },
             dashboardHighlighted: { [weak self] in self?.dashboard.highlighted?.controlRef },
@@ -94,7 +96,8 @@ extension AppController: ControlActions {
                 case .fixed: return "fixed"
                 case .auto: return "auto"
                 }
-            }, app: LinuxAppMetadata.identity
+            }, app: LinuxAppMetadata.identity,
+            flaggedLayout: linuxSettingsStore().load().effectiveFlaggedViewLayout
         )
         let tree = projectingLinuxAutoFollow(baseTree)
         return ControlResponse(ok: true, result: ControlResult(tree: tree))
@@ -573,24 +576,23 @@ extension AppController: ControlActions {
             result: ControlResult(text: notes.joined(separator: "; ")))
     }
 
-    func font(_ target: String?, window: String?, pane: String?, action: String) -> ControlResponse {
+    func font(_ target: String?, window: String?, pane: StatusPane?, action: String) -> ControlResponse {
         switch resolveSessionResponse(target) {
         case .failure(let response): return response
         case .success(let id):
             let surface: GhosttySurface?
             switch pane {
-            case nil, "left": surface = surfaces[id]
-            case "right":
+            case nil, .left: surface = surfaces[id]
+            case .right:
                 guard let split = splitSurfaces[id] else {
                     return err("session has no split pane")
                 }
                 surface = split
-            case "scratch":
+            case .scratch:
                 guard let scratch = scratchSurfaces[id] else {
                     return err("session has no scratch terminal")
                 }
                 surface = scratch
-            case .some(let value): return err("invalid pane: \(value)")
             }
             guard let surface else { return err("session not realized") }
             surface.performBindingAction(action)
@@ -625,17 +627,19 @@ extension AppController: ControlActions {
             id = store.selectedSessionID
         }
         if let id {
+            let effectiveTitle = store.recordNotificationEvent(
+                forSession: id, title: title ?? "", body: body, origin: .control) ?? title ?? ""
             _ = store.recordTerminalNotification(TerminalNotificationRecord(sessionID: id, windowID: windowID, pane: .main,
-                                                                            title: title ?? "", body: body,
+                                                                            title: effectiveTitle, body: body,
                                                                             firingIsFocused: false,
                                                                             appActive: false))
             syncSidebar()
+            let target = TerminalNotification.identity(windowID: windowID, sessionID: id, pane: .main)
+            NotificationManager.send(title: effectiveTitle, body: body, target: target)
+            return ok(id)
         }
-        let notificationTarget = id.map { TerminalNotification.identity(windowID: windowID, sessionID: $0, pane: .main) }
-        if NotificationManager.bannersEnabled {
-            NotificationManager.send(title: title ?? "", body: body, target: notificationTarget)
-        }
-        return ok(id)
+        NotificationManager.send(title: title ?? "", body: body)
+        return ok()
     }
 
     func setTheme(args: ControlArgs?) -> ControlResponse {
@@ -770,11 +774,10 @@ extension AppController: ControlActions {
         case .success(let id):
             guard let session = store.session(withID: id) else { return err("session not found") }
             switch options.pane {
-            case nil, "left": break
-            case "right" where !session.hasSplit: return err("session has no split pane")
-            case "scratch" where session.scratchSurface == nil: return err("session has no scratch terminal")
-            case "right", "scratch": break
-            case .some(let pane): return err("invalid pane: \(pane)")
+            case nil, .left: break
+            case .right where !session.hasSplit: return err("session has no split pane")
+            case .scratch where session.scratchSurface == nil: return err("session has no scratch terminal")
+            case .right, .scratch: break
             }
             if options.select {
                 selectSession(id, userInitiated: false)
@@ -783,10 +786,12 @@ extension AppController: ControlActions {
             for _ in 0..<12 {
                 while g_main_context_iteration(nil, 0) != 0 {}
                 let surface: GhosttySurface? = switch options.pane {
-                case nil, "left": surfaces[id]
-                case "right": splitSurfaces[id]
-                case "scratch": scratchSurfaces[id]
-                case .some: nil
+                case nil, .left: surfaces[id]
+                case .right: splitSurfaces[id]
+                case .scratch: scratchSurfaces[id]
+                }
+                if let surface, let response = leadType(options.text, surface: surface, session: id) {
+                    return response
                 }
                 if let surface, surface.inject(text: options.text) {
                     return ok(id)
@@ -801,6 +806,9 @@ extension AppController: ControlActions {
         switch resolveSessionResponse(target) {
         case .failure(let response): return response
         case .success(let id):
+            if let surface = focusedSurface(for: id), let refusal = coveredPaneRefusal(surface) {
+                return refusal
+            }
             guard let text = focusedSurface(for: id)?.readSelection(), !text.isEmpty else {
                 return err("no selection")
             }
@@ -808,21 +816,28 @@ extension AppController: ControlActions {
         }
     }
 
-    func pasteSession(_ target: String?, window: String?) -> ControlResponse {
-        performSessionBinding(target, action: "paste_from_clipboard")
+    func pasteSession(_ target: String?, window: String?, pane: StatusPane?) -> ControlResponse {
+        performSessionBinding(target, action: "paste_from_clipboard", pane: pane)
     }
 
     func selectAllSession(_ target: String?, window: String?) -> ControlResponse {
         performSessionBinding(target, action: "select_all")
     }
 
-    private func performSessionBinding(_ target: String?, action: String) -> ControlResponse {
+    private func performSessionBinding(_ target: String?, action: String, pane: StatusPane? = nil) -> ControlResponse {
         switch resolveSessionResponse(target) {
         case .failure(let response): return response
         case .success(let id):
-            guard let surface = focusedSurface(for: id), surface.isRealized else {
+            let surface: GhosttySurface? = switch pane {
+            case nil: focusedSurface(for: id)
+            case .left: surfaces[id]
+            case .right: splitSurfaces[id]
+            case .scratch: scratchSurfaces[id]
+            }
+            guard let surface, surface.isRealized else {
                 return err("session not realized")
             }
+            if let refusal = coveredPaneRefusal(surface) { return refusal }
             surface.performBindingAction(action)
             return ok(id)
         }
@@ -846,6 +861,7 @@ extension AppController: ControlActions {
                 owner = searchTargetSurface(for: id)
             }
             guard let owner, owner.isRealized else { return err("session not realized") }
+            if let refusal = coveredPaneRefusal(owner) { return refusal }
             searchSurface = owner
             owner.startSearch()
             let hasQuery = text.map { !$0.isEmpty } ?? false
@@ -879,6 +895,9 @@ extension AppController: ControlActions {
         switch resolveSessionResponse(target) {
         case .failure(let response): return response
         case .success(let id):
+            if let remote = gControlServer.openRemoteOverlay(in: store, sessionID: id, options: options) {
+                return remote
+            }
             if let pane = options.pane {
                 switch store.openPaneOverlay(id, pane: pane, command: options.command, cwd: options.cwd,
                                              wait: options.wait, backgroundColor: options.backgroundColor) {
@@ -907,7 +926,8 @@ extension AppController: ControlActions {
         case .failure(let response): return response
         case .success(let id):
             let hud = pane == nil && store.session(withID: id)?.hudActive == true
-            let closed = pane.map { store.closePaneOverlay(id, pane: $0) } ?? store.closeOverlay(id)
+            let closed = store.closeRemoteOverlay(id, pane: pane)
+                || (pane.map { store.closePaneOverlay(id, pane: $0) } ?? store.closeOverlay(id))
             guard closed else { return err("no overlay") }
             reconcile(focusActive: !hud)
             return ok(id)
@@ -919,6 +939,9 @@ extension AppController: ControlActions {
         case .failure(let response): return response
         case .success(let id):
             guard let session = store.session(withID: id) else { return err("no such session") }
+            if let resized = store.resizeRemoteOverlay(id, sizePercent: sizePercent) {
+                return resized ? ok(id) : err(OverlayResultError.viewerGone)
+            }
             let hud = session.hudActive
             if hud, sizePercent == nil { return err(OverlayHudError.fullResize) }
             let previousSize = session.overlaySizePercent
@@ -938,12 +961,24 @@ extension AppController: ControlActions {
         case .success(let id):
             guard let session = store.session(withID: id) else { return err("no such session") }
             if let pane {
+                if let slot = session.remoteOverlays.slot(pane), !slot.ended {
+                    return err(OverlayResultError.stillRunning)
+                }
                 if session.paneOverlay(pane) != nil { return err(OverlayResultError.stillRunning) }
+                if session.paneOverlayExitCode(pane) == nil, let failure = session.remoteOverlays.failure(pane) {
+                    return err(OverlayResultError.ended(failure))
+                }
                 guard let code = session.paneOverlayExitCode(pane) else { return err(OverlayResultError.noResult) }
                 return ControlResponse(ok: true, result: ControlResult(id: id.uuidString, exitCode: code))
             }
             if session.hudActive { return err(OverlayHudError.noResult) }
+            if let slot = session.remoteOverlays.slot(nil), !slot.ended {
+                return err(OverlayResultError.stillRunning)
+            }
             if session.overlayActive { return err(OverlayResultError.stillRunning) }
+            if session.overlayExitCode == nil, let failure = session.remoteOverlays.failure(nil) {
+                return err(OverlayResultError.ended(failure))
+            }
             guard let code = session.overlayExitCode else { return err(OverlayResultError.noResult) }
             return ControlResponse(ok: true, result: ControlResult(id: id.uuidString, exitCode: code))
         }
@@ -951,11 +986,24 @@ extension AppController: ControlActions {
 
     func setSessionBackground(_ target: String?, window: String?,
                               options: ControlSessionBackgroundOptions) -> ControlResponse {
+        if let watermark = options.watermark, watermark.kind == .image {
+            guard let path = watermark.imagePath, WatermarkRenderer.isSupportedImage(path) else {
+                return err("unsupported image (PNG or JPEG only): \(watermark.imagePath ?? "")")
+            }
+            guard FileManager.default.fileExists(atPath: path) else { return err("no such image file: \(path)") }
+        }
         switch resolveSessionResponse(target) {
         case .failure(let response): return response
         case .success(let id):
-            _ = store.setBackgroundWatermark(options.watermark, forSession: id)
-            applySessionWatermark(id)
+            guard let session = store.session(withID: id) else { return err("no such session") }
+            if options.pane == .right, !session.hasSplit { return err("session has no split pane") }
+            if options.pane == .scratch, session.scratchSurface == nil {
+                return err("session has no scratch terminal")
+            }
+            guard store.setBackgroundWatermark(options.watermark, forSession: id, pane: options.pane) else {
+                return ok(id)
+            }
+            applySessionWatermark(id, pane: options.pane)
             return ok(id)
         }
     }
@@ -964,13 +1012,22 @@ extension AppController: ControlActions {
         switch resolveSessionResponse(target) {
         case .failure(let response): return response
         case .success(let id):
+            guard let session = store.session(withID: id) else { return err("session not realized") }
+            let pane = options.paneID.flatMap { session.paneRole(forToken: $0) } ?? options.pane
             let surface: GhosttySurface?
-            switch options.pane {
-            case nil: surface = store.session(withID: id)?.onScreenSurface as? GhosttySurface
-            case "left": surface = surfaces[id]
-            case "right": surface = splitSurfaces[id]
-            case "scratch": surface = scratchSurfaces[id]
-            default: surface = nil
+            switch pane {
+            case nil: surface = session.onScreenSurface as? GhosttySurface
+            case .left: surface = surfaces[id]
+            case .right:
+                guard session.splitSurface != nil else { return err("session has no split pane") }
+                surface = splitSurfaces[id]
+            case .scratch:
+                guard session.scratchSurface != nil else { return err("session has no scratch terminal") }
+                surface = scratchSurfaces[id]
+            }
+            if let surface, let response = leadText(surface, session: id,
+                                                    all: options.all, lines: options.lines) {
+                return response
             }
             guard let text = surface?.readScreenText(all: options.all, lines: options.lines) else {
                 return err("session not realized")

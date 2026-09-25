@@ -104,6 +104,8 @@ final class GhosttyApp: @unchecked Sendable {
     /// Build a ghostty config (bundled defaults + the user's ~/.config/ghostty + the given
     /// extra lines, e.g. `theme = <name>`), finalized and ready for ghostty_surface_update_config.
     /// Caller owns it and must ghostty_config_free it after applying.
+    private(set) var staticTitle: String?
+
     func buildConfig(extraLines: [String]) -> ghostty_config_t? {
         let cfg = ghostty_config_new()
         if let path = Self.writeDefaultsConf() { path.withCString { ghostty_config_load_file(cfg, $0) } }
@@ -129,8 +131,25 @@ final class GhosttyApp: @unchecked Sendable {
         // recursive resolution after all load_file calls, before finalize). Without this a user's
         // `config-file` directives are silently ignored on Linux.
         ghostty_config_load_recursive_files(cfg)
+        clearStaticTitle(cfg)
         ghostty_config_finalize(cfg)
         return cfg
+    }
+
+    /// A Ghostty static title would suppress the OSC title reports managed zmx uses for pane leadership.
+    /// Keep the user's title at the host boundary and let the terminal report every role change.
+    private func clearStaticTitle(_ candidate: ghostty_config_t?) {
+        guard let config = candidate else { return }
+        let key = "title"
+        var value: UnsafePointer<CChar>?
+        let found = key.withCString { ghostty_config_get(config, &value, $0, UInt(key.utf8.count)) }
+        staticTitle = found ? value.map { String(cString: $0) }.flatMap { $0.isEmpty ? nil : $0 } : nil
+        guard staticTitle != nil else { return }
+        let path = (NSTemporaryDirectory() as NSString)
+            .appendingPathComponent("agterm-title-\(UUID().uuidString).conf")
+        guard (try? "title =\n".write(toFile: path, atomically: true, encoding: .utf8)) != nil else { return }
+        path.withCString { ghostty_config_load_file(config, $0) }
+        try? FileManager.default.removeItem(atPath: path)
     }
 
     /// Build a config for one surface with a final per-session overlay (`background-image*`, solid
@@ -208,6 +227,7 @@ final class GhosttyApp: @unchecked Sendable {
                 return true
             case GHOSTTY_ACTION_SHOW_CHILD_EXITED:
                 guard let w = Self.wrapper(fromTarget: target) else { return false }
+                if !w.shouldCloseOnChildExitAction { w.handleHeldProcessExit(); return false }
                 guard w.shouldCloseOnChildExitAction else { return false }
                 guard let retained = w.surface.flatMap({ RetainedGhosttySurface(ghostty_surface_userdata($0)) }) else { return false }
                 runOnMain { MainActor.assumeIsolated {

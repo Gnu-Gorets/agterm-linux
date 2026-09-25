@@ -41,7 +41,7 @@ Code layout:
 
 ### Linux feature parity and platform differences
 
-The `linux-port` branch carries the upstream v0.26.1 terminal model and control protocol, including
+The `linux-port` branch carries the upstream v0.32.0 terminal model and control protocol, including
 split/scratch/overlay terminals, Quick terminal input and read-back, terminal zoom, fullscreen,
 recently closed sessions with grouped undo, light/dark themes, configurable toolbar and sidebar text,
 recent-session and attention popovers, agent status in the multi-session dashboard, stable pane status
@@ -49,6 +49,12 @@ routing, control-event subscriptions, held command sessions, per-pane restore ov
 collapse state, workspace focus sets, native script-driven pickers, window minimization, keymap read-back,
 session context, split orientation and pane swapping, three restore modes, zmx session inspection and remote
 attach, and Ctrl/Shift multi-session selection with batch move, close, flag, status, and drag/drop actions.
+It also includes native session and window asks, hooks and event subscriptions, pane-aware HUDs with
+Markdown, per-pane backgrounds, cross-window attention, and managed zmx pane leadership.
+Attached sessions mirror origin status, context, notifications, HUDs, asks, overlays, and split-layout
+changes through a presentation stream.
+The Linux control socket and GTK UI share these session actions, including `session lead` on a covered
+pane and daemon-backed reads and typing while a local pane follows an attached viewer.
 The GTK frontend keeps the content toolbar focused on terminal controls.
 Preferences opens with Ctrl+, while Integrations, Keyboard Shortcuts, and About remain available from the command palette.
 The Linux command palette offers **Clear Recent Items** whenever recently closed sessions or workspaces exist.

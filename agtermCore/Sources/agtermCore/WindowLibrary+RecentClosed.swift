@@ -41,7 +41,7 @@ extension WindowLibrary {
     @discardableResult
     public func clearRecentClosedItems() -> Bool {
         let cleared = recentClosedStore.clear()
-        refreshRecentClosedItems()
+        if cleared { refreshRecentClosedItems() }
         return cleared
     }
 

@@ -74,6 +74,12 @@ extension AppController {
                     "Allow undo after closing sessions and workspaces",
                     active: settings.closeGraceUndoEnabled ?? true,
                     handler: unsafeBitCast(onSettingsCloseUndo, to: GCallback.self))))
+        adw_preferences_group_add(
+            cast(sessions),
+            W(preferencesCombo(
+                "Flagged view layout", values: ["Flat list", "Workspace tree"],
+                selected: settings.effectiveFlaggedViewLayout == .tree ? 1 : 0,
+                handler: unsafeBitCast(onSettingsFlaggedLayout, to: GCallback.self))))
         adw_preferences_page_add(cast(page), cast(sessions))
 
         let ghostty = preferencesGroup("Ghostty Config")
@@ -136,6 +142,11 @@ private let onSettingsConfirmClose: @MainActor @convention(c) (OpaquePointer?, O
 }
 private let onSettingsCloseUndo: @MainActor @convention(c) (OpaquePointer?, OpaquePointer?, gpointer?) -> Void = { row, _, _ in
     MainActor.assumeIsolated { controllerForWidget(row)?.setCloseGraceUndo(adw_switch_row_get_active(row) != 0) }
+}
+private let onSettingsFlaggedLayout: @MainActor @convention(c) (OpaquePointer?, OpaquePointer?, gpointer?) -> Void = { row, _, _ in
+    MainActor.assumeIsolated {
+        _ = controllerForWidget(row)?.setFlaggedViewLayout(adw_combo_row_get_selected(cast(row)) == 1 ? .tree : .flat)
+    }
 }
 private let onSettingsSessionDirectory: @MainActor @convention(c) (OpaquePointer?, OpaquePointer?, gpointer?) -> Void = { row, _, _ in
     MainActor.assumeIsolated {
