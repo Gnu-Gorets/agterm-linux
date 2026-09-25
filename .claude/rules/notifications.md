@@ -104,12 +104,14 @@ paths:
   Row menus target their node; global surfaces call `clearActiveSessionStatus`; all set an empty indicator.
 - `GhosttySurfaceView.keyDown` always calls `onUserInputClearsStatus(isInterrupt:)`. Main `.left`, split
   `.right`, and scratch `.scratch` factories own the pane-scoped decision, allowing scratch to clear
-  without `view.session`. `AgentIndicator.clearedBy` clears blocked/completed on any key, active only on
-  interrupt, and only when the key's pane owns the status. Thus foreground typing cannot clear another
-  pane's status.
+  without `view.session`. `AgentIndicator.clearedBy` takes the key's kind (`InterruptKeystroke.classify`:
+  interrupt, submit for a bare Return or keypad Enter, else other) and the `StatusReset` mode: blocked and
+  completed clear on any key under `firstKey`, on submit alone under `enter`, never under `never`; active
+  clears on interrupt in every mode; and only when the key's pane owns the status. Thus foreground typing
+  cannot clear another pane's status.
 - `session.type` fires that same clear through `GhosttySurfaceView.injectAsUserInput`, the input a blocked
-  agent was waiting for having arrived. `isInterrupt` is false like the AX insert's, and an EMPTY payload
-  clears nothing — `inject` queues no keystrokes yet still returns true. Unlike the AX insert it does not
+  agent was waiting for having arrived. Injected text classifies as submit when it carries a newline and
+  other otherwise, never interrupt, like the AX insert, and an EMPTY payload clears nothing — `inject` queues no keystrokes yet still returns true. Unlike the AX insert it does not
   fire `onUserInput`: that stamps the user as present and holds off auto-follow, which a script typing into
   a background pane must not do. `quick.type` keeps plain `inject`; the quick terminal is no session and
   carries no glyph.
@@ -144,13 +146,21 @@ paths:
 ## Titlebar attention
 
 - With `attentionButtonEnabled` off by default, `customTitlebar` places a bell after recent sessions and
-  before scratch/split/quick-terminal controls. It derives live state from all non-idle
-  `AppStore.attentionSessions`: empty is disabled `bell` at about 0.35 opacity; non-blocked is enabled
-  `bell` in `chromeText`; any blocked is enabled `bell.fill` in `blockedStatusColor`. There is no count
-  or pulse.
+  before scratch/split/quick-terminal controls. It derives live state from
+  `WindowLibrary.attentionAcrossWindows`, every open window's non-idle sessions in one
+  `AppStore.attentionPrecedes` order: empty is disabled `bell` at about 0.35 opacity; non-blocked is
+  enabled `bell` in `chromeText`; any blocked is enabled `bell.fill` in `blockedStatusColor`. There is no
+  count or pulse. That getter reads a private open-set version the library bumps on every store load and
+  drop, because `stores` is observation-ignored and a background window closing changes neither
+  `windows` nor `frontmostWindowID`.
 - Clicking opens the mouse popover of `SessionPopoverRow`s with `StatusGlyph`, ordered
-  blocked, active, completed; selection reveals the tagged blocked pane. Ctrl-Shift-I, Navigate > Go to
-  Attention, and Show Attention in the palette retain the searchable keyboard surface.
+  blocked, active, completed, subtitled by `attentionSubtitle` (window name first once more than one
+  window is open). Selection closes the popover, then `AppActions.selectAttention` on the next turn:
+  it rechecks the owning window's modal gate, raises it through `WindowRegistry.raise` plus
+  `takeFrontmost` when it is not the active one, and reveals the tagged blocked pane through
+  `revealActiveBlockedPane` exactly as the per-window path does. Ctrl-Shift-I, Navigate > Go to
+  Attention, and Show Attention in the palette retain the searchable keyboard surface over the same
+  list. The Dock menu stays scoped to its captured window.
 - The button ID is `attention-button`, with help and value `none`, `attention`, or `blocked`.
   `WindowContentView` mirrors `GhosttyApp.attentionButtonEnabled` into state and refreshes on
   `.agtermAppearanceChanged`, not `model.settings`. This mouse form of controllable attention selection is

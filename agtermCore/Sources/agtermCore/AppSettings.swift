@@ -11,6 +11,14 @@ public enum ToolbarMode: String, Codable, Sendable, CaseIterable {
     case hidden
 }
 
+/// How the sidebar's flagged view arranges its sessions: `flat` is one list labelled `session : workspace`,
+/// `tree` nests them under their workspace rows. App-wide, not per window. Raw-stored, resolved by
+/// `effectiveFlaggedViewLayout`.
+public enum FlaggedViewLayout: String, Codable, Sendable, CaseIterable {
+    case flat
+    case tree
+}
+
 /// How a delivered notification bounces the Dock icon (`requestUserAttention`): `off`, `once` (one
 /// `.informationalRequest`), or `untilFocused` (a `.criticalRequest` bouncing until agterm activates).
 /// Raw-stored, resolved by `effectiveDockBounce`. Named `off`, not `none`, to dodge the `Optional.none`
@@ -21,20 +29,24 @@ public enum DockBounce: String, Codable, Sendable, CaseIterable {
     case untilFocused
 }
 
-/// A toggleable title-bar or sidebar chrome element, persisted by raw name in
-/// `AppSettings.hiddenInterfaceElements` (an unknown stored name is dropped, not fatal). Shown by
-/// default; hiding adds its raw name.
+/// A toggleable title-bar or sidebar chrome element, persisted by raw name (an unknown stored name is
+/// dropped, not fatal). Shown by default, and hiding adds its raw name to
+/// `AppSettings.hiddenInterfaceElements`; a `hiddenByDefault` element inverts that, and showing it adds
+/// its raw name to `AppSettings.shownInterfaceElements`.
 public enum InterfaceElement: String, Codable, Sendable, CaseIterable {
     // title bar
     case sidebarToggle
+    case workspaceName
     case sessionName
     case windowName
+    case remoteHost
     case sessionContext
     case recentSessions
     case scratch
     case split
     case dashboard
     case quickTerminal
+    case customCommands
     // sidebar
     case newWorkspace
     case newSession
@@ -53,18 +65,24 @@ public enum InterfaceElement: String, Codable, Sendable, CaseIterable {
         }
     }
 
+    /// Whether the element starts hidden, so its toggle reads off until the user opts in.
+    public var hiddenByDefault: Bool { self == .customCommands || self == .workspaceName }
+
     /// The human-facing toggle label shown in the Interface settings tab.
     public var displayName: String {
         switch self {
         case .sidebarToggle: return "Sidebar toggle"
+        case .workspaceName: return "Workspace name"
         case .sessionName: return "Session name"
         case .windowName: return "Window name"
+        case .remoteHost: return "Remote host"
         case .sessionContext: return "Session context"
         case .recentSessions: return "Recent sessions"
         case .scratch: return "Scratch terminal"
         case .split: return "Split view"
         case .dashboard: return "Dashboard"
         case .quickTerminal: return "Quick terminal"
+        case .customCommands: return "Custom commands"
         case .newWorkspace: return "New workspace"
         case .newSession: return "New session"
         case .flaggedView: return "Flagged view"
@@ -74,8 +92,9 @@ public enum InterfaceElement: String, Codable, Sendable, CaseIterable {
     }
 
     /// Which of the two title-bar trailing-cluster separators to draw, from each group's visible button
-    /// count (A = recent-sessions + attention, B = scratch + split, C = dashboard + quick-terminal): one
-    /// sits ONLY where two groups that each still show 2+ buttons meet. Host-free so it is unit-testable.
+    /// count (A = recent-sessions + attention, B = scratch + split, C = dashboard + quick-terminal +
+    /// custom-commands): one sits ONLY where two groups that each still show 2+ buttons meet. Host-free so
+    /// it is unit-testable.
     public static func titlebarGroupDividers(countA: Int, countB: Int, countC: Int) -> (afterA: Bool, afterB: Bool) {
         let afterA = countA >= 2 && countB >= 2
         let afterB = (countB >= 2 && countC >= 2) || (countA >= 2 && countC >= 2 && countB == 0)
@@ -255,6 +274,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
     /// System sound played when a session enters `blocked` (resolved by `NSSound(named:)`), nil/empty for
     /// silent. A per-call `session.status --sound` overrides this.
     public var blockedStatusSoundName: String?
+    /// Raw `StatusReset`: which keystroke clears a blocked or completed glyph. nil = `firstKey`, resolved by
+    /// `effectiveStatusReset`.
+    public var statusReset: String?
     /// Whether a right-click pastes the clipboard (ghostty `right-click-action`); nil = on, since agterm
     /// forwards right-/middle-click to libghostty. agterm has no terminal context menu, so paste-or-off is
     /// the whole meaningful choice.
@@ -288,13 +310,18 @@ public struct AppSettings: Codable, Equatable, Sendable {
     /// The share of the focused screen the quick-terminal panel takes, as a percentage; nil keeps the
     /// built-in size. `QuickTerminalMetrics.panelSize` resolves and clamps it.
     public var quickTerminalSizePercent: Int?
-    /// Raw names of the chrome elements the user has HIDDEN (see `InterfaceElement`); nil/empty shows
-    /// everything. Unknown names are dropped by `resolvedHiddenInterfaceElements`.
+    /// Raw names of the default-shown chrome elements the user has HIDDEN (see `InterfaceElement`);
+    /// nil/empty shows them all. Unknown names are dropped by `resolvedHiddenInterfaceElements`.
     public var hiddenInterfaceElements: [String]?
+    /// Raw names of the `hiddenByDefault` chrome elements the user has SHOWN; nil/empty keeps them hidden.
+    public var shownInterfaceElements: [String]?
     /// Whether, with more than one window open, only the frontmost shows its sidebar and every other
     /// collapses its own; nil = off. Visibility then follows window focus, so a manual per-window hide is
     /// transient — the frontmost window re-shows its sidebar on refocus.
     public var autoHideSidebarInactiveWindows: Bool?
+    /// Raw `FlaggedViewLayout` for the sidebar's flagged view; nil = flat. Resolved by
+    /// `effectiveFlaggedViewLayout`.
+    public var flaggedViewLayout: String?
     /// Whether the first-launch pointer at the Help menu extras has been shown; nil/false = not yet.
     /// Written once, by the launch that shows it. See `FirstRunWelcome`.
     public var welcomeShown: Bool?
@@ -313,15 +340,16 @@ public struct AppSettings: Codable, Equatable, Sendable {
                 restoreRunningCommand: Bool? = nil,
                 inheritGlobalGhosttyConfig: Bool? = nil, attentionButtonEnabled: Bool? = nil,
                 dockBounce: String? = nil, notificationSoundName: String? = nil,
-                blockedStatusSoundName: String? = nil, rightClickPaste: Bool? = nil,
+                blockedStatusSoundName: String? = nil, statusReset: String? = nil, rightClickPaste: Bool? = nil,
                 workspaceRowClickExpands: Bool? = nil,
                 newSessionDirectory: String? = nil, newSessionCustomDirectory: String? = nil,
                 confirmCloseSession: Bool? = nil, closeGraceUndoEnabled: Bool? = nil,
                 autoFollowAttention: String? = nil,
                 autoFollowStayOnActive: Bool? = nil, sidebarFontSize: Double? = nil,
                 interfaceFontSize: Double? = nil, quickTerminalSizePercent: Int? = nil,
-                hiddenInterfaceElements: [String]? = nil,
-                autoHideSidebarInactiveWindows: Bool? = nil, welcomeShown: Bool? = nil) {
+                hiddenInterfaceElements: [String]? = nil, shownInterfaceElements: [String]? = nil,
+                autoHideSidebarInactiveWindows: Bool? = nil, flaggedViewLayout: String? = nil,
+                welcomeShown: Bool? = nil) {
         self.fontFamily = fontFamily
         self.fontSize = fontSize
         self.theme = theme
@@ -352,6 +380,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.dockBounce = dockBounce
         self.notificationSoundName = notificationSoundName
         self.blockedStatusSoundName = blockedStatusSoundName
+        self.statusReset = statusReset
         self.rightClickPaste = rightClickPaste
         self.workspaceRowClickExpands = workspaceRowClickExpands
         self.newSessionDirectory = newSessionDirectory
@@ -364,7 +393,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.interfaceFontSize = interfaceFontSize
         self.quickTerminalSizePercent = quickTerminalSizePercent
         self.hiddenInterfaceElements = hiddenInterfaceElements
+        self.shownInterfaceElements = shownInterfaceElements
         self.autoHideSidebarInactiveWindows = autoHideSidebarInactiveWindows
+        self.flaggedViewLayout = flaggedViewLayout
         self.welcomeShown = welcomeShown
     }
 
@@ -381,10 +412,12 @@ public struct AppSettings: Codable, Equatable, Sendable {
 
     /// The hidden chrome elements, unknown (future-written) raw names dropped. The single read point.
     public var resolvedHiddenInterfaceElements: Set<InterfaceElement> {
-        Set((hiddenInterfaceElements ?? []).compactMap(InterfaceElement.init(rawValue:)))
+        let hidden = Set((hiddenInterfaceElements ?? []).compactMap(InterfaceElement.init(rawValue:)))
+        let shown = Set((shownInterfaceElements ?? []).compactMap(InterfaceElement.init(rawValue:)))
+        return Set(InterfaceElement.allCases.filter { $0.hiddenByDefault ? !shown.contains($0) : hidden.contains($0) })
     }
 
-    /// Whether a chrome element is hidden; anything absent from the persisted list reads as visible.
+    /// Whether a chrome element is hidden; an element absent from both persisted lists is at its default.
     public func isInterfaceElementHidden(_ element: InterfaceElement) -> Bool {
         resolvedHiddenInterfaceElements.contains(element)
     }
@@ -393,6 +426,16 @@ public struct AppSettings: Codable, Equatable, Sendable {
     /// `compactToolbar` mapping. The single read point.
     public var effectiveToolbarMode: ToolbarMode {
         toolbarMode.flatMap(ToolbarMode.init(rawValue:)) ?? (compactToolbar == false ? .normal : .compact)
+    }
+
+    /// The resolved flagged-view layout: the explicit `flaggedViewLayout` when a KNOWN raw value, else `flat`.
+    public var effectiveFlaggedViewLayout: FlaggedViewLayout {
+        flaggedViewLayout.flatMap(FlaggedViewLayout.init(rawValue:)) ?? .flat
+    }
+
+    /// The resolved status-reset mode: the explicit `statusReset` when a KNOWN raw value, else `firstKey`.
+    public var effectiveStatusReset: StatusReset {
+        statusReset.flatMap(StatusReset.init(rawValue:)) ?? .firstKey
     }
 
     /// The resolved Dock-bounce mode: the explicit `dockBounce` when a KNOWN raw value, else `off`. The

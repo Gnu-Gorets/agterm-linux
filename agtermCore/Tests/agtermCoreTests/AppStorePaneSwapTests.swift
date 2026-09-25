@@ -4,6 +4,29 @@ import Testing
 
 @MainActor
 struct AppStorePaneSwapTests {
+    @Test(arguments: OverlayPane.allCases)
+    func closingTheAskPaneAfterSwapCancelsByIdentity(originalPane: OverlayPane) throws {
+        let fixture = makeSeededSession()
+        let session = fixture.session
+        let identity = try #require(originalPane == .left ? session.paneIdentity : session.splitPaneIdentity)
+        let ask = PendingAsk(id: UUID().uuidString, title: "Continue?", buttons: [ControlAskButton(id: "yes", label: "Yes")])
+        let windowID = UUID()
+        #expect(session.openAsk(ask, paneIdentity: identity))
+        #expect(AskRegistry.shared.register(id: ask.id, owner: .session(session.id, window: windowID)))
+        defer { session.cancelAsk(id: ask.id) }
+
+        #expect(fixture.store.swapPanes(session.id) == nil)
+
+        let currentPane: OverlayPane = originalPane == .left ? .right : .left
+        #expect(session.askTargetPane == currentPane)
+        #expect(session.askPaneIdentity == identity)
+        #expect(session.askPending == ask)
+        if currentPane == .left { fixture.store.closePrimaryPane(session.id) } else { fixture.store.closeSplit(session.id) }
+        #expect(session.askPending == nil)
+        #expect(AskRegistry.shared.result(for: ask.id)?.result == ControlAskResult(result: .cancelled))
+        #expect(AskRegistry.shared.result(for: ask.id)?.windowID == windowID)
+    }
+
     private final class RigidSurface: TerminalSurface {
         var isRealized = true
         var paneToken = "rigid"
@@ -55,6 +78,7 @@ struct AppStorePaneSwapTests {
         let splitAxis: SplitAxis
         let splitRatio: Double?
         let splitFocused: Bool
+        let paneBackgrounds: PaneBackgrounds
 
         @MainActor init(_ session: Session) {
             surface = session.surface.map { ObjectIdentifier($0) }
@@ -91,6 +115,7 @@ struct AppStorePaneSwapTests {
             splitAxis = session.splitAxis
             splitRatio = session.splitRatio
             splitFocused = session.splitFocused
+            paneBackgrounds = session.paneBackgrounds
         }
     }
 
@@ -136,6 +161,9 @@ struct AppStorePaneSwapTests {
         session.setPaneOverlayExitCode(9, pane: .right)
         session.agentIndicator = AgentIndicator(status: .blocked, statusPane: .left)
         session.statusChangedAt = Date(timeIntervalSince1970: 123)
+        session.paneBackgrounds = PaneBackgrounds(left: BackgroundWatermark(kind: .text, text: "DRIVER"),
+                                                  right: BackgroundWatermark(kind: .color, colorHex: "#201414"),
+                                                  scratch: BackgroundWatermark(kind: .text, text: "SCRATCH"))
         return Fixture(store: store, session: session, primary: primary, split: split,
                        leftOverlay: leftOverlay, rightOverlay: rightOverlay)
     }
@@ -180,6 +208,9 @@ struct AppStorePaneSwapTests {
         #expect(session.splitAxis == .topBottom)
         #expect(session.splitRatio == 0.3)
         #expect(session.splitFocused)
+        #expect(session.paneBackgrounds == PaneBackgrounds(left: BackgroundWatermark(kind: .color, colorHex: "#201414"),
+                                                           right: BackgroundWatermark(kind: .text, text: "DRIVER"),
+                                                           scratch: BackgroundWatermark(kind: .text, text: "SCRATCH")))
     }
 
     @Test func swappedPaneIdentitiesStayPairedThroughHiddenSplitRestore() throws {
@@ -209,6 +240,19 @@ struct AppStorePaneSwapTests {
         #expect(fixture.store.swapPanes(fixture.session.id) == nil)
         #expect(fixture.primary.assignedRoles == [.split])
         #expect(fixture.split.assignedRoles == [.primary])
+    }
+
+    @Test func paneScopedHudFollowsItsStableIdentityThroughSwap() {
+        let fixture = makeSeededSession()
+        let target = fixture.session.paneIdentity
+        fixture.store.openHud(fixture.session.id, command: "hud.sh", spec: HudSpec(message: "working"),
+                              file: "/tmp/hud", size: HudPanelSize(widthPercent: 30, heightPercent: 8),
+                              paneIdentity: target)
+
+        #expect(fixture.session.hudTargetPane == .left)
+        #expect(fixture.store.swapPanes(fixture.session.id) == nil)
+        #expect(fixture.session.hudPaneIdentity == target)
+        #expect(fixture.session.hudTargetPane == .right)
     }
 
     @Test func swapUsesCwdFallbacks() {
@@ -316,5 +360,123 @@ struct AppStorePaneSwapTests {
 
         #expect(fixture.store.swapPanes(fixture.session.id) == .roleNotMutable)
         #expect(State(fixture.session) == before)
+    }
+
+    @Test func aSwapKeepsTheStatusOwnersIdentityForAViewer() throws {
+        let fixture = makeSeededSession()
+        let split = try #require(fixture.session.splitPaneIdentity)
+        fixture.store.applyControlStatus(AgentIndicator(status: .blocked, statusPane: .right),
+                                         forSession: fixture.session.id)
+
+        #expect(fixture.store.swapPanes(fixture.session.id) == nil)
+
+        #expect(fixture.session.agentIndicator.statusPane == .left)
+        #expect(fixture.store.presentationSnapshot(forSession: fixture.session.id).status?.pane
+                == .identity(split))
+    }
+
+    @Test func anUnspecifiedStatusOwnerKeepsThePrimaryIdentityThroughASwap() throws {
+        let fixture = makeSeededSession()
+        let primary = fixture.session.paneIdentity
+        fixture.store.applyControlStatus(AgentIndicator(status: .blocked), forSession: fixture.session.id)
+        #expect(fixture.store.presentationSnapshot(forSession: fixture.session.id).status?.pane
+                == .identity(primary))
+
+        #expect(fixture.store.swapPanes(fixture.session.id) == nil)
+
+        #expect(fixture.session.agentIndicator.statusPane == .right)
+        #expect(fixture.store.presentationSnapshot(forSession: fixture.session.id).status?.pane
+                == .identity(primary))
+    }
+
+    @Test func aMirroredStatusFollowsItsPaneThroughASwapOnTheViewer() throws {
+        let fixture = makeSeededSession()
+        let session = fixture.session
+        let remoteRight = UUID()
+        let split = try #require(session.splitPaneIdentity)
+        fixture.store.bindRemote(RemoteBinding(remoteSessionID: "s1",
+                                               daemonsByLocalPane: [split: ZmxSupport.daemonName(for: remoteRight)],
+                                               presentationVersion: 1), forSession: session.id)
+        let status = PresentationStatus(status: .blocked, blink: false, color: nil, shape: nil,
+                                        pane: .identity(remoteRight), changedAt: nil)
+        fixture.store.applyRemoteStatus(status, forSession: session.id)
+        #expect(session.agentIndicator.statusPane == .right)
+
+        #expect(fixture.store.swapPanes(session.id) == nil)
+        fixture.store.applyRemoteStatus(status, forSession: session.id)
+
+        #expect(session.agentIndicator.statusPane == .left, "the shell moved to the primary slot and the glyph with it")
+    }
+
+    // ownership was once a value comparison, which a swap's rewrite of the pane tag defeated
+    @Test func aSwapOnTheViewerDoesNotStrandAMirroredStatusAtDisconnect() throws {
+        let fixture = makeSeededSession()
+        let session = fixture.session
+        let remoteRight = UUID()
+        let split = try #require(session.splitPaneIdentity)
+        fixture.store.bindRemote(RemoteBinding(remoteSessionID: "s1",
+                                               daemonsByLocalPane: [split: ZmxSupport.daemonName(for: remoteRight)],
+                                               presentationVersion: 1), forSession: session.id)
+        fixture.store.setRemoteConnection(.connected, forSession: session.id)
+        fixture.store.applyRemoteStatus(PresentationStatus(status: .blocked, blink: false, color: nil, shape: nil,
+                                                           pane: .identity(remoteRight), changedAt: nil),
+                                        forSession: session.id)
+
+        #expect(fixture.store.swapPanes(session.id) == nil)
+        fixture.store.setRemoteConnection(.connecting, forSession: session.id)
+
+        #expect(session.agentIndicator.status == .idle)
+    }
+
+    private func attach(_ fixture: Fixture, remoteRight: UUID) throws {
+        let split = try #require(fixture.session.splitPaneIdentity)
+        fixture.store.bindRemote(RemoteBinding(remoteSessionID: "s1",
+                                               daemonsByLocalPane: [split: ZmxSupport.daemonName(for: remoteRight)],
+                                               presentationVersion: 1), forSession: fixture.session.id)
+        fixture.store.setRemoteConnection(.connected, forSession: fixture.session.id)
+    }
+
+    // the promotion re-tags the glyph through the local status setter, which took it away from the bridge
+    @Test func aMirroredStatusThatFollowsItsPaneThroughAPromotionStillLeavesWithTheStream() throws {
+        let fixture = makeSeededSession()
+        let session = fixture.session
+        let remoteRight = UUID()
+        try attach(fixture, remoteRight: remoteRight)
+        fixture.store.applyRemoteStatus(PresentationStatus(status: .blocked, blink: false, color: nil, shape: nil,
+                                                           pane: .identity(remoteRight), changedAt: nil),
+                                        forSession: session.id)
+
+        fixture.store.closePrimaryPane(session.id)
+        #expect(session.agentIndicator.status == .blocked)
+        #expect(session.agentIndicator.statusPane == .left)
+        fixture.store.setRemoteConnection(.connecting, forSession: session.id)
+
+        #expect(session.agentIndicator.status == .idle)
+    }
+
+    @Test func aStatusWithNoLocalOwnerGainsNoneFromASwap() throws {
+        let fixture = makeSeededSession()
+        let session = fixture.session
+        try attach(fixture, remoteRight: UUID())
+        fixture.store.applyRemoteStatus(PresentationStatus(status: .blocked, blink: false, color: nil, shape: nil,
+                                                           pane: .scratch, changedAt: nil), forSession: session.id)
+
+        #expect(fixture.store.swapPanes(session.id) == nil)
+
+        #expect(session.agentIndicator.statusPane == nil)
+    }
+
+    @Test func aStatusWithNoLocalOwnerSurvivesThePrimaryClosing() throws {
+        let fixture = makeSeededSession()
+        let session = fixture.session
+        try attach(fixture, remoteRight: UUID())
+        fixture.store.applyRemoteStatus(PresentationStatus(status: .blocked, blink: false, color: nil, shape: nil,
+                                                           pane: .scratch, changedAt: nil), forSession: session.id)
+
+        fixture.store.closePrimaryPane(session.id)
+
+        #expect(session.agentIndicator.status == .blocked)
+        #expect(session.agentIndicator.statusPane == nil)
+        #expect(session.remotePresentation?.statusOwnerUnknown == true)
     }
 }

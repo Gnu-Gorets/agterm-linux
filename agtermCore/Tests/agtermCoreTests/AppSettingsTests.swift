@@ -491,6 +491,21 @@ struct AppSettingsTests {
         #expect(legacy.effectiveDockBounce == .off)
     }
 
+    @Test func flaggedViewLayoutDefaultsToFlatResolvesTolerantlyAndIsNotAGhosttyKey() throws {
+        #expect(AppSettings().effectiveFlaggedViewLayout == .flat)
+        #expect(AppSettings(flaggedViewLayout: "tree").ghosttyConfigLines() == AppSettings().ghosttyConfigLines())
+        for layout in FlaggedViewLayout.allCases {
+            let settings = AppSettings(flaggedViewLayout: layout.rawValue)
+            let decoded = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(settings))
+            #expect(decoded.flaggedViewLayout == layout.rawValue)
+            #expect(decoded.effectiveFlaggedViewLayout == layout)
+        }
+        #expect(AppSettings(flaggedViewLayout: "grid").effectiveFlaggedViewLayout == .flat)
+        let legacy = try JSONDecoder().decode(AppSettings.self, from: Data(#"{ "fontSize": 16 }"#.utf8))
+        #expect(legacy.flaggedViewLayout == nil)
+        #expect(legacy.effectiveFlaggedViewLayout == .flat)
+    }
+
     @Test func rightClickPasteDefaultsOnAndIsAGhosttyKey() throws {
         // UNLIKE the app-level flags this IS a ghostty key — the toggle owns it, always emitted.
         #expect(AppSettings().rightClickPaste == nil)
@@ -624,12 +639,13 @@ struct AppSettingsTests {
         #expect(original.ghosttyConfigLines() == ["mouse-scroll-multiplier = 3", "right-click-action = paste"])
     }
 
-    @Test func hiddenInterfaceElementsDefaultsNilAndShowsEverything() {
+    @Test func hiddenInterfaceElementsDefaultsNilAndShowsEverythingNotHiddenByDefault() {
         let settings = AppSettings()
         #expect(settings.hiddenInterfaceElements == nil)
-        #expect(settings.resolvedHiddenInterfaceElements.isEmpty)
+        #expect(settings.shownInterfaceElements == nil)
+        #expect(settings.resolvedHiddenInterfaceElements == [.customCommands, .workspaceName])
         for element in InterfaceElement.allCases {
-            #expect(!settings.isInterfaceElementHidden(element))
+            #expect(settings.isInterfaceElementHidden(element) == element.hiddenByDefault)
         }
     }
 
@@ -641,6 +657,29 @@ struct AppSettingsTests {
         #expect(decoded.isInterfaceElementHidden(.flaggedView))
         #expect(!decoded.isInterfaceElementHidden(.split))
         #expect(original.ghosttyConfigLines() == ["mouse-scroll-multiplier = 3", "right-click-action = paste"])
+    }
+
+    @Test func remoteHostIsADistinctTitleBarInterfaceElement() {
+        #expect(InterfaceElement.remoteHost.section == .titleBar)
+        #expect(InterfaceElement.remoteHost.displayName == "Remote host")
+        let hidden = AppSettings(hiddenInterfaceElements: ["remoteHost"])
+        #expect(hidden.isInterfaceElementHidden(.remoteHost))
+        #expect(!hidden.isInterfaceElementHidden(.sessionName))
+        #expect(!AppSettings(hiddenInterfaceElements: ["sessionName"]).isInterfaceElementHidden(.remoteHost))
+    }
+
+    @Test func workspaceNameIsAnOptInTitleBarInterfaceElement() throws {
+        #expect(InterfaceElement.workspaceName.section == .titleBar)
+        #expect(InterfaceElement.workspaceName.displayName == "Workspace name")
+        #expect(InterfaceElement.workspaceName.hiddenByDefault)
+        #expect(AppSettings().isInterfaceElementHidden(.workspaceName))
+        #expect(AppSettings(hiddenInterfaceElements: ["workspaceName"]).isInterfaceElementHidden(.workspaceName))
+        let shown = AppSettings(shownInterfaceElements: ["workspaceName"])
+        #expect(!shown.isInterfaceElementHidden(.workspaceName))
+        #expect(shown.isInterfaceElementHidden(.customCommands))
+        #expect(!shown.isInterfaceElementHidden(.sessionName))
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(shown))
+        #expect(!decoded.isInterfaceElementHidden(.workspaceName))
     }
 
     @Test func workspaceAddSessionIsADistinctSidebarInterfaceElement() {
@@ -672,6 +711,35 @@ struct AppSettingsTests {
         #expect(!hidden.isInterfaceElementHidden(.flaggedView))
     }
 
+    @Test func customCommandsIsAHiddenByDefaultTitleBarInterfaceElement() throws {
+        #expect(InterfaceElement.customCommands.section == .titleBar)
+        #expect(InterfaceElement.customCommands.displayName == "Custom commands")
+        #expect(InterfaceElement.allCases.filter(\.hiddenByDefault) == [.workspaceName, .customCommands])
+        let shown = AppSettings(shownInterfaceElements: ["customCommands"])
+        #expect(!shown.isInterfaceElementHidden(.customCommands))
+        #expect(!shown.isInterfaceElementHidden(.dashboard))
+        #expect(shown.resolvedHiddenInterfaceElements == [.workspaceName])
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(shown))
+        #expect(decoded == shown)
+        // the shown list alone governs a hidden-by-default element; an unknown name there is dropped too.
+        let hidden = AppSettings(hiddenInterfaceElements: ["customCommands", "dashboard"], shownInterfaceElements: ["teleporter"])
+        #expect(hidden.isInterfaceElementHidden(.customCommands))
+        #expect(hidden.isInterfaceElementHidden(.dashboard))
+        #expect(hidden.resolvedHiddenInterfaceElements == [.workspaceName, .customCommands, .dashboard])
+    }
+
+    @Test func statusResetDefaultsToFirstKeyAndResolvesKnownRawValues() throws {
+        #expect(AppSettings().statusReset == nil)
+        #expect(AppSettings().effectiveStatusReset == .firstKey)
+        #expect(AppSettings(statusReset: "enter").effectiveStatusReset == .enter)
+        #expect(AppSettings(statusReset: "never").effectiveStatusReset == .never)
+        #expect(AppSettings(statusReset: "teleporter").effectiveStatusReset == .firstKey)
+        let original = AppSettings(statusReset: "enter")
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(original))
+        #expect(decoded == original)
+        #expect(original.ghosttyConfigLines() == ["mouse-scroll-multiplier = 3", "right-click-action = paste"])
+    }
+
     @Test func unknownInterfaceElementDecodesTolerantly() throws {
         // forward-compat rule: an unknown name is dropped from the resolved set and must not fail the
         // whole decode.
@@ -679,7 +747,7 @@ struct AppSettingsTests {
             AppSettings.self,
             from: Data(#"{ "hiddenInterfaceElements": ["scratch", "teleporter"], "fontSize": 16 }"#.utf8))
         #expect(decoded.fontSize == 16)
-        #expect(decoded.resolvedHiddenInterfaceElements == [.scratch])
+        #expect(decoded.resolvedHiddenInterfaceElements == [.workspaceName, .scratch, .customCommands])
         #expect(decoded.isInterfaceElementHidden(.scratch))
     }
 
@@ -700,6 +768,8 @@ struct AppSettingsTests {
         (2, 0, 2, false, true),  // empty B: a full A and a full C meet directly
         (2, 1, 2, false, false), // lone B between two full groups: no bridge, no dividers
         (2, 2, 1, true, false),  // lone C: divider only between the two full A/B groups
+        (1, 2, 3, false, true),  // full three-button C: the same single divider as the two-button default
+        (2, 1, 3, false, false), // lone B before a full three-button C: still no bridge
         (0, 2, 2, false, true),  // empty A: divider only between B and C
         (0, 0, 2, false, false), // only C present: no dividers at the leading edge
         (2, 2, 0, true, false),  // empty C: divider only between A and B

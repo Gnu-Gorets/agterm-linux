@@ -151,7 +151,7 @@ Work down this list:
 1. **Read the diagnostics.** Open Settings ▸ Key Mapping. A malformed `command` line is listed there and skipped.
 2. **Chord conflict.** If your chord collides with a built-in shortcut or with another custom command, the binding is dropped and the command becomes palette-only. It still runs from the action palette (`⌃⇧P`), where it is listed with a `custom` tag. Pick a free chord, or run it from the palette.
 3. **Reserved chords.** `ctrl+tab` / `ctrl+shift+tab` (the session switcher), `ctrl+1` / `ctrl+2` (pane focus), and Linux `ctrl+,` (Preferences) are reserved and cannot be bound.
-4. **Modifier-less keys are rejected.** A custom chord needs at least one modifier so it cannot shadow a plain terminal key. `command "x" g …` is palette-only; `command "x" cmd+g …` binds.
+4. **Check the first chord.** A custom shortcut must start with a modifier or a function key (`f1` through `f20`). `command "x" g …` is palette-only; `command "x" cmd+g …` and `command "x" f5 …` bind.
 5. **Focus.** A custom chord fires only while a terminal pane holds keyboard focus. When the sidebar, the inline rename field, a Settings field, or a palette has focus, the chord passes through. Click into the terminal first.
 6. **The command runs in a plain `/bin/sh -c`, not your login shell.** It does not load `~/.zshrc` or `~/.bashrc`, so shell aliases and functions are not available and `PATH` may be shorter than in your terminal. Use absolute paths, or wrap the body in `$SHELL -lc '…'`.
 7. **Exit status.** A non-zero exit posts a failure banner with the code. No banner and no effect usually means the chord never fired (causes above). A banner means it ran and failed, which points at the command itself, its `PATH`, or its arguments.
@@ -181,7 +181,7 @@ A reload applies most keys to your open terminals right away — colors, theme, 
 - **Layout keys** — `window-padding-x`, `window-padding-y`, and other size-affecting keys — do not re-apply to an open pane. libghostty re-derives a surface's padding only when it is first laid out, so a reload (and even resizing the window) leaves existing panes on their old padding. Open a new session or new window to pick up the change; the panes that were already open need a relaunch.
 - **Spawn-time keys** — `term` and `shell-integration-features` — are read once when the shell starts, so a reload cannot change them for a shell that is already running. Open a new session, whose shell is spawned fresh, to apply them.
 
-The full ghostty key reference is at <https://ghostty.org/docs/config>. One pair of values in it does not apply to agterm: the `ssh-env` and `ssh-terminfo` values of `shell-integration-features`. Ghostty implements both by replacing your `ssh` with a wrapper that calls the `ghostty` command-line tool absent from agterm's bundle, so in agterm the wrapper would fail on every connection. agterm forces those two values back off and keeps the rest of your `shell-integration-features` flags, so `ssh` stays the real `ssh`. If you need agterm's terminfo entry on a remote host, install it there once with `infocmp -x xterm-ghostty | ssh <host> 'tic -x -'`.
+The full ghostty key reference is at <https://ghostty.org/docs/config>. One pair of values in it does not apply to agterm: the `ssh-env` and `ssh-terminfo` values of `shell-integration-features`. Ghostty implements both by replacing your `ssh` with a wrapper that calls the `ghostty` command-line tool absent from agterm's bundle, so in agterm the wrapper would fail on every connection. agterm forces those two values back off and keeps the rest of your `shell-integration-features` flags, so `ssh` stays the real `ssh`. If you need agterm's terminfo entry on a remote host, install it there once with `agtermctl terminfo install <host>`, which dumps the bundled entry and compiles it into that account's `~/.terminfo` over one interactive ssh connection; `-p`, `-i`, `-J` and `-F` are passed through, other connection settings belong in `~/.ssh/config` under a host alias, and the settings that decide how the command runs (no pty, stdin kept, no `RemoteCommand`) are the installer's own.
 
 ## A Live session came back as a fresh shell on Linux
 
@@ -341,16 +341,28 @@ agterm is behaving correctly: it emits paired focus-in and focus-out reports wit
 
 Workaround until the upstream fix: answer the prompt before switching away, or if you have already returned to a stuck prompt, press `Esc` to dismiss it and let Claude Code re-ask.
 
+## Claude Code prints links as plain text instead of clickable labels
+
+Inside agterm, Claude Code prints a link as `label (https://…)` rather than as an OSC 8 hyperlink, so a list of ticket or PR links becomes a wall of URLs.
+
+agterm identifies itself to spawned shells as `TERM_PROGRAM=agterm`, with `TERM_PROGRAM_VERSION` carrying agterm's version, in place of the `ghostty` pair embedded libghostty would set ([#201](https://github.com/umputun/agterm/issues/201), [#203](https://github.com/umputun/agterm/pull/203)). Claude Code decides hyperlink support from a list of terminal names that does not include `agterm`, so it prints the URL. agterm renders OSC 8 links and ⌘-click opens them; only the detection is off.
+
+Workaround: set `FORCE_HYPERLINK=1` for the tool. Claude Code reads it before any terminal check. Per command, `FORCE_HYPERLINK=1 claude` or an alias. For every new shell, add `env = FORCE_HYPERLINK=1` to `~/.config/agterm/ghostty.conf`, reload the config (File ▸ Reload Config) and open a new session; that form also forces links into redirected output, because the variable skips the tty check as well.
+
+`env = TERM_PROGRAM=ghostty` in that file does nothing: agterm applies its identity after the config file. The durable fix is upstream, Claude Code recognizing `agterm` or `TERM=xterm-ghostty`. Reported in [discussion #583](https://github.com/umputun/agterm/discussions/583).
+
 ## Why agterm asks for camera, microphone and the rest
 
 agterm's code signature carries seven resource-access entitlements: Automation (Apple Events), camera,
 microphone, contacts, calendars, location and photos. agterm never touches any of them itself, and the
 `NSxxxUsageDescription` strings in `Info.plist` say so.
 
-They are there for the programs you run inside a session. macOS treats agterm as the *responsible app* for
-what it spawns, so when a command-line tool asks for the microphone, the request is charged to agterm. This
-is attribution, not inheritance: the entitlement has to sit on agterm precisely because the child does not
-get one of its own. Under hardened runtime, which agterm is signed with, a missing entitlement does not
+They are there for the programs you run inside a session. When macOS attributes a command-line tool to
+agterm, its permission requests are charged to agterm.
+The [Live pane diagnosis below](#agterm-would-like-to-access-data-from-other-apps-keeps-coming-back)
+explains when that attribution can be lost. This is attribution, not inheritance: the entitlement has to
+sit on agterm precisely because the child does not get one of its own. Under hardened runtime, which
+agterm is signed with, a missing entitlement does not
 produce a denial. `tccd` refuses to prompt at all, records nothing, and agterm never appears in the matching
 Privacy pane, so there is no way to approve it by hand either. The tool just fails, with nothing pointing at
 the cause. Ghostty, kitty, iTerm2 and Macterm ship the same seven; WezTerm ships those plus Bluetooth.
@@ -376,7 +388,7 @@ without complaint.
 Those three folders, along with removable and network volumes, are protected by macOS directly. It is a
 different mechanism from the section above: agterm is not sandboxed, and unlike the services listed there no
 missing entitlement can suppress this family's prompt. macOS defines an optional usage-description string per
-folder and agterm ships none, so the prompt carries macOS's own wording rather than agterm's. What matters is
+folder and agterm ships one for each, so the prompt carries agterm's wording. What matters is
 that the answer is recorded against the application macOS holds responsible. Approving kitty or
 Terminal says nothing about agterm, so a Mac where every other terminal reads the folder can still refuse
 this one, and as with the services above a dismissed prompt is not re-offered and the command just keeps
@@ -391,6 +403,60 @@ To tell a privacy denial from ordinary permission bits, run `/bin/ls -la ~/Downl
 against the folder itself, rather than a replacement such as `eza`. A privacy denial usually reads as
 `Operation not permitted` and ordinary permission bits as `Permission denied`, and some replacements print
 the same wording for both.
+
+## An Accessibility permission you granted stops working after an update
+
+A tool that needs Accessibility is denied in a session, while agterm's toggle in System Settings ▸ Privacy
+& Security ▸ Accessibility still shows it enabled. It can follow an update, or granting the permission to a
+copy you built yourself.
+
+macOS stores each grant with a code requirement the app must satisfy. When agterm was granted while signed
+ad-hoc, that requirement is a bare code hash, so the grant is frozen to that one build; a different build,
+or an installed release, has another hash and no longer satisfies it. The row stays and the toggle stays
+on, but macOS matches the running app against the stored requirement, finds no match, and denies it with
+nothing pointing at the cause. A grant made against the Developer-ID release stores its signing identity
+instead, which later releases keep satisfying.
+
+To recover the Accessibility grant, remove the stale row and grant the installed release fresh:
+
+```
+tccutil reset Accessibility com.umputun.agterm
+```
+
+Then open System Settings ▸ Privacy & Security ▸ Accessibility, remove any lingering agterm entry with the
+minus button, add `/Applications/agterm.app` with the plus button, and switch it on. Grant the release you
+run, so the stored requirement is its Developer-ID signature and later updates satisfy the same requirement.
+
+## "agterm would like to access data from other apps" keeps coming back
+
+macOS App Data consent belongs to a running process and has no separate entry in System Settings.
+If a Live pane loses its responsible process, commands in it can become responsible for themselves and
+repeat the consent request.
+
+Read `liveAttribution` and `splitLiveAttribution` in `agtermctl tree --json`;
+the [tree reference](https://agterm.com/commands#tree) defines the values.
+A pane marked `supervisor` keeps microphone requests attributed to agterm after you quit and relaunch
+agterm. App Data is expected to behave the same, but has not been checked.
+
+A pane reads `app` when its daemon was created without the session host, either by an older agterm or
+because the host could not start; it remains attributed to the running agterm. When that agterm quits,
+the pane becomes `orphaned`; the same happens to panes whose session host dies. Commands in an
+`orphaned` pane remain responsible for themselves until the pane is replaced. Restarting agterm does not
+repair this.
+
+Agterm ▸ Reset Live Sessions… replaces every `orphaned` and `app` pane at once. The dialog says how many
+live sessions it resets; on Reset, agterm quits, ends those sessions' processes at the next launch and
+reopens itself with the same sessions and layout, starting each captured command again where possible.
+Other work running in those sessions stops, and agent conversations may need to be resumed by hand.
+Sessions already marked `supervisor` are left alone. A notification afterwards says how many sessions
+the reset covered; a session whose old process could not be confirmed gone gets no command restarted,
+and the reset can be run again. `agtermctl zmx reset --force` does the same without the dialog.
+
+For App Data prompts in `orphaned` or `app` panes, grant agterm Full Disk Access under
+System Settings ▸ Privacy & Security ▸ Full Disk Access; the
+[folder-access section](#a-command-cannot-read-downloads-desktop-or-documents) explains the scope of that grant.
+Full Disk Access does not grant the microphone. Its permission is controlled separately under
+System Settings ▸ Privacy & Security ▸ Microphone.
 
 ## Reporting a problem
 

@@ -18,6 +18,77 @@ struct ControlDispatcherHudTests {
         #expect(actions.calls.isEmpty)
     }
 
+    // the flag is worth nothing unless the value reaches the host: validating it and then dropping it on the
+    // floor leaves every panel persistent and every update cancelling, which is what shipped before this test.
+    @Test func openCarriesTheRequestedHideAfterToTheHost() async throws {
+        let actions = MockControlActions()
+        let dispatcher = ControlDispatcher(actions: actions)
+
+        _ = await dispatcher.dispatch(ControlRequest(
+            cmd: .sessionHudOpen, args: ControlArgs(message: "deploying", hideAfter: 10)))
+
+        guard case .hudOpen(_, _, let spec, _) = try #require(actions.calls.first) else {
+            Issue.record("the open never reached the host")
+            return
+        }
+        #expect(spec.hideAfter == 10)
+        #expect(spec.effectiveHideAfter == 10)
+    }
+
+    @Test func updateCarriesTheRequestedHideAfterToTheHost() async throws {
+        let actions = MockControlActions()
+        let dispatcher = ControlDispatcher(actions: actions)
+
+        _ = await dispatcher.dispatch(ControlRequest(
+            cmd: .sessionHudUpdate, args: ControlArgs(message: "ready", hideAfter: 2.5)))
+
+        guard case .hudUpdate(_, _, let spec, _) = try #require(actions.calls.first) else {
+            Issue.record("the update never reached the host")
+            return
+        }
+        #expect(spec.hideAfter == 2.5)
+    }
+
+    @Test(arguments: [-1.0, Double.nan, Double.infinity, 1e12, HudSpec.maxHideAfter + 1])
+    func openRejectsAHideAfterNothingCanSchedule(_ seconds: Double) async {
+        let actions = MockControlActions()
+        let dispatcher = ControlDispatcher(actions: actions)
+
+        let response = await dispatcher.dispatch(ControlRequest(
+            cmd: .sessionHudOpen, args: ControlArgs(message: "working", hideAfter: seconds)))
+
+        #expect(response == ControlResponse(
+            ok: false, error: "session.hud.open: --hide-after must be 0...86400 seconds"))
+        #expect(actions.calls.isEmpty)
+    }
+
+    @Test func updateRejectsANegativeHideAfterAndLeavesTheLivePanelAlone() async {
+        let actions = MockControlActions()
+        let dispatcher = ControlDispatcher(actions: actions)
+
+        let response = await dispatcher.dispatch(ControlRequest(
+            cmd: .sessionHudUpdate, args: ControlArgs(message: "working", hideAfter: -0.5)))
+
+        #expect(response == ControlResponse(
+            ok: false, error: "session.hud.update: --hide-after must be 0...86400 seconds"))
+        #expect(actions.calls.isEmpty)
+    }
+
+    @Test func zeroHideAfterReachesTheHostAsAPanelThatStays() async throws {
+        let actions = MockControlActions()
+        let dispatcher = ControlDispatcher(actions: actions)
+
+        let response = await dispatcher.dispatch(ControlRequest(
+            cmd: .sessionHudOpen, args: ControlArgs(message: "working", hideAfter: 0)))
+
+        #expect(response?.ok == true)
+        guard case .hudOpen(_, _, let spec, _) = try #require(actions.calls.first) else {
+            Issue.record("the open never reached the host")
+            return
+        }
+        #expect(spec.effectiveHideAfter == 0)
+    }
+
     // `HudLayout.wrap` drops whitespace-only text, so a blank message would paint an empty frame while
     // `tree` reported a live HUD.
     @Test func openRejectsAWhitespaceOnlyMessage() async {
@@ -61,6 +132,138 @@ struct ControlDispatcherHudTests {
         #expect(escape == expected)
         #expect(newline == expected)
         #expect(detail == expected)
+        #expect(actions.calls.isEmpty)
+    }
+
+    @Test func markdownAcceptsNewlinesAndTabsAndCarriesTheModeToTheHost() async throws {
+        let actions = MockControlActions()
+        let dispatcher = ControlDispatcher(actions: actions)
+
+        let response = await dispatcher.dispatch(ControlRequest(
+            cmd: .sessionHudOpen, args: ControlArgs(message: "# Tasks\n\n- build\n\t- test", markdown: true)))
+
+        #expect(response == ControlResponse(ok: true))
+        guard case .hudOpen(_, _, let spec, _) = try #require(actions.calls.first) else {
+            Issue.record("expected hudOpen, got \(actions.calls)")
+            return
+        }
+        #expect(spec.markdown)
+        #expect(spec.message == "# Tasks\n\n- build\n\t- test")
+    }
+
+    @Test(arguments: ["cr\rhere", "esc\u{1b}[2J", "del\u{7f}", "bell\u{07}"])
+    func markdownStillRejectsEveryOtherControlCharacter(message: String) async {
+        let actions = MockControlActions()
+        let dispatcher = ControlDispatcher(actions: actions)
+
+        let response = await dispatcher.dispatch(ControlRequest(
+            cmd: .sessionHudOpen, args: ControlArgs(message: message, markdown: true)))
+
+        #expect(response == ControlResponse(ok: false, error: "hud text must not contain control characters"))
+        #expect(actions.calls.isEmpty)
+    }
+
+    @Test func markdownKeepsTheDetailPlainRules() async {
+        let actions = MockControlActions()
+        let dispatcher = ControlDispatcher(actions: actions)
+
+        let newline = await dispatcher.dispatch(ControlRequest(
+            cmd: .sessionHudOpen, args: ControlArgs(message: "ok", detail: "two\nlines", markdown: true)))
+        let long = await dispatcher.dispatch(ControlRequest(
+            cmd: .sessionHudOpen,
+            args: ControlArgs(message: "ok", detail: String(repeating: "d", count: HudSpec.maxTextLength + 1), markdown: true)))
+
+        #expect(newline == ControlResponse(ok: false, error: "hud text must not contain control characters"))
+        #expect(long == ControlResponse(ok: false, error: "hud detail too long (max 256 characters)"))
+        #expect(actions.calls.isEmpty)
+    }
+
+    @Test func markdownCapsTheMessageAtItsOwnLength() async {
+        let actions = MockControlActions()
+        let dispatcher = ControlDispatcher(actions: actions)
+        let atCap = String(repeating: "m", count: HudSpec.maxMarkdownLength)
+
+        let accepted = await dispatcher.dispatch(ControlRequest(
+            cmd: .sessionHudOpen, args: ControlArgs(message: atCap, markdown: true)))
+        let rejected = await dispatcher.dispatch(ControlRequest(
+            cmd: .sessionHudOpen, args: ControlArgs(message: atCap + "m", markdown: true)))
+
+        #expect(accepted == ControlResponse(ok: true))
+        #expect(rejected == ControlResponse(ok: false, error: "hud message too long (max 4096 characters)"))
+    }
+
+    @Test func aWhitespaceAndNewlineOnlyMarkdownMessageIsNoMessage() async {
+        let actions = MockControlActions()
+        let dispatcher = ControlDispatcher(actions: actions)
+
+        let response = await dispatcher.dispatch(ControlRequest(
+            cmd: .sessionHudOpen, args: ControlArgs(message: " \n\t\n ", markdown: true)))
+
+        #expect(response == ControlResponse(ok: false, error: "session.hud.open requires a message"))
+        #expect(actions.calls.isEmpty)
+    }
+
+    // a source that renders nothing passed the blank check and opened an empty panel `tree` reported as live.
+    @Test(arguments: ["[x]: /y", "&#32;", "- "])
+    func markdownThatRendersNothingIsNoMessage(message: String) async {
+        let actions = MockControlActions()
+        let dispatcher = ControlDispatcher(actions: actions)
+
+        let response = await dispatcher.dispatch(ControlRequest(
+            cmd: .sessionHudOpen, args: ControlArgs(message: message, markdown: true)))
+
+        #expect(response == ControlResponse(ok: false, error: "session.hud.open requires a message"))
+        #expect(actions.calls.isEmpty)
+    }
+
+    @Test(arguments: ["<!-- note -->\n\n[ref]: http://a", "---"])
+    func markdownThatPaintsOnlyLiteralHtmlOrARuleIsAMessage(message: String) async {
+        let actions = MockControlActions()
+        let dispatcher = ControlDispatcher(actions: actions)
+
+        let response = await dispatcher.dispatch(ControlRequest(
+            cmd: .sessionHudOpen, args: ControlArgs(message: message, markdown: true)))
+
+        #expect(response == ControlResponse(ok: true))
+    }
+
+    @Test func openCarriesAFontSizeInsideTheRange() async throws {
+        let actions = MockControlActions()
+        let dispatcher = ControlDispatcher(actions: actions)
+
+        let low = await dispatcher.dispatch(ControlRequest(cmd: .sessionHudOpen, args: ControlArgs(message: "a", fontSize: 6)))
+        let high = await dispatcher.dispatch(ControlRequest(cmd: .sessionHudOpen, args: ControlArgs(message: "a", fontSize: 72)))
+
+        #expect(low == ControlResponse(ok: true))
+        #expect(high == ControlResponse(ok: true))
+        guard case .hudOpen(_, _, let spec, _) = try #require(actions.calls.last) else {
+            Issue.record("expected hudOpen, got \(actions.calls)")
+            return
+        }
+        #expect(spec.fontSize == 72)
+    }
+
+    @Test(arguments: [5.5, 72.5, 0, -1])
+    func openRejectsAFontSizeOutsideTheRange(points: Double) async {
+        let actions = MockControlActions()
+        let dispatcher = ControlDispatcher(actions: actions)
+
+        let response = await dispatcher.dispatch(ControlRequest(
+            cmd: .sessionHudOpen, args: ControlArgs(message: "a", fontSize: points)))
+
+        #expect(response == ControlResponse(ok: false, error: "session.hud.open: --font-size must be 6...72 points"))
+        #expect(actions.calls.isEmpty)
+    }
+
+    @Test func updateRejectsAFontSize() async {
+        let actions = MockControlActions()
+        let dispatcher = ControlDispatcher(actions: actions)
+
+        let response = await dispatcher.dispatch(ControlRequest(
+            cmd: .sessionHudUpdate, args: ControlArgs(message: "a", fontSize: 14)))
+
+        #expect(response == ControlResponse(
+            ok: false, error: "session.hud.update: --font-size is fixed at open; reopen the hud to change it"))
         #expect(actions.calls.isEmpty)
     }
 
@@ -166,7 +369,7 @@ struct ControlDispatcherHudTests {
 
             #expect(response?.error == nil)
             let call = try #require(actions.calls.first)
-            guard case let .hudOpen(_, _, spec) = call else { Issue.record("not a hud open"); return }
+            guard case let .hudOpen(_, _, spec, _) = call else { Issue.record("not a hud open"); return }
             #expect(spec.position == HudPosition.parse(raw))
         }
     }
@@ -195,7 +398,7 @@ struct ControlDispatcherHudTests {
             args: ControlArgs(message: "done", textColor: "#7ec07e", position: "bottom-right")))
 
         let call = try #require(actions.calls.first)
-        guard case let .hudUpdate(_, _, spec) = call else { Issue.record("not a hud update"); return }
+        guard case let .hudUpdate(_, _, spec, _) = call else { Issue.record("not a hud update"); return }
         #expect(spec.textColor == "#7ec07e")
         #expect(spec.position == .bottomRight)
     }
@@ -224,7 +427,7 @@ struct ControlDispatcherHudTests {
                                                      args: ControlArgs(message: "working",
                                                                        spinner: style.rawValue)))
 
-        guard case let .hudOpen(_, _, spec) = try #require(actions.calls.first) else {
+        guard case let .hudOpen(_, _, spec, _) = try #require(actions.calls.first) else {
             Issue.record("expected session.hud.open host call")
             return
         }
@@ -241,7 +444,7 @@ struct ControlDispatcherHudTests {
                                                      args: ControlArgs(message: "working",
                                                                        spinner: HudSpinner.noneName)))
 
-        guard case let .hudOpen(_, _, spec) = try #require(actions.calls.first) else {
+        guard case let .hudOpen(_, _, spec, _) = try #require(actions.calls.first) else {
             Issue.record("expected session.hud.open host call")
             return
         }
@@ -265,7 +468,8 @@ struct ControlDispatcherHudTests {
         let call = try #require(actions.calls.first)
         #expect(call == .hudOpen(target: "session-id", window: "window-id",
                                  HudSpec(message: "gathering options", detail: "scanning 400 files", spinner: .bar,
-                                         backgroundColor: "#112233", sizePercent: 40, position: .topCenter)))
+                                         backgroundColor: "#112233", sizePercent: 40, position: .topCenter),
+                                 ControlHudPlacement()))
     }
 
     @Test func updateRoutesParsedSpecAndReturnsHostResponse() async throws {
@@ -283,7 +487,39 @@ struct ControlDispatcherHudTests {
         #expect(response == expected)
         let call = try #require(actions.calls.first)
         #expect(call == .hudUpdate(target: "session-id", window: nil,
-                                   HudSpec(message: "still working", detail: "312 of 400", position: .bottomCenter)))
+                                   HudSpec(message: "still working", detail: "312 of 400", position: .bottomCenter),
+                                   ControlHudPlacement()))
+    }
+
+    @Test func paneAndPaneIDRouteToOpenAndUpdate() async {
+        let actions = MockControlActions()
+        let dispatcher = ControlDispatcher(actions: actions)
+
+        _ = await dispatcher.dispatch(ControlRequest(
+            cmd: .sessionHudOpen, args: ControlArgs(message: "working", pane: "split", paneID: "stable-token")
+        ))
+        _ = await dispatcher.dispatch(ControlRequest(
+            cmd: .sessionHudUpdate, args: ControlArgs(message: "done", pane: "top", paneID: "next-token")
+        ))
+
+        #expect(actions.calls == [
+            .hudOpen(target: nil, window: nil, HudSpec(message: "working"),
+                     ControlHudPlacement(pane: .right, paneID: "stable-token")),
+            .hudUpdate(target: nil, window: nil, HudSpec(message: "done"),
+                       ControlHudPlacement(pane: .left, paneID: "next-token")),
+        ])
+    }
+
+    @Test func invalidPaneIsRejectedBeforeTheHost() async {
+        let actions = MockControlActions()
+        let dispatcher = ControlDispatcher(actions: actions)
+
+        let response = await dispatcher.dispatch(ControlRequest(
+            cmd: .sessionHudOpen, args: ControlArgs(message: "working", pane: "scratch")
+        ))
+
+        #expect(response == ControlResponse(ok: false, error: "--pane must be left or right"))
+        #expect(actions.calls.isEmpty)
     }
 
     @Test func omittedPositionSpinnerAndOverridesTakeTheirDefaults() async throws {
@@ -293,7 +529,7 @@ struct ControlDispatcherHudTests {
         _ = await dispatcher.dispatch(ControlRequest(cmd: .sessionHudOpen, args: ControlArgs(message: "working")))
 
         let call = try #require(actions.calls.first)
-        guard case let .hudOpen(_, _, spec) = call else {
+        guard case let .hudOpen(_, _, spec, placement) = call else {
             Issue.record("expected session.hud.open host call")
             return
         }
@@ -302,6 +538,7 @@ struct ControlDispatcherHudTests {
         #expect(spec.detail == nil)
         #expect(spec.backgroundColor == nil)
         #expect(spec.sizePercent == nil)
+        #expect(placement == ControlHudPlacement())
     }
 
     @Test(arguments: HudPosition.allCases)
@@ -315,7 +552,7 @@ struct ControlDispatcherHudTests {
         ))
 
         let call = try #require(actions.calls.first)
-        guard case let .hudOpen(_, _, spec) = call else {
+        guard case let .hudOpen(_, _, spec, _) = call else {
             Issue.record("expected session.hud.open host call")
             return
         }

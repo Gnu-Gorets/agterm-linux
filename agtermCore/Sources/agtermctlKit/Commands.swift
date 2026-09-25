@@ -96,12 +96,12 @@ struct SurfaceTargetOptions: ParsableArguments {
 public enum AgtermctlCommandCatalog {
     public static var subcommands: [ParsableCommand.Type] {
         [Tree.self, Events.self, Workspace.self, Session.self, Surface.self, Dashboard.self, Window.self, Quick.self,
-         Sidebar.self, Notify.self, Font.self, Keymap.self, Config.self, Theme.self, Pick.self, Restore.self, Recent.self,
-         Zmx.self, Version.self]
+         Sidebar.self, Notify.self, Font.self, Keymap.self, Hooks.self, Config.self, Theme.self, Pick.self, Ask.self,
+         Restore.self, Recent.self, Zmx.self, Terminfo.self, Version.self]
     }
 
     public static func rootConfiguration(
-        abstract: String = "Drive agterm over its control socket.",
+        abstract: String = "Drive agterm over its control socket, and install its terminfo entry on other hosts.",
         appending additionalSubcommands: [ParsableCommand.Type] = []
     ) -> CommandConfiguration {
         CommandConfiguration(
@@ -110,7 +110,7 @@ public enum AgtermctlCommandCatalog {
     }
 }
 
-/// The root `agtermctl` command. Subcommands mirror the control catalog 1:1.
+/// The root `agtermctl` command. Subcommands mirror the control catalog.
 public struct Agtermctl: ParsableCommand {
     public static let configuration = AgtermctlCommandCatalog.rootConfiguration()
 
@@ -143,10 +143,10 @@ extension RequestCommand {
     func defaultRun() throws {
         let request = try makeRequest()
         let client = SocketClient(path: options.socketPath())
-        let response = try client.send(request)
-        SocketClient.printResponse(response, json: options.json, echoID: echoesResultID,
+        let reply = try client.send(request)
+        SocketClient.printResponse(reply, json: options.json, echoID: echoesResultID,
                                    affectedNoun: affectedNoun)
-        if !response.ok { throw ExitCode.failure }
+        if !reply.response.ok { throw ExitCode.failure }
     }
 }
 

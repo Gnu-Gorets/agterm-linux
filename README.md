@@ -549,6 +549,22 @@ cd agterm-linux && swift build -c release --product agtermctl-linux
 # the binary is at agterm-linux/.build/release/agtermctl-linux
 ```
 
+For example, with `agtermctl` on `PATH`:
+
+```sh
+ws=$(agtermctl workspace new demo)                        # capture the new workspace's id
+sid=$(agtermctl session new --workspace "$ws" --cwd "$PWD" --no-select)
+agtermctl session split on --axis horizontal --target "$sid" # add a top-and-bottom shell
+agtermctl session type $'pwd\n' --target "$sid"           # drive a session you are not looking at
+agtermctl session text --target "$sid" --lines 10         # read its terminal back
+agtermctl session status blocked --target "$sid"          # set the sidebar status glyph
+printf '%s\n' staging production | agtermctl pick --prompt "Deploy where?"   # open the native picker
+agtermctl ask "Deploy now?" --button yes=Deploy --button no=Not\ yet --default no  # ask a question, get the button
+agtermctl tree --json                                     # dump the whole model as JSON
+```
+
+`session type` returns once the keystrokes are queued, so a following `session text` races the shell, and `pick` and `ask` block until someone answers.
+
 Linux also has local integration commands that do not connect to the control socket and work while agterm is stopped:
 
 ```sh

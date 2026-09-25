@@ -207,6 +207,28 @@ struct ControlDispatcherZmxTests {
         #expect(actions.calls == [.zmxAttach(host: "buildbox", session: "s1")])
     }
 
+    @Test func zmxPresentCarriesTheSession() async {
+        let actions = MockControlActions()
+
+        let response = await ControlDispatcher(actions: actions)
+            .dispatch(ControlRequest(cmd: .zmxPresent, target: " s1 "))
+
+        #expect(response?.ok == true)
+        #expect(actions.calls == [.zmxPresent(session: "s1")])
+    }
+
+    @Test(arguments: [(nil, "zmx.present requires a session"), ("  ", "zmx.present requires a session"),
+                      ("s1\u{1B}[31m", "invalid session"), ("s 1", "invalid session")])
+    func zmxPresentRefusesBeforeTheHostIsCalled(_ target: String?, _ error: String) async {
+        let actions = MockControlActions()
+
+        let response = await ControlDispatcher(actions: actions)
+            .dispatch(ControlRequest(cmd: .zmxPresent, target: target))
+
+        #expect(response?.error == error)
+        #expect(actions.calls.isEmpty)
+    }
+
     @Test func zmxAttachRefusesWithoutAHostOrASessionBeforeTheHostIsCalled() async {
         let actions = MockControlActions()
         let dispatcher = ControlDispatcher(actions: actions)
@@ -332,9 +354,41 @@ struct ControlDispatcherZmxTests {
         #expect(fromFuture.result?.restore?.configured == "mirrored")
     }
 
+    @Test func anOlderAttachHostRefusesExplicitWindowPlacement() async throws {
+        let actions = MockControlActions()
+        let response = try #require(await dispatch(ControlRequest(cmd: .zmxAttach, target: "s1",
+            args: ControlArgs(host: "buildbox", window: "other")), actions))
+        #expect(!response.ok)
+        #expect(response.error == "zmx.attach --window is not supported on this platform")
+        #expect(actions.calls.isEmpty)
+    }
+
     @Test func theUnsupportedRefusalNamesTheCommand() {
         // agtermCore is a library the agterm-linux fork consumes, so every Mac-only ControlActions
         // requirement ships a default returning this rather than breaking that build
         #expect(ControlActionsUnsupported.message("zmx.list") == "zmx.list is not supported on this platform")
+    }
+
+    @Test func resetRefusesWithoutForce() async throws {
+        let actions = MockControlActions()
+
+        let response = try #require(await dispatch(ControlRequest(cmd: .zmxReset), actions))
+
+        #expect(!response.ok)
+        #expect(response.error == "zmx.reset requires --force")
+        #expect(actions.calls.isEmpty)
+    }
+
+    @Test func resetWithForceReachesAction() async throws {
+        let actions = MockControlActions()
+        actions.nextZmxResetResponse = ControlResponse(
+            ok: true, result: ControlResult(text: "2 live sessions will be reset.",
+                                            liveReset: ControlLiveResetStatus(sessions: 2, panes: 3, pending: true)))
+
+        let response = try #require(await dispatch(ControlRequest(cmd: .zmxReset, args: ControlArgs(force: true)), actions))
+
+        #expect(response.ok)
+        #expect(actions.calls == [.zmxReset])
+        #expect(response.result?.liveReset == ControlLiveResetStatus(sessions: 2, panes: 3, pending: true))
     }
 }

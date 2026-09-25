@@ -23,7 +23,16 @@ extension ControlDispatcher {
             guard RemoteSession.isPlain(session) else {
                 return ControlResponse(ok: false, error: "invalid remote session")
             }
-            return await actions.attachRemoteSession(host: host, session: session)
+            return await actions.attachRemoteSession(host: host, session: session, window: request.args?.window?.trimmedOrNil)
+        case .zmxPresent:
+            // no `active` default: a viewer names the session it attached, and a guess would stream another
+            guard let session = request.target?.trimmedOrNil else {
+                return ControlResponse(ok: false, error: "zmx.present requires a session")
+            }
+            guard RemoteSession.isPlain(session) else {
+                return ControlResponse(ok: false, error: "invalid session")
+            }
+            return actions.openPresentation(session: session)
         default:
             return dispatchLocalZmxCommand(request)
         }
@@ -56,6 +65,11 @@ extension ControlDispatcher {
                 return ControlResponse(ok: false, error: "zmx.kill requires --force")
             }
             return actions.killZmxDaemon(target: target, window: request.args?.window, pane: pane)
+        case .zmxReset:
+            guard request.args?.force == true else {
+                return ControlResponse(ok: false, error: "zmx.reset requires --force")
+            }
+            return actions.resetLiveSessions()
 
         default:
             preconditionFailure("unexpected zmx command: \(request.cmd.rawValue)")

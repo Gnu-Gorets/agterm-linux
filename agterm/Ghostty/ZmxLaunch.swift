@@ -46,6 +46,14 @@ enum ZmxLaunch {
         return bundleURL.appendingPathComponent("Contents/MacOS/zmx").path
     }
 
+    static func sessionHostExecutablePath(bundleURL: URL, environment: [String: String],
+                                          allowDebugOverride: Bool) -> String {
+        if allowDebugOverride, let override = environment["AGTERM_SESSION_HOST_PATH"], !override.isEmpty {
+            return override
+        }
+        return bundleURL.appendingPathComponent("Contents/MacOS/agterm-session-host").path
+    }
+
     @MainActor
     static func liveUnavailableReason(
         bundleURL: URL = Bundle.main.bundleURL,
@@ -65,8 +73,8 @@ enum ZmxLaunch {
         }
     }
 
-    @MainActor static func configuration(paneIdentity: UUID?, pane: String, environment base: [String: String])
-        -> ZmxSupport.Configuration? {
+    @MainActor static func configuration(paneIdentity: UUID?, pane: String, environment base: [String: String],
+                                         lead: ZmxLeadAttachment? = nil) -> ZmxSupport.Configuration? {
         guard let paneIdentity else {
             logger.error("zmx configuration failed for \(pane, privacy: .public) pane: missing pane identity")
             return nil
@@ -75,7 +83,8 @@ enum ZmxLaunch {
                               environment: ProcessInfo.processInfo.environment,
                               passwordDatabaseShell: passwordDatabaseLoginShell(),
                               allowDebugOverride: allowDebugOverride)
-        let result = configurationResult(runtime: runtime, paneIdentity: paneIdentity, baseEnvironment: base)
+        let result = configurationResult(runtime: runtime, paneIdentity: paneIdentity, baseEnvironment: base,
+                                         lead: lead)
         switch result {
         case .success(let configuration): return configuration
         case .failure(let reason):
@@ -89,12 +98,15 @@ enum ZmxLaunch {
         ZmxSupport.launchDisposition(requested: requested, active: active, configuration: configuration)
     }
 
+    /// `suppressed` consumes the pending replay without using it and withholds the durable command: the
+    /// pane's old process may still be running, and the attach must not start a second copy.
     @MainActor
     static func surfaceSeed(disposition: Disposition, session: Session, pane: StatusPane,
-                            denylist: Set<String>) -> SurfaceSeed? {
+                            denylist: Set<String>, suppressed: Bool = false) -> SurfaceSeed? {
         guard case .wrapped(let configuration) = disposition else { return nil }
-        let replay = session.takePendingForegroundCommand(pane: pane)
-        let creationCommand: String? = if replay == nil {
+        let captured = session.takePendingForegroundCommand(pane: pane)
+        let replay = suppressed ? nil : captured
+        let creationCommand: String? = if replay == nil, !suppressed {
             switch pane {
             case .left: session.initialCommand
             case .right: session.splitInitialCommand
@@ -116,7 +128,7 @@ enum ZmxLaunch {
     }
 
     private static func configurationResult(runtime: Runtime, paneIdentity: UUID,
-                                            baseEnvironment: [String: String])
+                                            baseEnvironment: [String: String], lead: ZmxLeadAttachment? = nil)
         -> Result<ZmxSupport.Configuration, ZmxSupport.Rejection> {
         let bundledResources = runtime.bundleURL.appendingPathComponent("Contents/Resources/ghostty").path
         let resources = runtime.environment["GHOSTTY_RESOURCES_DIR"].flatMap { $0.isEmpty ? nil : $0 }
@@ -130,7 +142,10 @@ enum ZmxLaunch {
             stateDirectory: stateDirectory,
             paneIdentity: paneIdentity,
             baseEnvironment: baseEnvironment,
-            inheritedZdotdir: runtime.environment["ZDOTDIR"]
+            inheritedZdotdir: runtime.environment["ZDOTDIR"],
+            sessionHostExecutablePath: sessionHostExecutablePath(bundleURL: runtime.bundleURL, environment: runtime.environment,
+                                                                  allowDebugOverride: runtime.allowDebugOverride),
+            lead: lead
         ))
     }
 }

@@ -28,8 +28,9 @@ paths:
   (no active session, no current workspace). Add a term to `PaletteContext` and the predicate; never to one
   item's `.disabled(…)`. An action's own `AppActions` method keeps its guard as well — belt and braces, not
   the contract.
-- The modal cover — terminal zoom, the open dashboard grid, a pending native picker — reads off the same
-  predicate. Close Session, both reloads, the three font sizes and Toggle Terminal Zoom carry no modal term
+- Window modal covers include terminal zoom, the dashboard, picks, and GUI asks. Terminal asks use
+  session/pane input ownership; see [[control-api]] for priority and lifecycle.
+  Close Session, both reloads, the three font sizes and Toggle Terminal Zoom carry no modal term
   (⌘W is how a cover is dismissed); Dashboard carries every cover but its own grid, its item being that
   grid's escape hatch. Items with no palette row (window management, the three palette launchers) keep the
   bare `context.modalActive`.
@@ -73,7 +74,12 @@ paths:
   split/scratch/find/quick terminal, and fullscreen. Navigate contains palettes, session/attention
   stepping, pane focus, and Dashboard. File UI tests against the menu that owns the item.
 - Workspace focus controls are mode-agnostic because membership applies when tree mode returns.
-  Expand/Collapse Workspaces alone are disabled outside tree mode, in both menu and palette.
+  Expand/Collapse Workspaces and Collapse/Expand Workspace need workspace ROWS
+  (`PaletteContext.sidebarShowsWorkspaceRows`): the ordinary tree or the flagged tree, not the flat flagged list.
+  Previous/Next Workspace keep the narrower `sidebarShowsWorkspaceTree`, since `navigateWorkspace` steps the
+  focus projection and would land on a workspace the flagged tree has no row for.
+  An init call that omits `sidebarShowsWorkspaceRows` takes `sidebarShowsWorkspaceTree`, which is what keeps
+  the `agterm-linux` fork's fold commands visible.
 - Dashboard uses Command-Shift-G, `BuiltinAction.dashboard`, and `toggleDashboard`; it toggles an MRU,
   auto-sized grid unless terminal zoom is active. Share `dashboardMembers` with control.
 - The View menu carries no fullscreen item of agterm's own, and `toggle_fullscreen` rides the key monitor
@@ -125,7 +131,7 @@ paths:
   surface occupant before any public swap entry point is added.
 - Persist each pane cwd and the 0...1 primary-pane `splitRatio`. `SplitRatioAccessor` is an unconditional
   background representable on primary, introspects `NSSplitView`, retries until its axis extent exists, observes
-  `didResizeSubviews`, and debounces save by about 0.4 seconds. Regular saves and quit flush also persist it.
+  `didResizeSubviews` but writes only during a drag, and debounces save by about 0.4 seconds. Regular saves and quit flush also persist it.
 - Double-clicking the divider restores `splitRatioDefault` through the same `applyRatio` path as
   `session.resize`, persisting immediately rather than through the drag debounce. AppKit offers no hook:
   `NSSplitView`'s own double-click collapses a pane through the delegate SwiftUI owns. One shared
@@ -150,12 +156,12 @@ paths:
 
 ## Close and reselection
 
-- Command-W first dismisses the frontmost cover: the quick-terminal panel (un-zoom, then hide), then
-  overlay, then scratch, then the
-  FOCUSED pane's own overlay (`focusedOverlayPane`; one on the sibling pane is not in front of the user and
-  does not intercept). Only then close the active session. If no cover or session exists, the menu performs
-  window close. Keep the cover check inside `closeActiveSession`, since a sessionless window can still show
-  quick terminal.
+- Command-W dismisses a window pick or GUI ask, or the terminal ask that owns input. Ask dismissal
+  returns `escaped`, as with Esc; input ownership is defined in [[control-api]].
+  Then come the quick terminal (un-zoom, then hide), terminal zoom,
+  dashboard, session overlay, scratch, and the focused pane's overlay (`focusedOverlayPane`; a sibling's
+  overlay does not intercept). Only then close the active session, or the window when no session remains.
+  Keep cover checks before the active-session lookup; a sessionless window can still show a modal.
 - The panel's two rungs read `holdsKey`, not `isVisible`. A PINNED panel (a control `quick show`) stays on
   screen without owning the keyboard, and Command-W in a terminal window must then close that session
   rather than reach past it to the panel.
@@ -199,6 +205,13 @@ paths:
   captured indicator exactly as plain session nav does. **Collapse is not a navigation filter** —
   `navigableSessions` and `navigateWorkspace` both ignore `isExpanded`, and adding a term to either would
   silently rewrite where every existing keystroke, `session.go` call and Ctrl-Tab candidate lands.
+- Previous/Next Window are the level above THAT, and the only navigation pair keyed on the library rather
+  than a store: `WindowLibrary.navigateWindow` steps the open windows in library order, wrapping, and raises
+  the target. Keyless, and live in either sidebar mode — a window has no sidebar row for flagged mode to
+  hide. `PaletteContext.canStepWindows` is the enablement term, so one open window disables rather than
+  no-ops. Menu, palette and `window.go` share the one step. The raise and the frontmost publication follow
+  [[windows]]: `WindowRegistry.raise` directly, never the `openWindow` hub, and `takeFrontmost` explicitly,
+  because the key monitor fires this from the quick terminal with agterm inactive.
 - When selection moves, GUI callers reveal a captured blocked/completed pane; unchanged plain navigation
   only refocuses, preventing a one-item wrap from resetting split focus. Modal focus guards still apply.
 - Attention navigation defaults to Control-Option-Up/Down, includes blocked/completed only, wraps, and
@@ -220,9 +233,12 @@ paths:
 - An empty query skips ranking in two cases: attention mode and a caller-supplied picker. Both keep their
   source order, because every row scores 0 and the tie-break would re-sort A→Z and replace the row Return
   runs. Every other palette lists everything A→Z.
-- Attention mode lists every non-idle session, ordered blocked, active, completed and then newest
-  `statusChangedAt`, with nil last. Palette items carry status plus per-call color/shape, resolved by the
-  same helpers as sidebar glyphs. Typed queries use fuzzy score.
+- Attention mode lists every open window's non-idle sessions (`WindowLibrary.attentionAcrossWindows`),
+  ordered blocked, active, completed and then newest `statusChangedAt`, with nil last, as one combined
+  sort. Palette items carry status plus per-call color/shape, resolved by the same helpers as sidebar
+  glyphs, a subtitle naming the window once more than one is open, and `isEnabled` asking the OWNING
+  window's modal gate. A pick defers `AppActions.selectAttention` past the palette's close, which raises
+  another window before selecting. Typed queries use fuzzy score.
 - Open attention through `show_attention` (Ctrl-Shift-I), Navigate > Go to Attention, or Show Attention
   in the action palette. The titlebar bell opens a popover, not this palette. Palette opening is
   keep-in-sync exempt.
@@ -242,9 +258,12 @@ paths:
   below 1000 lines. They use
   `SessionPopoverRow`: optional status glyph, hover selection color, full-row hit target, terminal
   background, and chrome text.
-- Clock lists up to `maxCandidates` recent visible sessions excluding active and enables only while that
-  list is non-empty. Selection records activity, selects, and focuses.
-- Bell lists all non-idle sessions including current. Selection uses pane-aware reveal.
+- Clock lists up to `maxCandidates` recent visible sessions excluding active and enables only with at
+  least two sessions. Selection records activity, selects, and focuses.
+- Bell lists all non-idle sessions across open windows, current included. Selection uses the same
+  pane-aware reveal as the palette; see [[notifications]] for the cross-window raise.
+- The GTK clock uses its non-empty recent-visible list as its enable condition; see
+  `agterm-linux/docs/sidebar.md` for its row update contract.
 - Popover opens are keep-in-sync exempt. Synthesized XCUITest clicks inside `NSPopover` do not fire the
   SwiftUI button, though real clicks do; tests verify open/list contents, while selection is manual plus
   host-free API coverage.

@@ -4,6 +4,10 @@ public struct PaletteContext: Sendable, Equatable {
     public let canRemoveWorkspace: Bool
     public let hasFlaggedSessions: Bool
     public let sidebarShowsWorkspaceTree: Bool
+    /// Whether the sidebar has workspace ROWS to fold: the ordinary tree, or flagged mode under the tree
+    /// layout. Wider than `sidebarShowsWorkspaceTree`, which workspace stepping still keys on. An init call
+    /// that omits it takes `sidebarShowsWorkspaceTree`, so a caller with no flagged tree keeps its fold commands.
+    public let sidebarShowsWorkspaceRows: Bool
     public let sidebarShowsFlaggedOnly: Bool
     public let activeSessionFlagged: Bool
     /// Whether ANY workspace is MARKED in the focus set — membership, NOT whether the filter is applied
@@ -21,6 +25,10 @@ public struct PaletteContext: Sendable, Equatable {
     /// `navigateWorkspace` no-ops below that, so without this term the menu item and the mapped key stay
     /// live while provably doing nothing.
     public let canStepWorkspaces: Bool
+    /// Whether more than one window is OPEN, i.e. whether a window step has anywhere to go. `WindowLibrary`,
+    /// not the store: window stepping is app-global, so this is the one term here that outlives the frontmost
+    /// window's own state.
+    public let canStepWindows: Bool
     public let activeSessionHasSplit: Bool
     public let activeSplitAxis: SplitAxis?
     public let hasPendingClose: Bool
@@ -31,7 +39,7 @@ public struct PaletteContext: Sendable, Equatable {
     public let hasCurrentWorkspace: Bool
     public let terminalZoomActive: Bool
     public let dashboardOpen: Bool
-    /// Whether a control-API native picker is pending over the window.
+    /// pickerActive covers either a control picker or an ask dialog in the window.
     public let pickerActive: Bool
 
     /// Any cover over the deck. Behind it a keystroke or a menu pick must not mutate what it hides, so all
@@ -40,13 +48,14 @@ public struct PaletteContext: Sendable, Equatable {
 
     public init(canRemoveWorkspace: Bool = false,
                 hasFlaggedSessions: Bool = false,
-                sidebarShowsWorkspaceTree: Bool = false,
+                sidebarShowsWorkspaceTree: Bool = false, sidebarShowsWorkspaceRows: Bool? = nil,
                 sidebarShowsFlaggedOnly: Bool = false,
                 activeSessionFlagged: Bool = false,
                 hasMarkedWorkspaces: Bool = false,
                 activeWorkspaceMarked: Bool = false,
                 activeWorkspaceCollapsed: Bool = false,
                 canStepWorkspaces: Bool = false,
+                canStepWindows: Bool = false,
                 activeSessionHasSplit: Bool = false,
                 activeSplitAxis: SplitAxis? = nil,
                 hasPendingClose: Bool = false,
@@ -59,12 +68,14 @@ public struct PaletteContext: Sendable, Equatable {
         self.canRemoveWorkspace = canRemoveWorkspace
         self.hasFlaggedSessions = hasFlaggedSessions
         self.sidebarShowsWorkspaceTree = sidebarShowsWorkspaceTree
+        self.sidebarShowsWorkspaceRows = sidebarShowsWorkspaceRows ?? sidebarShowsWorkspaceTree
         self.sidebarShowsFlaggedOnly = sidebarShowsFlaggedOnly
         self.activeSessionFlagged = activeSessionFlagged
         self.hasMarkedWorkspaces = hasMarkedWorkspaces
         self.activeWorkspaceMarked = activeWorkspaceMarked
         self.activeWorkspaceCollapsed = activeWorkspaceCollapsed
         self.canStepWorkspaces = canStepWorkspaces
+        self.canStepWindows = canStepWindows
         self.activeSessionHasSplit = activeSessionHasSplit
         self.activeSplitAxis = activeSplitAxis
         self.hasPendingClose = hasPendingClose
@@ -83,12 +94,13 @@ public enum PaletteCommand: String, CaseIterable, Sendable {
     case renameSession, duplicateSession, renameWorkspace, closeSession, reopenRecent, undoClose, clearStatus
     case previousSession, nextSession, previousAttentionSession, nextAttentionSession
     case previousWorkspace, nextWorkspace
+    case previousWindow, nextWindow
     case firstSession, lastSession, showAttention
     case toggleSplit, toggleHorizontalSplit, closeSplit, swapPanes, toggleScratch, toggleTerminalZoom
     case toggleSidebar, toggleFlag, focusWorkspace
     case find, quickTerminal, dashboard, toggleFullscreen
     case increaseFontSize, decreaseFontSize, resetFontSize, selectTheme
-    case editKeymap, reloadKeymap, editGhosttyConfig, reloadConfig
+    case editKeymap, reloadKeymap, editHooks, reloadHooks, editGhosttyConfig, reloadConfig
     case deleteWorkspace, toggleFlaggedView, clearFlagged, clearFocus
     case addWorkspaceToFocus, toggleWorkspaceFilter
     case expandWorkspaces, collapseWorkspaces, toggleWorkspaceCollapse, focusLeftPane, focusRightPane
@@ -112,6 +124,9 @@ public enum PaletteCommand: String, CaseIterable, Sendable {
         case .previousWorkspace, .nextWorkspace:
             // a step needs somewhere to go, so a lone visible workspace disables rather than no-ops
             return context.hasCurrentWorkspace && context.canStepWorkspaces
+        case .previousWindow, .nextWindow:
+            // same rule one level up: a single open window has nowhere to step to
+            return context.canStepWindows
         default:
             return true
         }
@@ -123,7 +138,7 @@ public enum PaletteCommand: String, CaseIterable, Sendable {
     private func isCoveredByModal(_ context: PaletteContext) -> Bool {
         switch self {
         case .increaseFontSize, .decreaseFontSize, .resetFontSize,
-             .reloadKeymap, .reloadConfig, .toggleTerminalZoom, .closeSession:
+             .reloadKeymap, .reloadHooks, .reloadConfig, .toggleTerminalZoom, .closeSession:
             return false
         case .dashboard:
             return context.terminalZoomActive || context.pickerActive
@@ -154,14 +169,14 @@ public enum PaletteCommand: String, CaseIterable, Sendable {
             // targets `currentWorkspaceID`). NOT gated on sidebar mode — membership is model state the tree
             // applies the moment it is shown again, and every sibling is mode-agnostic: the View-menu item,
             // Focus Workspace, Toggle Workspace Filter, Clear Focus, the `focus_workspace` keybind,
-            // `workspace.focus`/`workspace.filter`. the tree-mode gate belongs to expand/collapse, whose rows
-            // flagged mode never renders.
+            // `workspace.focus`/`workspace.filter`. the row gate belongs to expand/collapse, whose rows
+            // the flat flagged list never renders.
             return !context.activeWorkspaceMarked
-        case .expandWorkspaces, .collapseWorkspaces, .toggleWorkspaceCollapse,
-             .previousWorkspace, .nextWorkspace:
-            // the tree-mode gate the sibling comment on `addWorkspaceToFocus` describes: these five act on
-            // workspace ROWS, which flagged mode's flat list does not render, and `navigateWorkspace` no-ops
-            // there for the same reason.
+        case .expandWorkspaces, .collapseWorkspaces, .toggleWorkspaceCollapse:
+            // these fold workspace ROWS, which the flat flagged list does not render.
+            return context.sidebarShowsWorkspaceRows
+        case .previousWorkspace, .nextWorkspace:
+            // ordinary tree only, narrower than the row gate above: `AppStore.canStepWorkspaces` owns why.
             return context.sidebarShowsWorkspaceTree
         case .focusLeftPane, .focusRightPane, .closeSplit:
             // `hasSplit`, not `isSplit`: a hidden pane is alive and still reported, the state Close Split
@@ -198,6 +213,8 @@ public enum PaletteCommand: String, CaseIterable, Sendable {
         case .nextAttentionSession: return "Next Attention Session"
         case .previousWorkspace: return "Previous Workspace"
         case .nextWorkspace: return "Next Workspace"
+        case .previousWindow: return "Previous Window"
+        case .nextWindow: return "Next Window"
         case .firstSession: return "First Session"
         case .lastSession: return "Last Session"
         case .showAttention: return "Show Attention"
@@ -220,6 +237,8 @@ public enum PaletteCommand: String, CaseIterable, Sendable {
         case .selectTheme: return "Select Theme…"
         case .editKeymap: return "Edit Keymap"
         case .reloadKeymap: return "Reload Keymap"
+        case .editHooks: return "Edit Hooks"
+        case .reloadHooks: return "Reload Hooks"
         case .editGhosttyConfig: return "Edit ghostty.conf"
         case .reloadConfig: return "Reload Config"
         case .deleteWorkspace: return "Delete Workspace"
@@ -253,6 +272,8 @@ public enum PaletteCommand: String, CaseIterable, Sendable {
         case .previousAttentionSession: return .previousAttentionSession
         case .nextAttentionSession: return .nextAttentionSession
         case .previousWorkspace: return .previousWorkspace
+        case .previousWindow: return .previousWindow
+        case .nextWindow: return .nextWindow
         case .nextWorkspace: return .nextWorkspace
         case .toggleWorkspaceCollapse: return .toggleWorkspaceCollapse
         case .firstSession: return .firstSession
@@ -278,7 +299,7 @@ public enum PaletteCommand: String, CaseIterable, Sendable {
         case .toggleWorkspaceFilter: return .toggleWorkspaceFilter
         case .focusLeftPane: return .focusLeftPane
         case .focusRightPane: return .focusRightPane
-        case .editKeymap, .reloadKeymap, .editGhosttyConfig, .reloadConfig,
+        case .editKeymap, .reloadKeymap, .editHooks, .reloadHooks, .editGhosttyConfig, .reloadConfig,
              .clearFlagged, .clearFocus, .addWorkspaceToFocus, .expandWorkspaces, .collapseWorkspaces,
              .closeSplit, .swapPanes:
             return nil

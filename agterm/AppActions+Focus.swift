@@ -26,6 +26,17 @@ extension AppActions {
 
     // MARK: - Modal focus guards
 
+    /// Resigns a dismissed field editor before handing focus to the terminal or ask.
+    func resignDismissedFieldEditor(for windowID: UUID?) {
+        guard let windowID, library.activeWindowID == windowID, !renamePending, palette?.mode == nil,
+              PickRegistry.shared.controller(for: windowID)?.modalPending != true,
+              let window = NSApp.windows.first(where: { WindowRegistry.shared.windowID(for: $0) == windowID }),
+              window.firstResponder is NSText else { return }
+        if let editor = window.firstResponder as? NSTextView, let field = editor.delegate as? NSTextField,
+           (field.delegate as? SidebarRenameController)?.isEditing == true { return }
+        window.makeFirstResponder(nil)
+    }
+
     /// Whether the frontmost window's dashboard grid overlay is open. Like a zoom or an open palette it is
     /// modal and its key-catcher owns first responder, so `focusActiveSession` must not grab the active
     /// session's surface while it is up (that surface is a view-only grid cell).
@@ -33,10 +44,25 @@ extension AppActions {
         DashboardControllerRegistry.shared.controller(for: library.activeWindowID)?.isOpen == true
     }
 
-    /// Whether the specified window has a native control picker pending. Kept as one window-scoped
-    /// predicate so both frontmost and session-addressed focus paths use the same modal invariant.
+    /// Checks the window slot for a pick or GUI ask; terminal asks are checked through `deferFocusToAsk`.
     func pickActive(for windowID: WindowInfo.ID?) -> Bool {
-        PickRegistry.shared.controller(for: windowID)?.pending != nil
+        PickRegistry.shared.controller(for: windowID)?.modalPending == true
+    }
+
+    @discardableResult
+    func escapePendingAsk(for windowID: WindowInfo.ID?) -> Bool {
+        guard let controller = PickRegistry.shared.controller(for: windowID),
+              controller.pendingAsk != nil else { return false }
+        controller.escapeAsk()
+        return true
+    }
+
+    /// Dismisses only the session dialog currently eligible to receive keys.
+    func escapePendingSessionAsk() -> Bool {
+        guard let session = store?.activeSession, let ask = session.askPending,
+              let catcher = AskKeyCatcher.KeyCatcherView.sessionCatchers.object(forKey: session.id as NSUUID),
+              catcher.canFocus else { return false }
+        return session.resolveAsk(id: ask.id, ControlAskResult(result: .escaped))
     }
 
     /// Whether terminal zoom is active in the window OWNING this session — the right gate for the
@@ -97,6 +123,8 @@ extension AppActions {
         // a no-op unless the status needs attention: the scratch-hide / split-focus side effects must never
         // fire on plain navigation to a still-active session, or one merely showing its keep-alive scratch.
         guard indicator.status.needsAttention else { focusActiveSession(); return }
+        // a mirrored status for a pane with no counterpart here names no pane to reveal
+        guard session.remotePresentation?.statusOwnerUnknown != true else { focusActiveSession(); return }
         let pane = indicator.statusPane
         // a shown scratch masks a non-scratch block; overlays are deliberately left alone.
         if pane != .scratch, session.scratchActive { store?.toggleScratch(session.id) }
@@ -111,6 +139,41 @@ extension AppActions {
             session.splitFocused = false
             focusSplitPane(session, wantSplit: false)
         }
+    }
+
+    /// Whether an attention row can be acted on right now: its window open and not under a cover, its
+    /// session still there. Asked at render and again at the pick, since a row outlives all three.
+    func canSelectAttention(windowID: WindowInfo.ID, sessionID: UUID) -> Bool {
+        uiActionsEnabled(for: windowID) && library.store(for: windowID)?.session(withID: sessionID) != nil
+    }
+
+    /// Select a row of the cross-window attention list and reveal its pane, raising its window first when it
+    /// is not the active one so `store` resolves there. A raise that fails (the window still attaching)
+    /// drops the pick as a window step does.
+    func selectAttention(windowID: WindowInfo.ID, sessionID: UUID) {
+        guard canSelectAttention(windowID: windowID, sessionID: sessionID),
+              let target = library.store(for: windowID) else { return }
+        if windowID != library.activeWindowID {
+            guard WindowRegistry.shared.raise(windowID) else { return }
+            takeFrontmost(windowID)
+        }
+        target.noteUserActivity()
+        let indicator = target.selectSession(sessionID)
+        revealActiveBlockedPane(captured: indicator)
+    }
+
+    /// Front and focus the window a recent-closed reopen restored into. The id is published here rather
+    /// than left to the key-window report, which `focusActiveSession` would otherwise outrun; publishing it
+    /// also has to save and post, because `WindowAccessor.reportFrontmost` gates both on the id having
+    /// changed and this assignment already made it equal.
+    func revealRestoredWindow(_ id: WindowInfo.ID) {
+        if library.frontmostWindowID != id {
+            library.frontmostWindowID = id
+            library.saveIndex()
+            NotificationCenter.default.post(name: .agtermWindowFrontmostChanged, object: nil)
+        }
+        _ = WindowRegistry.shared.raise(id)
+        focusActiveSession()
     }
 
     /// Move first responder back to the active session's topmost surface (after the quick terminal or a
@@ -129,6 +192,7 @@ extension AppActions {
         if pickActive(for: library.activeWindowID) { return }
         if quickTerminal.holdsKey { return }
         if let view = store?.activeSession?.topmostSurface as? GhosttySurfaceView, let window = view.window {
+            guard !view.deferFocusToAsk() else { return }
             window.makeFirstResponder(view)
         }
         guard attempt < 12 else { return }
@@ -182,6 +246,7 @@ extension AppActions {
         // restores the session.
         if quickTerminal.holdsKey { return }
         if let view = session.focusTarget(wantSplit: wantSplit) as? GhosttySurfaceView, let window = view.window {
+            guard !view.deferFocusToAsk() else { return }
             window.makeFirstResponder(view)
         }
         guard attempt < 12 else { return }

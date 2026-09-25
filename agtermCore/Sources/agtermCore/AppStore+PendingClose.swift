@@ -87,7 +87,10 @@ extension AppStore {
         guard let location = location(ofSession: sessionID) else { return false }
         let workspace = workspaces[location.workspaceIndex]
         let wasActive = selectedSessionID == sessionID
-        let session = workspaces[location.workspaceIndex].sessions.remove(at: location.sessionIndex)
+        let session = workspace.sessions[location.sessionIndex]
+        releaseLeavingSession(session)
+        closeTimedHud(session)
+        workspaces[location.workspaceIndex].sessions.remove(at: location.sessionIndex)
         emitSessionClosed(session, workspace: workspace.id)
         dropLaunchPanes([session])
         // undo reinserts THIS object, so an override armed at bootstrap and never consumed would survive the
@@ -157,6 +160,8 @@ extension AppStore {
             guard workspaces.indices.contains(close.workspaceIndex),
                   workspaces[close.workspaceIndex].sessions.indices.contains(close.sessionIndex),
                   workspaces[close.workspaceIndex].sessions[close.sessionIndex].id == close.session.id else { continue }
+            releaseLeavingSession(close.session)
+            closeTimedHud(close.session)
             _ = workspaces[close.workspaceIndex].sessions.remove(at: close.sessionIndex)
         }
         dropLaunchPanes(closes.map(\.session))
@@ -199,6 +204,10 @@ extension AppStore {
     @discardableResult
     public func softRemoveWorkspace(_ workspaceID: UUID, grace: TimeInterval = AppStore.pendingCloseGraceInterval) -> Bool {
         guard canRemoveWorkspace, let index = workspaces.firstIndex(where: { $0.id == workspaceID }) else { return false }
+        for session in workspaces[index].sessions {
+            releaseLeavingSession(session)
+            closeTimedHud(session)
+        }
         let visibleWorkspace = workspaces.remove(at: index)
         dropLaunchPanes(visibleWorkspace.sessions)
         forgetFreshWorkspace(workspaceID)
@@ -307,6 +316,17 @@ extension AppStore {
     /// Arm the grace timer through the `MainTimer` host seam — NOT a `Task.sleep`, which a host whose main
     /// loop drains no main-actor executor (the GTK port's GLib loop) would silently never run, leaving the
     /// undo window open forever and the closed session's surfaces alive.
+    /// Takes down a panel that was counting itself out, before its session leaves the tree. A soft close
+    /// keeps the session object alive for the undo window but nothing can resolve it there, so an expiry
+    /// would miss it and undo would bring back a panel whose time was already up. A panel with no auto-hide
+    /// is left exactly as it was, which is what undo restores.
+    private func closeTimedHud(_ session: Session) {
+        guard session.hudActive, (session.hudSpec?.effectiveHideAfter ?? 0) > 0 else { return }
+        closeHud(session.id)
+    }
+
+    /// Arm the grace timer through the `MainTimer` host seam. The GTK main loop does not drain Swift's
+    /// main-actor executor, so a sleeping task would leave closed sessions alive indefinitely.
     private func schedulePendingCloseFinalization(id: UUID, grace: TimeInterval) {
         pendingCloseCancels[id]?()
         pendingCloseCancels[id] = MainTimer.schedule(after: max(0, grace)) { [weak self] in
@@ -336,6 +356,17 @@ extension AppStore {
         }
         pendingCloseOrder.removeAll { pendingCloseRecords[$0] == nil }
         return (folded, focusMember)
+    }
+
+    /// Whether a pending close is holding workspace `id`: the workspace itself, or a session recorded as
+    /// having lived in it, whose undo would put that workspace back.
+    func pendingHoldsWorkspace(_ id: UUID) -> Bool {
+        pendingCloseRecords.values.contains { record in
+            switch record {
+            case .sessions(let close): return close.sessions.contains { $0.workspaceID == id }
+            case .workspace(let close): return close.workspace.id == id
+            }
+        }
     }
 
     /// Session ids a pending close still holds. They are absent from the tree, but their live objects are
@@ -454,7 +485,7 @@ extension AppStore {
             session.teardownPaneOverlays()
             session.scratchSurface?.teardown()
             session.discardHudBody() // a HUD whose surface never realized has no teardown to delete its body file
-            WatermarkStorage.removeRenderedText(sessionID: session.id)
+            WatermarkStorage.removeAllRenderedText(sessionID: session.id)
             removeFromRecency(session.id)
         }
     }

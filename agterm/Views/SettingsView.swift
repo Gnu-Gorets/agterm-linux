@@ -39,7 +39,7 @@ struct SettingsView: View {
                 .tabItem { Label("Key Mapping", systemImage: "keyboard") }
                 .tag(Tab.keyMapping)
         }
-        .frame(width: 540, height: 640)
+        .frame(width: 540, height: 680)
         // without this a process-launch reopen (see agtermApp's FB11763863 workaround) resurrects a stale
         // Settings window on its last tab, stealing key focus from the real launch window.
         .background(NonRestorableWindow())
@@ -73,7 +73,8 @@ private struct SettingHint: View {
 }
 
 /// General tab: Mouse (scroll speed, right-click-pastes, workspace-row click), Sessions (new-session
-/// directory, restore mode) and the inherit-global-ghostty-config toggle; visual and
+/// directory, restore mode, and the flagged view layout, here because the Interface tab is full) and the
+/// inherit-global-ghostty-config toggle; visual and
 /// notification settings have their own tabs.
 private struct GeneralSettingsView: View {
     let model: SettingsModel
@@ -132,6 +133,11 @@ private struct GeneralSettingsView: View {
                     .accessibilityIdentifier("settings-confirm-close-session")
                 Toggle("Allow undo after closing sessions and workspaces", isOn: closeGraceUndoEnabled)
                     .accessibilityIdentifier("settings-close-grace-undo")
+                Picker("Flagged view layout", selection: flaggedViewLayout) {
+                    Text("Flat list").tag(FlaggedViewLayout.flat)
+                    Text("Workspace tree").tag(FlaggedViewLayout.tree)
+                }
+                .accessibilityIdentifier("settings-flagged-view-layout")
             }
 
             Section("Ghostty Config") {
@@ -168,6 +174,11 @@ private struct GeneralSettingsView: View {
     private var rightClickPaste: Binding<Bool> {
         Binding(get: { model.settings.rightClickPaste ?? true },
                 set: { model.setRightClickPaste($0 ? nil : false) })
+    }
+
+    private var flaggedViewLayout: Binding<FlaggedViewLayout> {
+        Binding(get: { model.settings.effectiveFlaggedViewLayout },
+                set: { model.setFlaggedViewLayout($0) })
     }
 
     /// Default ON; turning it off stores false and leaves only the disclosure triangle as the hit target.
@@ -446,10 +457,11 @@ private struct AppearanceSettingsView: View {
 }
 
 /// Interface tab: per-element title-bar and sidebar chrome visibility, grouped by surface, two toggles per
-/// row so the tab keeps fitting the fixed 540×640 window as the element set grows, plus the quick terminal's
-/// panel size — that panel belongs to no window, so it is not a Window setting. Everything shows by
-/// default; a toggle off adds it to `AppSettings.hiddenInterfaceElements` and live-applies — title-bar and
-/// footer elements re-gate in open windows on `.agtermAppearanceChanged`, the add-session "+" on hover.
+/// row so the tab keeps fitting the fixed 540×680 window as the element set grows, plus the quick terminal's
+/// panel size — that panel belongs to no window, so it is not a Window setting. A toggle off adds the
+/// element to `AppSettings.hiddenInterfaceElements`, a `hiddenByDefault` one toggled on to
+/// `shownInterfaceElements`, and both live-apply — title-bar and footer elements re-gate in open windows on
+/// `.agtermAppearanceChanged`, the add-session "+" on hover.
 private struct InterfaceSettingsView: View {
     let model: SettingsModel
 
@@ -579,7 +591,11 @@ private struct NotificationsSettingsView: View {
                 set: { name in
                     let value = name == "None" ? nil : name
                     model.setNotificationSoundName(value)
-                    if let value { StatusSoundPlayer.shared.action(for: value)?() }
+                    if let value {
+                        Task {
+                            await StatusSoundPlayer.shared.preview(value, ifCurrent: { model.settings.notificationSoundName == value })
+                        }
+                    }
                 })
     }
 
@@ -590,7 +606,8 @@ private struct NotificationsSettingsView: View {
 }
 
 /// Agent Status tab: Colors and Shapes (a row per state — active/blocked/completed — with that glyph's color
-/// well and shape picker), Sound, Auto-follow (idle timeout + stay-on-active), and a Reset clearing all three.
+/// well and shape picker), Sound, Typing (which keystroke clears a blocked/completed glyph), Auto-follow (idle
+/// timeout + stay-on-active), and a Reset clearing the first three.
 private struct AgentStatusSettingsView: View {
     /// Gap between a glyph row's color well and its shape picker.
     private static let controlSpacing: CGFloat = 8
@@ -617,6 +634,15 @@ private struct AgentStatusSettingsView: View {
                     }
                 }
                 .accessibilityIdentifier("settings-status-blocked-sound")
+            }
+
+            Section("Typing") {
+                Picker("Status reset", selection: statusReset) {
+                    Text("On first key").tag(StatusReset.firstKey)
+                    Text("On Enter").tag(StatusReset.enter)
+                    Text("Disabled").tag(StatusReset.never)
+                }
+                .accessibilityIdentifier("settings-status-clear")
             }
 
             Section("Auto-follow") {
@@ -744,12 +770,22 @@ private struct AgentStatusSettingsView: View {
     }
 
     // the sound played when a session enters `blocked`; selecting one previews it, like the notification sound
+    /// Default first key; the default maps to nil so it never lands in the file.
+    private var statusReset: Binding<StatusReset> {
+        Binding(get: { model.settings.effectiveStatusReset },
+                set: { model.setStatusReset($0 == .firstKey ? nil : $0) })
+    }
+
     private var blockedStatusSound: Binding<String> {
         Binding(get: { model.settings.blockedStatusSoundName ?? "None" },
                 set: { name in
                     let value = name == "None" ? nil : name
                     model.setBlockedStatusSoundName(value)
-                    if let value { StatusSoundPlayer.shared.action(for: value)?() }
+                    if let value {
+                        Task {
+                            await StatusSoundPlayer.shared.preview(value, ifCurrent: { model.settings.blockedStatusSoundName == value })
+                        }
+                    }
                 })
     }
 
@@ -800,7 +836,7 @@ private struct KeyMappingSettingsView: View {
                             .accessibilityIdentifier("settings-keymap-default")
                     }
                 }
-                Text("The directory holding keymap.conf. Changing it reloads the keymap.")
+                Text("The directory holding keymap.conf and hooks.conf. Changing it reloads both.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
@@ -828,9 +864,37 @@ private struct KeyMappingSettingsView: View {
                 Button("Reload") { model.reloadKeymap() }
                     .accessibilityIdentifier("settings-keymap-reload")
             }
+
+            Section("Hooks") {
+                if model.hooksDiagnostics.isEmpty {
+                    Text("No issues.")
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("settings-hooks-diagnostics")
+                        .accessibilityValue(hooksDiagnosticsSummary)
+                } else {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(Array(model.hooksDiagnostics.enumerated()), id: \.offset) { _, diagnostic in
+                            Text(diagnosticLine(diagnostic))
+                                .font(.system(size: 12).monospaced())
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("settings-hooks-diagnostics")
+                    .accessibilityValue(hooksDiagnosticsSummary)
+                }
+                Button("Reload") { model.reloadHooks() }
+                    .accessibilityIdentifier("settings-hooks-reload")
+            }
         }
         .formStyle(.grouped)
         .padding()
+    }
+
+    private var hooksDiagnosticsSummary: String {
+        model.hooksDiagnostics.isEmpty ? "No issues." : model.hooksDiagnostics.map(diagnosticLine).joined(separator: " | ")
     }
 
     /// A diagnostic as one line, "line N: message"; a whole-file/cross-section one (line 0) shows the message.

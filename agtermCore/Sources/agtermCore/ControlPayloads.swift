@@ -152,11 +152,22 @@ public struct ControlRemoteTree: Codable, Sendable, Equatable {
     public let host: String?
     public let endpoint: ControlZmxEndpoint
     public let sessions: [ControlRemoteSession]
+    /// The presentation protocol version this app speaks. Absent from an app that predates the presentation
+    /// stream, which is how an attaching Mac learns not to open one.
+    public let presentation: Int?
 
-    public init(host: String?, endpoint: ControlZmxEndpoint, sessions: [ControlRemoteSession]) {
+    public init(host: String?, endpoint: ControlZmxEndpoint, sessions: [ControlRemoteSession],
+                presentation: Int? = nil) {
         self.host = host
         self.endpoint = endpoint
         self.sessions = sessions
+        self.presentation = presentation
+    }
+
+    /// This answer with the ssh destination the requesting app was given. A field added to this type has to
+    /// be copied here too, or the requesting app loses it.
+    public func stamped(host: String) -> ControlRemoteTree {
+        ControlRemoteTree(host: host, endpoint: endpoint, sessions: sessions, presentation: presentation)
     }
 }
 
@@ -169,14 +180,44 @@ public struct ControlZmxInventory: Codable, Sendable, Equatable {
     /// Header rather than per row: one instance has one zmx and one socket directory. Optional so a
     /// remote reader can tell an older server apart from one that reports nothing to attach to.
     public let endpoint: ControlZmxEndpoint?
+    /// The Live sessions reset state, repeated from the tree top level; omitted when nothing is pending
+    /// and no launch has consumed a marker.
+    public let liveReset: ControlLiveResetReadback?
     public let entries: [ControlZmxEntry]
 
     public init(restore: ControlRestoreStatus, result: ZmxInventoryResult,
-                endpoint: ControlZmxEndpoint? = nil) {
+                endpoint: ControlZmxEndpoint? = nil, liveReset: ControlLiveResetReadback? = nil) {
         self.restore = restore
         inventoryComplete = result.inventoryComplete
         self.endpoint = endpoint
+        self.liveReset = liveReset
         entries = result.rows.map(ControlZmxEntry.init(row:))
+    }
+}
+
+/// `zmx.reset`'s acknowledgement: what was confirmed for the next launch. `pending` is true once the
+/// app holds the set and is about to quit.
+public struct ControlLiveResetStatus: Codable, Sendable, Equatable {
+    public let sessions: Int
+    public let panes: Int
+    public let pending: Bool
+
+    public init(sessions: Int, panes: Int, pending: Bool) {
+        self.sessions = sessions
+        self.panes = panes
+        self.pending = pending
+    }
+}
+
+/// The reset's read-back on the tree top level and the `zmx list` header. `pending` is the confirmed pane
+/// count held in memory until the quit; `last` is the outcome of the launch that consumed a marker.
+public struct ControlLiveResetReadback: Codable, Sendable, Equatable {
+    public let pending: Int?
+    public let last: LiveReset.Outcome?
+
+    public init(pending: Int?, last: LiveReset.Outcome?) {
+        self.pending = pending
+        self.last = last
     }
 }
 
