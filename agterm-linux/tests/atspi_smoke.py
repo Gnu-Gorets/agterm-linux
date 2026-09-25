@@ -379,6 +379,16 @@ def focus_window(process_id):
     focus_accessible_window(windows[-1], process_id)
 
 
+def reactivate_active_x11_window():
+    """Exercise the application's real focus-out/focus-in callback under the private Xvfb WM."""
+    active_window = subprocess.run(
+        ["xdotool", "getactivewindow"], check=True, capture_output=True, text=True
+    ).stdout.strip()
+    subprocess.run(["xdotool", "windowminimize", active_window], check=True)
+    subprocess.run(["xdotool", "windowmap", active_window], check=True)
+    subprocess.run(["xdotool", "windowactivate", "--sync", active_window], check=True)
+
+
 def focus_accessible_window(window, process_id):
     """Focus one exact window when the isolated process owns more than one."""
     if os.environ.get("HYPRLAND_INSTANCE_SIGNATURE") and shutil.which("hyprctl"):
@@ -2009,6 +2019,14 @@ def verify_control_ask(env):
         assert not answer.get_state_set().contains(Atspi.StateType.FOCUSED), (
             "opening a right-pane ask moved keyboard focus off the left pane"
         )
+        if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+            reactivate_active_x11_window()
+            assert not answer.get_state_set().contains(Atspi.StateType.FOCUSED), (
+                "window reactivation moved focus from the left pane to its right-pane ask"
+            )
+            owner = keyboard_owner(os.path.join(env["AGTERM_STATE_DIR"], "ask-reactivated-owner"),
+                                   process.pid)
+            assert owner == f"owner={session_id}/{window_id}/left", owner
         hud = raw_control_json(env, {
             "cmd": "session.hud.open", "target": session_id,
             "args": {"message": "Focus probe", "window": window_id},
@@ -2056,12 +2074,7 @@ def verify_control_ask(env):
         wait_for(lambda: held_button.get_state_set().contains(Atspi.StateType.FOCUSED),
                  "a session-wide ask did not receive focus")
         if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
-            active_window = subprocess.run(
-                ["xdotool", "getactivewindow"], check=True, capture_output=True, text=True
-            ).stdout.strip()
-            subprocess.run(["xdotool", "windowminimize", active_window], check=True)
-            subprocess.run(["xdotool", "windowmap", active_window], check=True)
-            subprocess.run(["xdotool", "windowactivate", "--sync", active_window], check=True)
+            reactivate_active_x11_window()
             wait_for(lambda: named(app, "Keep focus", role="button")
                      and named(app, "Keep focus", role="button").get_state_set()
                      .contains(Atspi.StateType.FOCUSED),

@@ -752,12 +752,13 @@ extension AppController {
             quickSurface?.grabFocus()
             return
         }
-        guard !dashboard.isOpen, let id = store.activeSession?.id else { return }
-        if let ask = terminalAskSurfaces[id], gtk_widget_get_visible(W(ask.root)) != 0 {
+        guard !dashboard.isOpen, let session = store.activeSession else { return }
+        if let ask = terminalAskSurfaces[session.id], gtk_widget_get_visible(W(ask.root)) != 0,
+           session.askTargetPane == nil || session.askTargetPane == session.focusedPane {
             ask.focusSelection()
             return
         }
-        searchTargetSurface(for: id)?.grabFocus()
+        searchTargetSurface(for: session.id)?.grabFocus()
     }
 
     /// The shape a path that hands the keyboard back after a MODE CHANGE must use: `showActive()`'s own
