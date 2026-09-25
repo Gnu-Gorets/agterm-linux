@@ -753,6 +753,10 @@ extension AppController {
             return
         }
         guard !dashboard.isOpen, let id = store.activeSession?.id else { return }
+        if let ask = terminalAskSurfaces[id], gtk_widget_get_visible(W(ask.root)) != 0 {
+            ask.focusSelection()
+            return
+        }
         searchTargetSurface(for: id)?.grabFocus()
     }
 

@@ -2055,6 +2055,17 @@ def verify_control_ask(env):
                                "a session-wide ask was not visible")
         wait_for(lambda: held_button.get_state_set().contains(Atspi.StateType.FOCUSED),
                  "a session-wide ask did not receive focus")
+        if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+            active_window = subprocess.run(
+                ["xdotool", "getactivewindow"], check=True, capture_output=True, text=True
+            ).stdout.strip()
+            subprocess.run(["xdotool", "windowminimize", active_window], check=True)
+            subprocess.run(["xdotool", "windowmap", active_window], check=True)
+            subprocess.run(["xdotool", "windowactivate", "--sync", active_window], check=True)
+            wait_for(lambda: named(app, "Keep focus", role="button")
+                     and named(app, "Keep focus", role="button").get_state_set()
+                     .contains(Atspi.StateType.FOCUSED),
+                     "window reactivation moved focus from the visible ask into its terminal")
         assert raw_control_json(env, {
             "cmd": "session.hud.open", "target": session_id,
             "args": {"message": "Preserve ask focus", "window": window_id},
