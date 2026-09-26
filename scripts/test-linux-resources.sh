@@ -26,6 +26,7 @@ THEMES="$SHARE/ghostty/themes"
 mkdir -p "$THEMES" "$SHARE/ghostty/shell-integration/bash" "$SHARE/ghostty/shell-integration/zsh"
 printf 'fixture\n' > "$SHARE/ghostty/shell-integration/bash/ghostty.bash"
 printf 'fixture\n' > "$SHARE/ghostty/shell-integration/zsh/ghostty-integration"
+printf 'fixture\n' > "$SHARE/ghostty/shell-integration/zsh/.zshenv"
 for theme in "${GHOSTTY_KNOWN_THEMES[@]}"; do
   printf 'background = 000000\n' > "$THEMES/$theme"
 done
@@ -37,6 +38,13 @@ cp "$ROOT/linux/ghostty-resources.env" "$THEMES/.agterm-resource-manifest"
 printf 'xterm-ghostty|agterm resource verifier fixture,\n\tuse=xterm-256color,\n' > "$WORK/ghostty.terminfo"
 tic -x -o "$SHARE/terminfo" "$WORK/ghostty.terminfo"
 "$VERIFY" "$SHARE" >/dev/null
+
+rm "$SHARE/ghostty/shell-integration/zsh/.zshenv"
+if "$VERIFY" "$SHARE" >/dev/null 2>&1; then
+  echo "Ghostty resources without zsh .zshenv unexpectedly passed verification" >&2
+  exit 1
+fi
+printf 'fixture\n' > "$SHARE/ghostty/shell-integration/zsh/.zshenv"
 
 mkdir -p "$WORK/complete/include/ghostty" "$WORK/complete/lib"
 printf 'fixture\n' > "$WORK/complete/include/ghostty.h"

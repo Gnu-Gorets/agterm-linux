@@ -40,6 +40,7 @@ export AGTERM_STATE_DIR="$RUN_ROOT/state"
 export AGTERM_CONTROL_SOCKET="$RUN_ROOT/state/agterm.sock"
 export AGTERM_TEST_BIN="$BIN"
 export AGTERM_TEST_CTL="$CTL"
+export AGTERM_GHOSTTY_RESOURCES="$ROOT/agterm-linux/vendor/ghostty/share/ghostty"
 if [[ -z "${AGTERM_RESOURCE_ROOT:-}" ]]; then
   resource_root="$RUN_ROOT/resources"
   mkdir -p "$resource_root"
