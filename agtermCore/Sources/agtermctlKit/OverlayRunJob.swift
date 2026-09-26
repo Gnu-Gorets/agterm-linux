@@ -104,6 +104,10 @@ final class OverlayJobRunner: @unchecked Sendable {
             if let tty, lock.withLock({ killAt == nil }), Self.hungUp(tty) { cancel() }
             let deadline = lock.withLock { killAt }
             if status != nil, deadline == nil || kill(-pid, 0) != 0 { break }
+            // An orphaned descendant can remain a zombie when PID 1 does not reap it (for example,
+            // inside a container). kill(group, 0) still finds that dead process, so stop waiting after
+            // SIGKILL has had time to reach every remaining group member.
+            if let deadline, killed, status != nil, Date() >= deadline.addingTimeInterval(0.5) { break }
             if let deadline, !killed, Date() >= deadline {
                 kill(-pid, SIGKILL)
                 killed = true
