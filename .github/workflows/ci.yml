@@ -134,6 +134,7 @@ jobs:
     needs: [changes, test-linux, lint-linux]
     if: needs.changes.outputs.swift == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     # Compile-check the GTK port. The official Swift image carries the toolchain; apt adds GTK4,
     # libadwaita, GL deps, and zig builds libghostty.
     container: swift:6.3.2-noble

@@ -39,6 +39,7 @@ jobs:
   release-linux:
     name: Build Linux x86_64 release
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     container: swift:6.3.2-noble
     defaults:
       run:
