@@ -401,15 +401,15 @@ def focus_accessible_window(window, process_id):
         )
         return
     title = window.get_name() or ""
-    subprocess.run(
-        [
-            "xdotool", "search", "--onlyvisible", "--name", f"^{re.escape(title)}$",
-            "windowactivate", "--sync", "%@",
-        ],
-        check=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    # AT-SPI can expose a newly presented GTK window before X11 marks it visible.
+    # Keep targeting this exact title while the window manager finishes mapping it.
+    command = [
+        "xdotool", "search", "--onlyvisible", "--name", f"^{re.escape(title)}$",
+        "windowactivate", "--sync", "%@",
+    ]
+    assert poll(lambda: subprocess.run(command, check=False, stdout=subprocess.DEVNULL,
+                                       stderr=subprocess.DEVNULL).returncode == 0, timeout=3,
+                interval=0.1), f"X11 window {title!r} did not become visible for focus"
 
 
 def mouse_click(node_provider, process_id, window_title=None, button="right", count=1, dy=0,
