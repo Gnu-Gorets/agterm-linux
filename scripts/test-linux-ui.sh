@@ -214,6 +214,12 @@ fail_on_log_pattern -E 'Unrecognized value .*Try GDK_(DISABLE|DEBUG)=help' \
 fail_on_log_pattern -F "assertion 'GTK_IS_WIDGET (widget)' failed" \
   "GTK typecheck assertion on a finalized widget; see $APP_LOG"
 
+# A second realize over a live surface means a GtkGLArea was moved to a new parent and its GL context is
+# gone: the pane is blank from then on and no AT-SPI assertion can see it ([[libghostty]]). The app logs it
+# from `GhosttySurface.realize()`; terminal zoom was the last site doing this, so any hit is a regression.
+fail_on_log_pattern -F "GLArea re-realized over a live surface" \
+  "a live terminal surface was re-realized (reparented) and is blank; see $APP_LOG"
+
 if [[ "$status" -ne 0 ]]; then
   cp "$LOG" "$ARTIFACT_DIR/accessibility-tree.txt"
   echo "Linux UI smoke failed; diagnostics are in $ARTIFACT_DIR" >&2

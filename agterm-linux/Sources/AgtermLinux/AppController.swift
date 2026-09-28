@@ -37,7 +37,7 @@ final class AppController {
     var fullscreenDesired: Bool?
     var fullscreenTransitionInFlight = false
     var fullscreenTransitionTimeout: UInt32 = 0
-    let terminalZoom = TerminalZoomController(); let dashboard = DashboardController(); let dashboardRuntime = DashboardRuntime(); var zoomHost: OpaquePointer?
+    let terminalZoom = TerminalZoomController(); let dashboard = DashboardController(); let dashboardRuntime = DashboardRuntime()
     var zoomHeader: OpaquePointer?; var zoomTitleLabel: OpaquePointer?
     var splitToggleBtn: OpaquePointer?    // title-bar split toggle (swaps to .fill when active)
     var scratchToggleBtn: OpaquePointer?  // title-bar scratch toggle (swaps to .fill when active)
@@ -282,6 +282,7 @@ final class AppController {
         applyInterfaceElements()
         let contentToolbar = OpaquePointer(adw_toolbar_view_new())
         adw_toolbar_view_add_top_bar(contentToolbar, W(contentHeader))
+        installZoomHeader(in: contentToolbar)   // hidden until a terminal zoom swaps it for contentHeader
         let contentBox = OpaquePointer(gtk_box_new(GTK_ORIENTATION_VERTICAL, 0))
         self.contentBox = contentBox
         buildSearchBar()

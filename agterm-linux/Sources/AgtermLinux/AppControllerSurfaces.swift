@@ -551,8 +551,9 @@ extension AppController {
                 }
             }
         }
-        gtk_widget_set_visible(primaryWidget, layout.primaryVisible ? 1 : 0)
-        gtk_widget_set_visible(splitWidget, layout.splitVisible ? 1 : 0)
+        let zoomed = zoomedPaneVisibility(forSession: s.id)   // a zoom keeps only its own pane shown
+        gtk_widget_set_visible(primaryWidget, (zoomed?.primary ?? layout.primaryVisible) ? 1 : 0)
+        gtk_widget_set_visible(splitWidget, (zoomed?.split ?? layout.splitVisible) ? 1 : 0)
     }
 
     func capturePanedRatio(_ paned: OpaquePointer?) {
@@ -701,15 +702,20 @@ extension AppController {
                 gtk_widget_is_ancestor($0, W(ask.root)) != 0
             } == true && gtk_widget_get_visible(W(ask.root)) != 0
         } == true
+        // A zoom presents its own session's page, which need not be the selection (`surface zoom --target`).
+        let presentedID = zoomedSessionID ?? active?.id
         for (id, stack) in sessionStacks {
-            let presentation = DeckPagePresentation(pageID: id, activeID: active?.id, dashboardOpen: dashboard.isOpen)
+            let presentation = DeckPagePresentation(pageID: id, activeID: presentedID, dashboardOpen: dashboard.isOpen)
             gtk_widget_set_opacity(W(stack), presentation.opacity)
             gtk_widget_set_can_target(W(stack), presentation.canTarget ? 1 : 0)
             gtk_widget_set_child_visible(W(stack), presentation.childVisible ? 1 : 0)
         }
-        updateFloatingOverlayVisibility(activeID: active?.id)
+        updateFloatingOverlayVisibility(activeID: presentedID)
+        applyTerminalZoomLayout()
         updateCoverDimming()
-        if focus, !focusedAsk, let active {
+        if focus, terminalZoom.target != nil {
+            focusActiveSurface()
+        } else if focus, !focusedAsk, let active {
             if active.programOverlayActive {
                 overlaySurfaces[active.id]?.grabFocus()
             } else if active.scratchActive {
@@ -762,7 +768,7 @@ extension AppController {
     }
 
     /// The shape a path that hands the keyboard back after a MODE CHANGE must use: `showActive()`'s own
-    /// focus leg is deck-only, so it misses the quick terminal, the zoom host and the dashboard.
+    /// focus leg is deck-only, so it misses the quick terminal, a zoomed surface and the dashboard.
     func showActiveFocusingVisibleSurface() {
         showActive(focus: false)
         focusActiveSurface()

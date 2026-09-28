@@ -41,15 +41,29 @@ struct AppControllerZoomTests {
             overlayOpen: true, zoomTarget: nil, dashboardOpen: true, sessionID: sessionID, pane: .left))
     }
 
-    @Test("pane overlay zoom restores the wash above the reattached terminal")
+    @Test("a zoom hides the sibling pane of the pane it targets and leaves session covers alone")
     @MainActor
-    func paneOverlayStackTarget() throws {
-        let sessionID = UUID()
-        let left = try #require(AppController.paneOverlayTarget(.session(sessionID, .overlayLeft)))
-        #expect(left.0 == sessionID)
-        #expect(left.1 == .left)
-        let right = try #require(AppController.paneOverlayTarget(.session(sessionID, .overlayRight)))
-        #expect(right.1 == .right)
-        #expect(AppController.paneOverlayTarget(.session(sessionID, .primary)) == nil)
+    func zoomedPaneVisibility() throws {
+        let primary = try #require(AppController.zoomedPaneVisibility(.primary))
+        #expect(primary.primary && !primary.split)
+        let overlayLeft = try #require(AppController.zoomedPaneVisibility(.overlayLeft))
+        #expect(overlayLeft.primary && !overlayLeft.split)
+        let split = try #require(AppController.zoomedPaneVisibility(.split))
+        #expect(!split.primary && split.split)
+        let overlayRight = try #require(AppController.zoomedPaneVisibility(.overlayRight))
+        #expect(!overlayRight.primary && overlayRight.split)
+        #expect(AppController.zoomedPaneVisibility(.scratch) == nil)
+        #expect(AppController.zoomedPaneVisibility(.overlay) == nil)
+    }
+
+    @Test("a zoom shows the stack page that holds its surface, never moving the surface")
+    @MainActor
+    func zoomedStackPage() {
+        for slot in [TerminalZoomSurface.primary, .split, .overlayLeft, .overlayRight] {
+            #expect(AppController.zoomedStackPage(slot, floatingOverlay: false) == "main")
+        }
+        #expect(AppController.zoomedStackPage(.scratch, floatingOverlay: false) == "scratch")
+        #expect(AppController.zoomedStackPage(.overlay, floatingOverlay: false) == "overlay")
+        #expect(AppController.zoomedStackPage(.overlay, floatingOverlay: true) == nil)
     }
 }
