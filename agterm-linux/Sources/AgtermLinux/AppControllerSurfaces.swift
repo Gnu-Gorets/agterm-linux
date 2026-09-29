@@ -565,6 +565,7 @@ extension AppController {
 
     func capturePanedRatio(_ paned: OpaquePointer?) {
         guard let paned, let (sid, _) = sessionPanes.first(where: { $0.value == paned }),
+              terminalZoom.target == nil, !zoomPendingRatioRestore.contains(sid),
               !splitRatioRestore.isSuppressed(sid), !splitAxisTransitions.contains(sid) else { return }
         guard let session = store.session(withID: sid) else { return }
         let extent = session.splitAxis == .topBottom
@@ -786,7 +787,7 @@ extension AppController {
     }
 
     /// The shape a path that hands the keyboard back after a MODE CHANGE must use: `showActive()`'s own
-    /// focus leg is deck-only, so it misses the quick terminal, a zoomed surface and the dashboard.
+    /// focus leg normally follows the selected deck page, while this helper follows any visible modal surface.
     func showActiveFocusingVisibleSurface() {
         showActive(focus: false)
         focusActiveSurface()
@@ -869,7 +870,7 @@ extension AppController {
     func updateTitle() {
         let settings = linuxSettingsStore().load()
         let windowInfo = library.windows.first(where: { $0.id == windowID })
-        let normalTitle = LinuxModalTitle.normal(sessionName: store.activeSession?.displayName, window: windowInfo)
+        let normalTitle = LinuxModalTitle.normal(sessionName: zoomTitleSessionName, window: windowInfo)
         var title = store.activeSession?.displayName ?? "agterm"
         if let id = store.selectedSessionID, let p = sessionProgress[id] {
             title = (p < 0 ? "⋯ " : "\(p)% ") + title

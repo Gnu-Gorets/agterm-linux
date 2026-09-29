@@ -69,5 +69,53 @@ def verify_zoom_floating_overlay(env):
         restored = frame.get_component_iface().get_extents(Atspi.CoordType.WINDOW)
         assert restored.width < bounds.width * 0.8, "floating card kept zoomed geometry after exit"
         assert session().get("overlay"), "zoom switching closed the floating program overlay"
+
+        control_json(env, "session", "overlay", "close", "--target", session_id, "--json")
+        wait_for(lambda: not session().get("overlay"), "floating overlay did not close")
+        control_json(env, "quick", "show", "--json")
+        wait_for(lambda: window_tree(env, window_id).get("quickVisible"), "quick terminal did not open")
+        quick = wait_for(lambda: named(app, "Quick terminal"), "quick terminal card did not map")
+        quick_bounds = quick.get_component_iface().get_extents(Atspi.CoordType.WINDOW)
+
+        def quick_showing():
+            return quick in collect(app)
+
+        zoom("primary")
+        wait_for(lambda: not quick_showing(), "quick card covered the zoomed session terminal")
+        type_into_pane("primary")
+        control_json(env, "surface", "zoom", "hide",
+                     "--target", f"surface:{session_id}:primary", "--json")
+        wait_for(quick_showing, "quick card did not return after session zoom exit")
+
+        control_json(env, "session", "resize", "--split-ratio", "0.37",
+                     "--target", session_id, "--json")
+        wait_for(lambda: abs((session().get("splitRatio") or 0) - 0.37) < 0.001,
+                 "split ratio did not settle before switching zoom targets")
+        zoom("primary")
+        control_json(env, "surface", "zoom", "show", "--target", "quick", "--json")
+        wait_for(lambda: window_tree(env, window_id).get("zoomedSurface") == "quick",
+                 "quick terminal did not take over the zoom target")
+        wait_for(lambda: quick.get_component_iface().get_extents(Atspi.CoordType.WINDOW).width
+                 > quick_bounds.width * 1.05,
+                 f"quick zoom did not expand its card (initial width {quick_bounds.width}, "
+                 f"current width {quick.get_component_iface().get_extents(Atspi.CoordType.WINDOW).width})")
+        control_json(env, "surface", "zoom", "hide", "--target", "quick", "--json")
+        wait_for(quick_showing, "quick card did not return after switching zoom targets")
+        wait_for(lambda: quick.get_component_iface().get_extents(Atspi.CoordType.WINDOW).width
+                 < quick_bounds.width * 1.03, "quick card kept zoomed geometry after target switch")
+        try:
+            wait_for(lambda: abs((session().get("splitRatio") or 0) - 0.37) < 0.001,
+                     "switching zoom targets changed the saved split ratio")
+        except AssertionError as error:
+            raise AssertionError(f"{error}: {session().get('splitRatio')}") from error
+
+        control_json(env, "quick", "hide", "--json")
+        control_json(env, "session", "new", "--name", "selected-other", "--window", window_id, "--json")
+        wait_for(lambda: any(item["name"] == "selected-other" and item["active"]
+                             for workspace in window_tree(env, window_id)["workspaces"]
+                             for item in workspace["sessions"]), "other session was not selected")
+        zoom("primary")
+        wait_for(lambda: named(app, "zoom-overlay", role="label"),
+                 "zoom strip named the selected session instead of the presented one")
     finally:
         stop(process)

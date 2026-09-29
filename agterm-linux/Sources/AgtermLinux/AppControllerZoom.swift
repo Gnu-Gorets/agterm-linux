@@ -68,16 +68,24 @@ extension AppController {
         if let new, surface(for: new) == nil { terminalZoom.clear() }
         if case .session(let id, _)? = old {
             restoreZoomedPaneOverlays(id)
-            // The divider keeps its PIXEL position through the wider zoomed layout, so the stored fraction
-            // goes back once the paned has its un-zoomed allocation — not now, while it is still zoom-wide.
-            if store.session(withID: id)?.splitRatio != nil, let paned = sessionPanes[id] {
+            // A target switch can leave this pane hidden until zoom finally exits. Keep its ratio restore
+            // pending so the divider is reset after the un-zoomed allocation, even across other targets.
+            if store.session(withID: id)?.splitRatio != nil { zoomPendingRatioRestore.insert(id) }
+        }
+        if terminalZoom.target == nil {
+            for id in Array(zoomPendingRatioRestore) {
+                guard let paned = sessionPanes[id] else {
+                    zoomPendingRatioRestore.remove(id)
+                    continue
+                }
                 let context = ZoomExitRatioContext(
                     controller: self, sessionID: id, paned: paned, zoomedWidth: gtk_widget_get_width(W(paned)))
-                _ = gtk_widget_add_tick_callback(W(paned), zoomExitRatioTick,
+                _ = gtk_widget_add_tick_callback(W(window), zoomExitRatioTick,
                                                  Unmanaged.passRetained(context).toOpaque(), releaseZoomExitRatioTick)
             }
         }
         applyTerminalZoomChrome()
+        applyQuickFrameVisibility()
         if let deckOverlay { gtk_widget_queue_resize(W(deckOverlay)) }   // re-place the quick card
         // Leaving a zoom (or switching targets) lets the ordinary syncs put every page, pane and floating
         // frame back; `showActive` at the end of that pass re-applies whatever zoom is still current.
@@ -90,9 +98,14 @@ extension AppController {
         }
         resyncBlinkPhase()   // zooming unmaps the sidebar column
         refreshPaneOverlayCoverage()
+        updateAllPaneDimming()
         if let current = terminalZoom.target { surface(for: current)?.refresh() }
         // Nothing here clears `quickVisible`, so the quick card can come back on screen over the deck.
-        focusActiveSurface()
+        if let current = terminalZoom.target {
+            surface(for: current)?.grabFocus(supersedingPopoverCapture: true)
+        } else {
+            focusActiveSurface()
+        }
     }
 
     /// Build the zoom strip once, as a second top bar of the content toolbar. It is only ever shown or
@@ -129,7 +142,7 @@ extension AppController {
         if let zoomHeader { gtk_widget_set_visible(W(zoomHeader), toolbarShown && zoomed ? 1 : 0) }
         if zoomed, let zoomTitleLabel {
             let title = LinuxModalTitle.normal(
-                sessionName: store.activeSession?.displayName,
+                sessionName: zoomTitleSessionName,
                 window: library.windows.first(where: { $0.id == windowID }))
             gtk_label_set_text(zoomTitleLabel, title)
         }
@@ -139,6 +152,17 @@ extension AppController {
     var zoomedSessionID: UUID? {
         if case .session(let id, _)? = terminalZoom.target { return id }
         return nil
+    }
+
+    var zoomTitleSessionName: String? {
+        zoomedSessionID.flatMap { store.session(withID: $0)?.displayName } ?? store.activeSession?.displayName
+    }
+
+    /// Quick remains logically open across a session zoom, but its card must yield to the zoomed deck.
+    var quickFramePresented: Bool { quickVisible && zoomedSessionID == nil }
+
+    func applyQuickFrameVisibility() {
+        if let quickFrame { gtk_widget_set_visible(W(quickFrame), quickFramePresented ? 1 : 0) }
     }
 
     /// Which pane hosts stay shown while `slot` is zoomed; nil leaves the split layout alone.
@@ -204,6 +228,10 @@ extension AppController {
         let flag: gboolean = visible ? 1 : 0
         if let overlay = paneOverlaySurface(sessionID, pane: pane) { gtk_widget_set_visible(W(overlay.rootWidget), flag) }
         if let wash = paneOverlayWash(sessionID, pane: pane) { gtk_widget_set_visible(W(wash), flag) }
+        if let html = store.session(withID: sessionID)?.paneOverlay(pane)?.html,
+           let page = LinuxHtmlOverlayRegistry.shared.existing(html.id) {
+            gtk_widget_set_visible(W(page.root), flag)
+        }
     }
 
 }
@@ -233,12 +261,20 @@ final class ZoomExitRatioContext {
 }
 
 extension AppController {
-    /// One frame of the wait. Returning 0 (`G_SOURCE_REMOVE`) is what detaches the callback.
+    /// One frame of the wait. The callback lives on the window so a hidden target pane still settles.
+    /// Returning 0 (`G_SOURCE_REMOVE`) detaches it.
     func restoreRatioAfterZoomExit(_ context: ZoomExitRatioContext) -> gboolean {
+        guard sessionPanes[context.sessionID] == context.paned else {
+            zoomPendingRatioRestore.remove(context.sessionID)
+            return 0
+        }
         context.ticks += 1
         guard gtk_widget_get_width(W(context.paned)) == context.zoomedWidth, context.ticks < 3 else {
-            if sessionPanes[context.sessionID] == context.paned, terminalZoom.target == nil {
+            if terminalZoom.target == nil {
                 scheduleSplitRatioRestore(sessionID: context.sessionID, paned: context.paned)
+                zoomPendingRatioRestore.remove(context.sessionID)
+            } else {
+                zoomPendingRatioRestore.insert(context.sessionID)
             }
             return 0
         }

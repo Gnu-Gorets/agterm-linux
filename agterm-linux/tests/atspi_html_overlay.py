@@ -13,7 +13,7 @@ import gi
 gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, GLib, GObject, Gtk  # noqa: E402
 
-from atspi_smoke import CTL, control_json, launch, raw_control_json, stop, wait_for, window_list, window_tree
+from atspi_smoke import CTL, collect, control_json, launch, raw_control_json, stop, wait_for, window_list, window_tree
 
 
 def verify_html_overlay(env, state):
@@ -38,7 +38,7 @@ def verify_html_overlay(env, state):
         target.write('document.title = "Unapproved script loaded";')
     os.symlink(os.path.join(state, "outside.js"), os.path.join(pages, "link.js"))
 
-    process, _ = launch(env)
+    process, app = launch(env)
     try:
         window = next(item["id"] for item in window_list(env) if item["open"])
         session = window_tree(env, window)["workspaces"][0]["sessions"][0]["id"]
@@ -85,6 +85,14 @@ def verify_html_overlay(env, state):
         assert opened["ok"], opened
         wait_for(lambda: page("right") and page("right")["state"] == "loaded",
                  f"pane page did not load: {page('right')}")
+        wait_for(lambda: collect(app, role="document web"), "pane page was not visible")
+        assert control_json(env, "surface", "zoom", "show",
+                            "--target", f"surface:{session}:split", "--window", window, "--json")["ok"]
+        wait_for(lambda: not collect(app, role="document web"),
+                 "pane HTML page still covered the zoomed split terminal")
+        assert control_json(env, "surface", "zoom", "hide",
+                            "--target", f"surface:{session}:split", "--window", window, "--json")["ok"]
+        wait_for(lambda: collect(app, role="document web"), "pane page did not return after zoom exit")
         assert control_json(env, "session", "overlay", "close", "--pane", "right",
                             "--target", session, "--window", window, "--json")["ok"]
         wait_for(lambda: page("right") is None, "closed pane page remained in the control tree")

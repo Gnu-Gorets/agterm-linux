@@ -41,7 +41,7 @@ extension AppController {
         let muteOpacity = Self.scaledMuteOpacity(rawMuteOpacity, renderedWindowOpacity: windowOpacity)
         let dimmed = 1.0 - muteOpacity
         let floatingProgram = s.programOverlayActive && s.overlaySizePercent != nil
-        let backdropActive = s.id == store.selectedSessionID && (quickVisible || floatingProgram)
+        let backdropActive = s.id == store.selectedSessionID && (quickFramePresented || floatingProgram)
         let opacities = Self.paneSurfaceOpacities(
             isSplit: s.isSplit, splitFocused: s.splitFocused,
             dimmed: dimmed, backdropActive: backdropActive)
@@ -80,11 +80,11 @@ extension AppController {
             AppSettings.muteOpacity(strength: strength),
             renderedWindowOpacity: renderedWindowOpacity(windowOpacity))
         let dimmed = 1.0 - muteOpacity
-        gtk_widget_set_opacity(W(sidebarBox), quickVisible ? dimmed : 1.0)
+        gtk_widget_set_opacity(W(sidebarBox), quickFramePresented ? dimmed : 1.0)
         if let dashboardHost = dashboardRuntime.host {
-            gtk_widget_set_opacity(W(dashboardHost), quickVisible ? dimmed : 1.0)
+            gtk_widget_set_opacity(W(dashboardHost), quickFramePresented ? dimmed : 1.0)
         }
-        let floatingOpacity = Self.floatingFrameOpacity(quickVisible: quickVisible, dimmed: dimmed)
+        let floatingOpacity = Self.floatingFrameOpacity(quickVisible: quickFramePresented, dimmed: dimmed)
         for frame in floatingOverlayFrames.values { gtk_widget_set_opacity(W(frame), floatingOpacity) }
         guard let presented = zoomedSessionID.flatMap({ store.session(withID: $0) }) ?? store.activeSession,
               let stack = sessionStacks[presented.id], !dashboard.isOpen else {
@@ -93,7 +93,7 @@ extension AppController {
         let floatingCover = presented.overlaySizePercent != nil && Self.floatingOverlayVisible(
             sessionID: presented.id, activeID: presented.id,
             overlayActive: presented.coverOverlayActive, zoomTarget: terminalZoom.target)
-        gtk_widget_set_opacity(W(stack), quickVisible || floatingCover ? dimmed : 1.0)
+        gtk_widget_set_opacity(W(stack), quickFramePresented || floatingCover ? dimmed : 1.0)
     }
 
     static func floatingFrameOpacity(quickVisible: Bool, dimmed: Double) -> Double {

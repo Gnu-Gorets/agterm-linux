@@ -275,17 +275,18 @@ paths:
   This keeps the unconditional dismissal repair needed by reactivating WMs while making the explicit
   transfer win without timing or dismissal-time focus inference.
 - **A path that hands the keyboard back after a MODE CHANGE goes through `focusActiveSurface()`, never
-  `showActive()`'s own focus leg.**
-  `showActive(focus:)` resolves overlay → scratch → split → primary for the active session and knows nothing
-  about the surfaces that sit ON TOP of the deck or replace its selection: a visible quick terminal, a
-  zoomed surface, an open dashboard.
+  `showActive()`'s ordinary focus leg.**
+  `showActive(focus:)` follows zoom targets when zoom is active; otherwise its ordinary leg resolves
+  overlay → scratch → split → primary for the active session and knows nothing about a visible quick terminal
+  or an open dashboard.
   A path that ALSO has to refresh deck presentation uses `showActiveFocusingVisibleSurface()`, the two-call
   shape (`showActive(focus: false)` then `focusActiveSurface()`); it is behaviour-preserving in the plain
   case, because `focusActiveSurface`'s fallback is `searchTargetSurface(for:)`, byte-for-byte what
   `showActive` inlines.
-  Its three call sites are `setTerminalZoom`'s exit leg (`AppControllerZoom.swift`), where nothing on the
-  zoom path clears `quickVisible`, so leaving a `.quick` zoom returns the card to its size and the old
-  grab landed on the deck pane behind it; `closeDashboard(refocus:)`, whose `mountDashboard` grabbed the
+  `setTerminalZoom` likewise calls `focusActiveSurface()` on exit, because nothing on the zoom path clears
+  `quickVisible`: leaving a `.quick` zoom returns the card to its size, and a deck-only grab would land
+  behind it.
+  `closeDashboard(refocus:)`, whose `mountDashboard` grabbed the
   dashboard host, so the close destroys the keyboard's owner and MUST hand it back — its old
   split-or-primary `focusedSurface()` leg could grab an UNMAPPED widget, a silent no-op that leaves the
   keyboard nowhere at all; and `becameFrontmost()`, the masking path for a popover dismissal, which must
