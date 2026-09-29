@@ -89,7 +89,7 @@ extension AppController {
         guard let active = store.activeSession, let stack = sessionStacks[active.id], !dashboard.isOpen else {
             return
         }
-        let floatingProgram = active.programOverlayActive && active.overlaySizePercent != nil
+        let floatingProgram = active.coverOverlayActive && active.overlaySizePercent != nil
         gtk_widget_set_opacity(W(stack), quickVisible || floatingProgram ? dimmed : 1.0)
     }
 

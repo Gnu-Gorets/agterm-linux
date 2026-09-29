@@ -1006,7 +1006,8 @@ def switcher_overlay_names(app):
         and not descendants(scroller, role="button")
     ]
     assert len(cards) <= 1, f"{len(cards)} widgets match the switcher card"
-    return [label.get_name() or "" for label in collect(cards[0], role="label")] if cards else []
+    # Each row has a title and subtitle. The cloud glyph is an image, so it does not shift this pair.
+    return [label.get_name() or "" for label in collect(cards[0], role="label")][::2] if cards else []
 
 
 def palette_row_labels(palette):
@@ -6751,7 +6752,7 @@ def main():
     if scenario is None:
         failures = []
         for child_scenario in (
-            "normal", "upstream-controls", "dashboard-modal", "context-menu",
+            "normal", "upstream-controls", "html-overlay", "dashboard-modal", "context-menu",
             "window-key-dispatch",
             "split-exit", "split-primary-exit", "window-ownership", "preferences-pages",
             "notification-reveal", "notification-focus", "session-pickers",
@@ -6830,6 +6831,9 @@ def main():
             verify_window_key_dispatch(env)
         elif scenario == "upstream-controls":
             verify_upstream_control_parity(env)
+        elif scenario == "html-overlay":
+            from atspi_html_overlay import verify_html_overlay
+            verify_html_overlay(env, state)
         elif scenario == "control-ask":
             verify_control_ask(env)
         elif scenario == "dashboard-modal":

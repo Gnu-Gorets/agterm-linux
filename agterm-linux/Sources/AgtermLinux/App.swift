@@ -174,6 +174,7 @@ private let onOpen: @MainActor @convention(c) (OpaquePointer?, UnsafeMutablePoin
     // Route every deferred main-actor job (MainTimer) through g_timeout_add BEFORE any store or
     // controller exists — see `agterm-linux/docs/main-loop.md`.
     installGLibMainTimer()
+    LinuxHtmlOverlayRegistry.shared.install()
     let stateDirectory = linuxStateDirectory()
     let settingsStore = linuxSettingsStore()
     let currentSettings = settingsStore.load()
@@ -318,7 +319,7 @@ let appCSS = """
     \(LinuxQuickCardPolicy.cardCSS)
     .agterm-switcher { background-color: alpha(#1e2228, 0.96); padding: 10px; border-radius: 10px; border: 1px solid alpha(#ffffff, 0.12); }
     .agterm-switcher label { padding: 3px 0; opacity: 0.6; }
-    .agterm-switcher label.agterm-switcher-current { opacity: 1; font-weight: bold; }
+    .agterm-switcher .agterm-switcher-current label { opacity: 1; font-weight: bold; }
     .agterm-gl-error, .agterm-surface-error { color: #ffffff; background-color: alpha(#1e2228, 0.96); padding: 24px; border-radius: 10px; border: 1px solid alpha(#e5a50a, 0.5); }
     .agterm-dashboard { background-color: @window_bg_color; }
     .agterm-modal-header { border-bottom: 1px solid alpha(@window_fg_color, 0.12); }
@@ -331,6 +332,7 @@ let appCSS = """
     \(LinuxSidebarPolicy.sidebarHoverCSS)   /* passive rows lose `.activatable`, so hover keys on bare `:hover` — contract + pins live on the constant; see agterm-linux/docs/sidebar.md */
     /* trailing content inset inside the rounded selection row; a row margin would indent the highlight itself */
     .agterm-session-row-content { padding-right: 6px; }
+    \(LinuxSidebarPolicy.sidebarRenameCSS)
     """
 
 /// Install the app-wide CSS once, at the application priority so it layers over the theme without

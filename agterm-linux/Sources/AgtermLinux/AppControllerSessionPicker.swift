@@ -72,12 +72,29 @@ extension AppController {
         gtk_widget_add_css_class(W(box), "agterm-switcher")
         gtk_widget_add_css_class(W(box), "agterm-interface-panel")
         for id in sessionSwitcher.ordered {
-            guard let s = store.session(withID: id), let label = op(gtk_label_new(s.displayName)) else { continue }
-            gtk_widget_set_margin_start(W(label), 18); gtk_widget_set_margin_end(W(label), 18)
-            gtk_label_set_xalign(label, 0)
-            gtk_label_set_ellipsize(label, PANGO_ELLIPSIZE_END)
-            if id == sessionSwitcher.current { gtk_widget_add_css_class(W(label), "agterm-switcher-current") }
-            gtk_box_append(cast(box), W(label))
+            guard let session = store.session(withID: id),
+                  let row = op(gtk_box_new(GTK_ORIENTATION_VERTICAL, 1)),
+                  let titleLine = op(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4)),
+                  let title = op(gtk_label_new(session.displayName)) else { continue }
+            gtk_widget_set_margin_start(W(row), 18); gtk_widget_set_margin_end(W(row), 18)
+            if session.remoteHost != nil, let cloud = op(gtk_image_new_from_icon_name("weather-overcast-symbolic")) {
+                gtk_widget_set_tooltip_text(W(cloud), "Remote")
+                gtk_box_append(cast(titleLine), W(cloud))
+            }
+            gtk_label_set_xalign(title, 0)
+            gtk_label_set_ellipsize(title, PANGO_ELLIPSIZE_END)
+            gtk_box_append(cast(titleLine), W(title))
+            gtk_box_append(cast(row), W(titleLine))
+            let workspace = store.workspace(forSession: id)?.name ?? ""
+            let detail = workspace.isEmpty ? session.switcherDetail : "\(workspace) · \(session.switcherDetail)"
+            if let subtitle = op(gtk_label_new(detail)) {
+                gtk_label_set_xalign(subtitle, 0)
+                gtk_label_set_ellipsize(subtitle, PANGO_ELLIPSIZE_END)
+                gtk_widget_add_css_class(W(subtitle), "dim-label")
+                gtk_box_append(cast(row), W(subtitle))
+            }
+            if id == sessionSwitcher.current { gtk_widget_add_css_class(W(row), "agterm-switcher-current") }
+            gtk_box_append(cast(box), W(row))
         }
         switcherBox = scroller
         gtk_overlay_add_overlay(overlay, W(scroller))
@@ -136,8 +153,8 @@ extension AppController {
                 .compactMap { id -> (UUID, Session, String)? in
                     guard let session = store.session(withID: id) else { return nil }
                     let workspace = store.workspace(forSession: id)?.name ?? ""
-                    let subtitle = workspace.isEmpty ? session.subtitleDetail
-                        : "\(workspace) · \(session.subtitleDetail)"
+                    let subtitle = workspace.isEmpty ? session.switcherDetail
+                        : "\(workspace) · \(session.switcherDetail)"
                     return (windowID, session, subtitle)
                 }
         }
@@ -185,10 +202,16 @@ extension AppController {
                 gtk_box_append(cast(row), W(icon))
             }
 
+            let titleLine = op(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4))
+            if session.remoteHost != nil, let cloud = op(gtk_image_new_from_icon_name("weather-overcast-symbolic")) {
+                gtk_widget_set_tooltip_text(W(cloud), "Remote")
+                gtk_box_append(cast(titleLine), W(cloud))
+            }
             let title = op(gtk_label_new(session.displayName))
             gtk_label_set_xalign(title, 0)
             gtk_widget_add_css_class(W(title), "heading")
-            gtk_box_append(cast(labels), W(title))
+            gtk_box_append(cast(titleLine), W(title))
+            gtk_box_append(cast(labels), W(titleLine))
             let subtitle = op(gtk_label_new(entry.subtitle))
             gtk_label_set_xalign(subtitle, 0)
             gtk_widget_add_css_class(W(subtitle), "dim-label")
