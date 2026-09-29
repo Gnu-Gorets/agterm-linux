@@ -5,7 +5,7 @@ import shlex
 
 from gi.repository import Atspi
 
-from atspi_smoke import (collect, control_json, launch, press_return, stop, type_x11_text,
+from atspi_smoke import (collect, control_json, launch, named, press_return, stop, type_x11_text,
                          wait_for, window_list, window_tree)
 
 
@@ -29,21 +29,8 @@ def verify_zoom_floating_overlay(env):
         window = next(item for item in collect(app, role="frame") if item.get_name() == "zoom-overlay")
         bounds = window.get_component_iface().get_extents(Atspi.CoordType.WINDOW)
 
-        def floating_frame():
-            # GtkFrame is a grouping with a terminal panel child. The 60% card is the only large,
-            # non-full-width grouping in this fixture; headers and the sidebar are too small.
-            for item in collect(app, role="grouping"):
-                component = item.get_component_iface()
-                if not component:
-                    continue
-                rect = component.get_extents(Atspi.CoordType.WINDOW)
-                if (bounds.width * 0.25 < rect.width < bounds.width * 0.8
-                        and bounds.height * 0.25 < rect.height < bounds.height * 0.75
-                        and item.get_state_set().contains(Atspi.StateType.SHOWING)):
-                    return item
-            return None
-
-        frame = wait_for(floating_frame, "the floating program card did not map")
+        frame = wait_for(lambda: named(app, "Floating terminal overlay"),
+                         "the floating program card did not map")
 
         def showing():
             # GTK removes hidden widgets from the traversable AT-SPI tree. The cached proxy can

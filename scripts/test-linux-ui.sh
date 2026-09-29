@@ -56,6 +56,9 @@ export NO_AT_BRIDGE=0
 export LIBGL_ALWAYS_SOFTWARE=1
 export GALLIUM_DRIVER=llvmpipe
 export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
+# WebKit's bubblewrap sandbox cannot create a user namespace inside the CI container.
+# This runner uses a disposable HOME, state directory, socket, D-Bus session, and X display.
+export WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
 # Keep GLVND on the same Mesa software path. On hosts with NVIDIA installed, Xvfb can otherwise
 # select libEGL_nvidia during GLX initialization and abort before the test session starts.
 export __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json

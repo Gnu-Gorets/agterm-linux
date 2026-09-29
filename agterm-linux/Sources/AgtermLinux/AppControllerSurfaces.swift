@@ -180,6 +180,12 @@ extension AppController {
                     guard let frame = OpaquePointer(gtk_frame_new(nil)) else { return }
                     gtk_widget_add_css_class(W(frame), "card")
                     gtk_widget_add_css_class(W(frame), "agterm-quick")
+                    var property = GTK_ACCESSIBLE_PROPERTY_LABEL
+                    var value = GValue()
+                    gtk_accessible_property_init_value(property, &value)
+                    "Floating terminal overlay".withCString { g_value_set_string(&value, $0) }
+                    gtk_accessible_update_property_value(frame, 1, &property, &value)
+                    g_value_unset(&value)
                     gtk_widget_set_overflow(W(frame), GTK_OVERFLOW_HIDDEN)   // clip GL child to the rounded card; see LinuxQuickCardPolicy
                     gtk_widget_set_halign(W(frame), GTK_ALIGN_CENTER)
                     gtk_widget_set_valign(W(frame), GTK_ALIGN_CENTER)
