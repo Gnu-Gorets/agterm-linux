@@ -37,7 +37,8 @@ final class AppController {
     var fullscreenDesired: Bool?
     var fullscreenTransitionInFlight = false
     var fullscreenTransitionTimeout: UInt32 = 0
-    let terminalZoom = TerminalZoomController(); let dashboard = DashboardController(); let dashboardRuntime = DashboardRuntime(); var zoomHost: OpaquePointer?
+    let terminalZoom = TerminalZoomController(); let dashboard = DashboardController(); let dashboardRuntime = DashboardRuntime()
+    var zoomPendingRatioRestore: Set<UUID> = []
     var zoomHeader: OpaquePointer?; var zoomTitleLabel: OpaquePointer?
     var splitToggleBtn: OpaquePointer?    // title-bar split toggle (swaps to .fill when active)
     var scratchToggleBtn: OpaquePointer?  // title-bar scratch toggle (swaps to .fill when active)
@@ -283,6 +284,7 @@ final class AppController {
         applyInterfaceElements()
         let contentToolbar = OpaquePointer(adw_toolbar_view_new())
         adw_toolbar_view_add_top_bar(contentToolbar, W(contentHeader))
+        installZoomHeader(in: contentToolbar)   // hidden until a terminal zoom swaps it for contentHeader
         let contentBox = OpaquePointer(gtk_box_new(GTK_ORIENTATION_VERTICAL, 0))
         self.contentBox = contentBox
         buildSearchBar()
@@ -555,6 +557,12 @@ final class AppController {
             let frame = OpaquePointer(gtk_frame_new(nil))
             gtk_widget_add_css_class(W(frame), "card")
             gtk_widget_add_css_class(W(frame), "agterm-quick")   // opaque backing + border, radius, shadow
+            var property = GTK_ACCESSIBLE_PROPERTY_LABEL
+            var value = GValue()
+            gtk_accessible_property_init_value(property, &value)
+            "Quick terminal".withCString { g_value_set_string(&value, $0) }
+            gtk_accessible_update_property_value(frame, 1, &property, &value)
+            g_value_unset(&value)
             gtk_widget_set_overflow(W(frame), GTK_OVERFLOW_HIDDEN)   // clip GL child to the rounded card; see LinuxQuickCardPolicy
             gtk_widget_set_halign(W(frame), GTK_ALIGN_FILL)
             gtk_widget_set_valign(W(frame), GTK_ALIGN_FILL)
@@ -563,11 +571,11 @@ final class AppController {
             quickSurface = q
             gtk_overlay_add_overlay(overlay, W(frame))
         }
-        guard let frame = quickFrame else { return }
+        guard quickFrame != nil else { return }
         quickVisible = visible
-        gtk_widget_set_visible(W(frame), visible ? 1 : 0)
+        applyQuickFrameVisibility()
         updateAllPaneDimming()
-        if visible {
+        if quickFramePresented {
             quickSurface?.grabFocus(supersedingPopoverCapture: true)
         } else {
             refocusIfStranded()

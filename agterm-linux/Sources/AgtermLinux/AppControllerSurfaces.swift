@@ -180,6 +180,12 @@ extension AppController {
                     guard let frame = OpaquePointer(gtk_frame_new(nil)) else { return }
                     gtk_widget_add_css_class(W(frame), "card")
                     gtk_widget_add_css_class(W(frame), "agterm-quick")
+                    var property = GTK_ACCESSIBLE_PROPERTY_LABEL
+                    var value = GValue()
+                    gtk_accessible_property_init_value(property, &value)
+                    "Floating terminal overlay".withCString { g_value_set_string(&value, $0) }
+                    gtk_accessible_update_property_value(frame, 1, &property, &value)
+                    g_value_unset(&value)
                     gtk_widget_set_overflow(W(frame), GTK_OVERFLOW_HIDDEN)   // clip GL child to the rounded card; see LinuxQuickCardPolicy
                     gtk_widget_set_halign(W(frame), GTK_ALIGN_CENTER)
                     gtk_widget_set_valign(W(frame), GTK_ALIGN_CENTER)
@@ -552,12 +558,14 @@ extension AppController {
                 }
             }
         }
-        gtk_widget_set_visible(primaryWidget, layout.primaryVisible ? 1 : 0)
-        gtk_widget_set_visible(splitWidget, layout.splitVisible ? 1 : 0)
+        let zoomed = zoomedPaneVisibility(forSession: s.id)   // a zoom keeps only its own pane shown
+        gtk_widget_set_visible(primaryWidget, (zoomed?.primary ?? layout.primaryVisible) ? 1 : 0)
+        gtk_widget_set_visible(splitWidget, (zoomed?.split ?? layout.splitVisible) ? 1 : 0)
     }
 
     func capturePanedRatio(_ paned: OpaquePointer?) {
         guard let paned, let (sid, _) = sessionPanes.first(where: { $0.value == paned }),
+              terminalZoom.target == nil, !zoomPendingRatioRestore.contains(sid),
               !splitRatioRestore.isSuppressed(sid), !splitAxisTransitions.contains(sid) else { return }
         guard let session = store.session(withID: sid) else { return }
         let extent = session.splitAxis == .topBottom
@@ -703,17 +711,22 @@ extension AppController {
                 gtk_widget_is_ancestor($0, W(ask.root)) != 0
             } == true && gtk_widget_get_visible(W(ask.root)) != 0
         } == true
+        // A zoom presents its own session's page, which need not be the selection (`surface zoom --target`).
+        let presentedID = zoomedSessionID ?? active?.id
         for (id, stack) in sessionStacks {
-            let presentation = DeckPagePresentation(pageID: id, activeID: active?.id, dashboardOpen: dashboard.isOpen)
+            let presentation = DeckPagePresentation(pageID: id, activeID: presentedID, dashboardOpen: dashboard.isOpen)
             gtk_widget_set_opacity(W(stack), presentation.opacity)
             gtk_widget_set_can_target(W(stack), presentation.canTarget ? 1 : 0)
             gtk_widget_set_child_visible(W(stack), presentation.childVisible ? 1 : 0)
         }
-        updateFloatingOverlayVisibility(activeID: active?.id)
+        updateFloatingOverlayVisibility(activeID: presentedID)
+        applyTerminalZoomLayout()
         updateCoverDimming()
         LinuxHtmlOverlayRegistry.shared.refreshVisibility(in: store, selected: active?.id,
-                                                          covered: dashboard.isOpen || quickVisible)
-        if focus, !focusedAsk, let active {
+                                                          covered: dashboard.isOpen || quickVisible || terminalZoom.target != nil)
+        if focus, terminalZoom.target != nil {
+            focusActiveSurface()
+        } else if focus, !focusedAsk, let active {
             if let page = active.topmostHtmlOverlay,
                let view = LinuxHtmlOverlayRegistry.shared.existing(page.id) {
                 gtk_widget_grab_focus(W(view.webView))
@@ -774,7 +787,7 @@ extension AppController {
     }
 
     /// The shape a path that hands the keyboard back after a MODE CHANGE must use: `showActive()`'s own
-    /// focus leg is deck-only, so it misses the quick terminal, the zoom host and the dashboard.
+    /// focus leg normally follows the selected deck page, while this helper follows any visible modal surface.
     func showActiveFocusingVisibleSurface() {
         showActive(focus: false)
         focusActiveSurface()
@@ -833,9 +846,20 @@ extension AppController {
 
     private func updateFloatingOverlayVisibility(activeID: UUID?) {
         for (id, frame) in floatingOverlayFrames {
-            let visible = id == activeID && (store.session(withID: id)?.overlayActive == true)
+            let visible = Self.floatingOverlayVisible(
+                sessionID: id, activeID: activeID,
+                overlayActive: store.session(withID: id)?.overlayActive == true,
+                zoomTarget: terminalZoom.target)
             gtk_widget_set_visible(W(frame), visible ? 1 : 0)
         }
+    }
+
+    static func floatingOverlayVisible(
+        sessionID: UUID, activeID: UUID?, overlayActive: Bool, zoomTarget: TerminalZoomTarget?
+    ) -> Bool {
+        guard sessionID == activeID, overlayActive else { return false }
+        guard let zoomTarget else { return true }
+        return zoomTarget == .session(sessionID, .overlay)
     }
 
     func surfaceDidReportProgress(_ id: UUID, percent: Int?) {
@@ -846,7 +870,7 @@ extension AppController {
     func updateTitle() {
         let settings = linuxSettingsStore().load()
         let windowInfo = library.windows.first(where: { $0.id == windowID })
-        let normalTitle = LinuxModalTitle.normal(sessionName: store.activeSession?.displayName, window: windowInfo)
+        let normalTitle = LinuxModalTitle.normal(sessionName: zoomTitleSessionName, window: windowInfo)
         var title = store.activeSession?.displayName ?? "agterm"
         if let id = store.selectedSessionID, let p = sessionProgress[id] {
             title = (p < 0 ? "⋯ " : "\(p)% ") + title

@@ -275,16 +275,18 @@ paths:
   This keeps the unconditional dismissal repair needed by reactivating WMs while making the explicit
   transfer win without timing or dismissal-time focus inference.
 - **A path that hands the keyboard back after a MODE CHANGE goes through `focusActiveSurface()`, never
-  `showActive()`'s own focus leg.**
-  `showActive(focus:)` resolves overlay → scratch → split → primary for the active session and knows nothing
-  about the surfaces that sit ON TOP of the deck: a visible quick terminal, a zoom host, an open dashboard.
+  `showActive()`'s ordinary focus leg.**
+  `showActive(focus:)` follows zoom targets when zoom is active; otherwise its ordinary leg resolves
+  overlay → scratch → split → primary for the active session and knows nothing about a visible quick terminal
+  or an open dashboard.
   A path that ALSO has to refresh deck presentation uses `showActiveFocusingVisibleSurface()`, the two-call
   shape (`showActive(focus: false)` then `focusActiveSurface()`); it is behaviour-preserving in the plain
   case, because `focusActiveSurface`'s fallback is `searchTargetSurface(for:)`, byte-for-byte what
   `showActive` inlines.
-  Its three call sites are `setTerminalZoom`'s exit leg (`AppControllerZoom.swift`), where nothing on the
-  zoom path clears `quickVisible`, so `restoreZoomedSurface(.quick)` re-shows the quick card and the old
-  grab landed on the deck pane behind it; `closeDashboard(refocus:)`, whose `mountDashboard` grabbed the
+  `setTerminalZoom` likewise calls `focusActiveSurface()` on exit, because nothing on the zoom path clears
+  `quickVisible`: leaving a `.quick` zoom returns the card to its size, and a deck-only grab would land
+  behind it.
+  `closeDashboard(refocus:)`, whose `mountDashboard` grabbed the
   dashboard host, so the close destroys the keyboard's owner and MUST hand it back — its old
   split-or-primary `focusedSurface()` leg could grab an UNMAPPED widget, a silent no-op that leaves the
   keyboard nowhere at all; and `becameFrontmost()`, the masking path for a popover dismissal, which must
@@ -332,8 +334,8 @@ paths:
   The hold keeps the widget ALIVE but not REALIZED, so a subtree containing a `GtkGLArea` must not be
   moved at all ([[libghostty]]).
 - **A teardown path clears its own zoom target BEFORE freeing the surface.**
-  While zoomed, the surface's `GtkGLArea` lives in `zoomHost` and `splitView` is hidden, so a surface torn down
-  under the host stays MAPPED (the refocus guard correctly declines) over a deck nothing can reach.
+  While zoomed, the sidebar and content header are hidden and the zoom strip is shown, so a surface torn
+  down under a live zoom target leaves that chrome in place with nothing behind it to focus.
   `setQuick(_:)`'s hide leg and `closeQuick()` both start with
   `if terminalZoom.target == .quick { setTerminalZoom(.off, target: .quick) }`; that is what lets
   `refocusIfStranded`'s zoom branch assume its target's surface is live.

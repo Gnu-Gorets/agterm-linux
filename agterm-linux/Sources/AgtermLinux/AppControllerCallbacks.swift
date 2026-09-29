@@ -120,9 +120,9 @@ func installEmptyWindowKeyController(on window: OpaquePointer?) {
 ///
 /// This handler answers ONLY for `quickFrame`. EVERY other `deckOverlay` child returns 0 and keeps its
 /// default placement: the per-session floating overlay frames (`AppControllerSurfaces.syncOverlay`), the
-/// zoom host (`AppControllerZoom`), the dashboard host (`AppControllerDashboard`), the Ctrl-Tab switcher
-/// box, and the GL-error label (both in `AppController`). The zoom case is load-bearing — zooming `.quick`
-/// HIDES `quickFrame` and adds a FILL/expand `zoomHost`, which must never be given the card rectangle.
+/// dashboard host (`AppControllerDashboard`), the Ctrl-Tab switcher
+/// box, and the GL-error label (both in `AppController`). Zooming `.quick` keeps `quickFrame` in place and
+/// answers the whole content area below the zoom strip instead of the card rectangle.
 ///
 /// Coordinates. GTK documents the returned allocation as relative to the overlay's MAIN child. Here that
 /// is the same as overlay coordinates, because the main child is the sidebar `GtkPaned` sitting at 0,0 at
@@ -136,7 +136,7 @@ func installEmptyWindowKeyController(on window: OpaquePointer?) {
 /// Teardown is covered by the usual registry recovery: `controllerForWidget` resolves through `gWindows`,
 /// which `windowWillClose` has already left, so a late emission on a closing window falls through to the
 /// default placement instead of touching a freed controller. A nil `quickFrame` does the same; a HIDDEN
-/// one (the zoomed `.quick` case) is not laid out at all, so GTK never emits the signal for it.
+/// one is not laid out at all, so GTK never emits the signal for it.
 let onDeckOverlayChildPosition: @MainActor @convention(c)
     (OpaquePointer?, OpaquePointer?, UnsafeMutablePointer<GdkRectangle>?, gpointer?) -> gboolean = { overlay, child, allocation, _ in
         MainActor.assumeIsolated {
@@ -147,6 +147,14 @@ let onDeckOverlayChildPosition: @MainActor @convention(c)
             // retains its last allocated height, so hidden-toolbar mode would otherwise inset the card by
             // a strip that is not on screen. No header at all ⇒ 0. The policy cannot see visibility.
             let headerHeight = controller.contentHeader.map { gtk_widget_get_visible(W($0)) != 0 ? gtk_widget_get_height(W($0)) : 0 } ?? 0
+            // A zoomed quick card keeps its frame (moving the GLArea would kill its GL context) and is
+            // simply given the whole content area under the zoom strip.
+            if controller.terminalZoom.target == .quick {
+                let zoomStrip = controller.zoomHeader.map { gtk_widget_get_visible(W($0)) != 0 ? gtk_widget_get_height(W($0)) : 0 } ?? 0
+                allocation.pointee = GdkRectangle(x: 0, y: zoomStrip, width: gtk_widget_get_width(W(overlay)),
+                                                  height: max(1, gtk_widget_get_height(W(overlay)) - zoomStrip))
+                return 1
+            }
             let card = LinuxQuickCardPolicy.cardAllocation(overlayWidth: gtk_widget_get_width(W(overlay)),
                                                            overlayHeight: gtk_widget_get_height(W(overlay)),
                                                            headerHeight: headerHeight,

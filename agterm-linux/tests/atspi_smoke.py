@@ -6019,10 +6019,8 @@ def verify_chrome_focus_buttons(env):
             "exiting a quick-terminal zoom moved the keyboard to the deck session behind the still-"
             f"visible quick card, so typing went into a shell the user cannot see (marker read {owner!r})")
 
-        # Fourth stranding path, from the SAME zoom: a quick shell that EXITS while zoomed. Its GLArea
-        # lives in `zoomHost`, so it stays MAPPED after the surface behind it is freed and the refocus
-        # guard correctly declines — leaving a dead zoom host over a hidden deck unless closeQuick()
-        # drops its own `.quick` zoom first.
+        # Fourth stranding path, from the SAME zoom: a quick shell that EXITS while zoomed. Its frame
+        # remains mounted until closeQuick() drops the `.quick` zoom before freeing the surface.
         control_json(env, "surface", "zoom", "show", "--target", "quick", "--json")
         wait_for(lambda: ctx.tree().get("zoomedSurface") == "quick",
                  "the quick terminal did not re-zoom over the control socket")
@@ -6760,7 +6758,7 @@ def main():
             "child-gdk-env-inverted",
             "custom-command-failures", "remote-presentation", "control-hooks",
             "surface-lifetimes", "surface-failures",
-            "background-overlay-grid",
+            "background-overlay-grid", "zoom-floating-overlay",
             "sidebar-row-height",
             "sidebar-narrow-clipping",
             "sidebar-width-floor",
@@ -6872,6 +6870,9 @@ def main():
             # import would re-enter that copy while it is still initializing.
             from atspi_surface_grid import verify_background_overlay_grid
             verify_background_overlay_grid(env)
+        elif scenario == "zoom-floating-overlay":
+            from atspi_zoom_floating_overlay import verify_zoom_floating_overlay
+            verify_zoom_floating_overlay(env)
         elif scenario == "sidebar-row-height":
             verify_sidebar_row_height_follows_font_size(env)
         elif scenario == "sidebar-narrow-clipping":
