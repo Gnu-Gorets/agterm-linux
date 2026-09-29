@@ -144,6 +144,7 @@ extension AppController {
             }
             overlaySurfaces[s.id] = nil
         }
+        if syncHtmlSessionOverlay(s, allowFocus: allowFocus) { return }
         if s.overlayActive {
             if overlaySurfaces[s.id] == nil, let cmd = s.overlayCommand {
                 let codePath = NSTemporaryDirectory() + "agterm-ovl-\(UUID().uuidString).code"
@@ -240,9 +241,9 @@ extension AppController {
     }
 
     @discardableResult
-    private func updateFloatingOverlayFrame(_ session: Session, frame: OpaquePointer,
-                                            overlay: OpaquePointer,
-                                            fallbackPercent: Int) -> (width: Int32, height: Int32) {
+    func updateFloatingOverlayFrame(_ session: Session, frame: OpaquePointer,
+                                    overlay: OpaquePointer,
+                                    fallbackPercent: Int) -> (width: Int32, height: Int32) {
         let width = gtk_widget_get_width(W(overlay))
         let height = gtk_widget_get_height(W(overlay))
         let widthPercent = Int32(session.overlaySizePercent ?? fallbackPercent)
@@ -640,6 +641,7 @@ extension AppController {
             removeFloatingOverlayFrame(frame)
             floatingOverlayFrames[id] = nil
         }
+        htmlSessionFrames[id] = nil
         overlaySurfaces[id]?.teardown()
         overlaySurfaces[id] = nil
         leftOverlaySurfaces[id]?.teardown()
@@ -676,7 +678,7 @@ extension AppController {
             guard let stack = sessionStacks[session.id] else { continue }
             let page: String
             if session.fullOverlayActive {
-                page = "overlay"
+                page = session.htmlOverlayActive ? "html" : "overlay"
             } else if session.scratchActive {
                 page = "scratch"
             } else {
@@ -709,8 +711,13 @@ extension AppController {
         }
         updateFloatingOverlayVisibility(activeID: active?.id)
         updateCoverDimming()
+        LinuxHtmlOverlayRegistry.shared.refreshVisibility(in: store, selected: active?.id,
+                                                          covered: dashboard.isOpen || quickVisible)
         if focus, !focusedAsk, let active {
-            if active.programOverlayActive {
+            if let page = active.topmostHtmlOverlay,
+               let view = LinuxHtmlOverlayRegistry.shared.existing(page.id) {
+                gtk_widget_grab_focus(W(view.webView))
+            } else if active.programOverlayActive {
                 overlaySurfaces[active.id]?.grabFocus()
             } else if active.scratchActive {
                 scratchSurfaces[active.id]?.grabFocus()
@@ -758,7 +765,12 @@ extension AppController {
             ask.focusSelection()
             return
         }
-        searchTargetSurface(for: session.id)?.grabFocus()
+        if let page = session.topmostHtmlOverlay,
+           let view = LinuxHtmlOverlayRegistry.shared.existing(page.id) {
+            gtk_widget_grab_focus(W(view.webView))
+        } else {
+            searchTargetSurface(for: session.id)?.grabFocus()
+        }
     }
 
     /// The shape a path that hands the keyboard back after a MODE CHANGE must use: `showActive()`'s own

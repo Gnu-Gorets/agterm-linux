@@ -111,6 +111,7 @@ final class AppController {
     var leftOverlayWashes: [UUID: OpaquePointer] = [:]; var rightOverlayWashes: [UUID: OpaquePointer] = [:]
     var leftOverlayWashProviders: [UUID: OpaquePointer] = [:]; var rightOverlayWashProviders: [UUID: OpaquePointer] = [:]
     var floatingOverlayFrames: [UUID: OpaquePointer] = [:]  // overlay rendered as a floating sized panel
+    var htmlSessionFrames: [UUID: OpaquePointer] = [:] // subset owned by WebKit pages, not Ghostty surfaces
     var sessionPanes: [UUID: OpaquePointer] = [:]     // GtkPaned (main content) per session
     var primaryPaneHosts: [UUID: OpaquePointer] = [:] // GtkOverlay holding primary + its pane cover
     var splitPaneHosts: [UUID: OpaquePointer] = [:]   // GtkOverlay holding split + its pane cover

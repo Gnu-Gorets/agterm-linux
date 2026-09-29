@@ -783,7 +783,8 @@ error keeps those names for compatibility.
   instead of running a program. Same placement, sizing, `--follow`, ⌘W and `session overlay close` as a
   program overlay; a page never exits on its own, so close it when done. The panel always carries a strip
   naming the file shown or the page's origin, never its title, with a close button; `--navigation` adds
-  back, forward, reload, open in browser, and Show in Finder for a file or Copy Link for a URL, worth it
+  back, forward, reload, open in browser, and Show in Finder (macOS) or Show in Files (Linux) for a file,
+  or Copy Link for a URL, worth it
   when the page links to others. Without `--cwd` the
   page gets NO file access (it is loaded from the file's text), so keep it self-contained: inline CSS and
   SVG, data URIs, or remote images and stylesheets. With `--cwd DIR` the page may read files inside DIR, relative links and assets work, and FILE
@@ -799,7 +800,9 @@ error keeps those names for compatibility.
   web app requires JavaScript; `--js` with a COMMAND is refused (`--js requires --html or --url`). A clicked http(s) link, or a link opening a new window, opens in the
   default browser only after the user confirms a prompt naming its origin and URL; one prompt at a time,
   and after Cancel the page asks nothing more until the user clicks or types in it. Popups, JS dialogs,
-  file-chooser requests, dropped or pasted files and camera/microphone requests are refused. Mutually exclusive with a COMMAND, `--wait` and `--block`.
+  file-chooser requests, dropped or pasted files and camera/microphone requests are refused. On Linux,
+  URI-list transfers are also blocked, which can include link drags. Mutually exclusive with a COMMAND,
+  `--wait` and `--block`.
   Refused `overlay already open` over a program or another page, and while another Mac presents the
   session. Read back `htmlOverlays` in `tree --json`: `{pane?, file?, cwd?, url?, state, error?, page?,
   title?, canGoBack?, canGoForward?, navigation?, javascript}`, one of `file`/`url` set, `state` being `loading`,
@@ -809,7 +812,7 @@ error keeps those names for compatibility.
   — show a web page by URL in the overlay slot, typically a dev server you are running
   (`http://localhost:5173/`) or a docs page. Everything above for `--html` applies, except that URL must be
   an absolute http or https URL (`--url must be an absolute http or https URL`) and `--cwd` is refused. The
-  server must be reachable from the Mac running agterm; `localhost` means that Mac. Plain http works for
+  server must be reachable from the machine running agterm; `localhost` means that machine. Plain http works for
   local addresses (localhost, `.local`, IP literals); use https for public hosts. Pass `--js` for web
   apps that require client-side JavaScript; without it only the static markup renders. The page is pinned to
   its origin: same-origin navigations and redirects load in place; a clicked link elsewhere, or a clicked
