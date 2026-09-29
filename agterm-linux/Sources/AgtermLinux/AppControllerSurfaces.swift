@@ -716,7 +716,7 @@ extension AppController {
         applyTerminalZoomLayout()
         updateCoverDimming()
         LinuxHtmlOverlayRegistry.shared.refreshVisibility(in: store, selected: active?.id,
-                                                          covered: dashboard.isOpen || quickVisible)
+                                                          covered: dashboard.isOpen || quickVisible || terminalZoom.target != nil)
         if focus, terminalZoom.target != nil {
             focusActiveSurface()
         } else if focus, !focusedAsk, let active {
@@ -839,9 +839,20 @@ extension AppController {
 
     private func updateFloatingOverlayVisibility(activeID: UUID?) {
         for (id, frame) in floatingOverlayFrames {
-            let visible = id == activeID && (store.session(withID: id)?.overlayActive == true)
+            let visible = Self.floatingOverlayVisible(
+                sessionID: id, activeID: activeID,
+                overlayActive: store.session(withID: id)?.overlayActive == true,
+                zoomTarget: terminalZoom.target)
             gtk_widget_set_visible(W(frame), visible ? 1 : 0)
         }
+    }
+
+    static func floatingOverlayVisible(
+        sessionID: UUID, activeID: UUID?, overlayActive: Bool, zoomTarget: TerminalZoomTarget?
+    ) -> Bool {
+        guard sessionID == activeID, overlayActive else { return false }
+        guard let zoomTarget else { return true }
+        return zoomTarget == .session(sessionID, .overlay)
     }
 
     func surfaceDidReportProgress(_ id: UUID, percent: Int?) {

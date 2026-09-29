@@ -6760,7 +6760,7 @@ def main():
             "child-gdk-env-inverted",
             "custom-command-failures", "remote-presentation", "control-hooks",
             "surface-lifetimes", "surface-failures",
-            "background-overlay-grid",
+            "background-overlay-grid", "zoom-floating-overlay",
             "sidebar-row-height",
             "sidebar-narrow-clipping",
             "sidebar-width-floor",
@@ -6872,6 +6872,9 @@ def main():
             # import would re-enter that copy while it is still initializing.
             from atspi_surface_grid import verify_background_overlay_grid
             verify_background_overlay_grid(env)
+        elif scenario == "zoom-floating-overlay":
+            from atspi_zoom_floating_overlay import verify_zoom_floating_overlay
+            verify_zoom_floating_overlay(env)
         elif scenario == "sidebar-row-height":
             verify_sidebar_row_height_follows_font_size(env)
         elif scenario == "sidebar-narrow-clipping":

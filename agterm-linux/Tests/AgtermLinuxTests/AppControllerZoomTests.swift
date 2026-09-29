@@ -66,4 +66,25 @@ struct AppControllerZoomTests {
         #expect(AppController.zoomedStackPage(.overlay, floatingOverlay: false) == "overlay")
         #expect(AppController.zoomedStackPage(.overlay, floatingOverlay: true) == nil)
     }
+
+    @Test("floating overlays yield to pane zoom and return on exit or overlay zoom")
+    @MainActor
+    func floatingOverlayVisibility() {
+        let sessionID = UUID()
+        func visible(_ target: TerminalZoomTarget?) -> Bool {
+            AppController.floatingOverlayVisible(
+                sessionID: sessionID, activeID: sessionID, overlayActive: true, zoomTarget: target)
+        }
+        #expect(visible(nil))
+        #expect(!visible(.session(sessionID, .primary)))
+        #expect(!visible(.session(sessionID, .split)))
+        #expect(!visible(.session(sessionID, .scratch)))
+        #expect(!visible(.session(sessionID, .overlayLeft)))
+        #expect(!visible(.quick))
+        #expect(visible(.session(sessionID, .overlay)))
+        #expect(!AppController.floatingOverlayVisible(
+            sessionID: sessionID, activeID: UUID(), overlayActive: true, zoomTarget: nil))
+        #expect(!AppController.floatingOverlayVisible(
+            sessionID: sessionID, activeID: sessionID, overlayActive: false, zoomTarget: nil))
+    }
 }
