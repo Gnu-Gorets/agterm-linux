@@ -7,6 +7,7 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import socket as socket_module
 import subprocess
 import sys
@@ -3238,9 +3239,11 @@ def verify_remote_presentation(env):
     with open(os.path.join(origin_state, "config", "ghostty.conf"), "w", encoding="utf-8") as destination:
         destination.write("title = Static Origin\n")
     ssh = os.path.join(fake_bin, "ssh")
+    ssh_down = os.path.join(root, "ssh-down")
     with open(ssh, "w", encoding="utf-8") as destination:
         destination.write(
             "#!/bin/sh\n"
+            '[ -e "$AGTERM_TEST_SSH_DOWN" ] && { echo "ssh: connect to host: Connection refused" >&2; exit 255; }\n'
             "for argument do remote=$argument; done\n"
             'export AGTERM_STATE_DIR="$AGTERM_TEST_ORIGIN_STATE"\n'
             'export AGTERM_CONTROL_SOCKET="$AGTERM_TEST_ORIGIN_SOCKET"\n'
@@ -3261,6 +3264,7 @@ def verify_remote_presentation(env):
         AGTERM_APP_ID=env["AGTERM_APP_ID"] + ".viewer",
         AGTERM_TEST_ORIGIN_STATE=origin_state,
         AGTERM_TEST_ORIGIN_SOCKET=origin_env["AGTERM_CONTROL_SOCKET"],
+        AGTERM_TEST_SSH_DOWN=ssh_down,
         PATH=fake_bin + ":" + env["PATH"],
     )
     origin_process = viewer_process = None
@@ -3310,6 +3314,46 @@ def verify_remote_presentation(env):
         wait_for(lambda: next((surface.get("lead") for surface in viewer_session().get("surfaces", [])
                                if surface.get("kind") == "left"), None) == "leader",
                  "attached viewer did not claim the primary pane lead")
+
+        def remote_row_notice():
+            """The viewer row's lead-icon tooltip, which GTK publishes as the image's accessible name."""
+            row = sidebar_session_row(viewer_app, viewer_session()["name"])
+            images = descendants(row, role="image") if row else []
+            return (images[0].get_name() or images[0].get_description() or "") if images else None
+
+        def drop_presentation_stream():
+            """SIGTERM this viewer's `zmx present` stream, scoped by its environment to this scenario."""
+            marker = ("AGTERM_TEST_ORIGIN_STATE=" + origin_state).encode()
+            dropped = 0
+            for pid in filter(str.isdigit, os.listdir("/proc")):
+                try:
+                    with open(f"/proc/{pid}/cmdline", "rb") as source:
+                        cmdline = source.read()
+                    with open(f"/proc/{pid}/environ", "rb") as source:
+                        environ = source.read().split(b"\0")
+                except OSError:
+                    continue
+                if b"zmx present" in cmdline.replace(b"\0", b" ") and marker in environ:
+                    with contextlib.suppress(ProcessLookupError):
+                        os.kill(int(pid), signal.SIGTERM)
+                        dropped += 1
+            return dropped
+
+        # The lead icon itself is not on the accessible tree; its tooltip, the stream notice, is.
+        wait_for(lambda: remote_row_notice() == "",
+                 "the connected remote row did not settle without a stream notice")
+        with open(ssh_down, "w", encoding="utf-8"):
+            pass
+        assert drop_presentation_stream(), "found no presentation stream process to drop"
+        wait_for(lambda: viewer_session().get("presentation", {}).get("state") == "failed",
+                 "dropping the stream did not fail the viewer's presentation state")
+        wait_for(lambda: (remote_row_notice() or "").startswith("Lost the connection to local-test ("),
+                 "the disconnected remote row did not show its stream notice")
+        os.remove(ssh_down)
+        wait_for(lambda: viewer_session().get("presentation", {}).get("state") == "connected",
+                 "the viewer did not reconnect its presentation stream", timeout=30)
+        wait_for(lambda: remote_row_notice() == "",
+                 "the stream notice outlived the reconnect")
         status = raw_control_json(origin_env, {
             "cmd": "session.status", "target": origin_id, "args": {"status": "active"},
         })
@@ -3360,6 +3404,17 @@ def verify_remote_presentation(env):
                  "origin HUD withdrawal did not reach the viewer")
         wait_for(lambda: viewer_session().get("presentation", {}).get("mode") == "presenter",
                  "viewer was not granted presenter ownership")
+
+        def origin_lead(kind="left"):
+            tree = raw_control_json(origin_env, {"cmd": "tree"})["result"]["tree"]
+            session = next(item for workspace in tree["workspaces"] for item in workspace["sessions"]
+                           if item["id"] == origin_id)
+            return next((surface.get("lead") for surface in session["surfaces"]
+                         if surface["kind"] == kind), None)
+
+        # A session-wide ask is handed over only while every origin pane follows.
+        wait_for(lambda: origin_lead("left") == "follower" and origin_lead("right") == "follower",
+                 "origin panes did not both report their follower role")
         terminal_ask = raw_control_json(origin_env, {
             "cmd": "ask.open", "target": origin_id,
             "args": {"title": "Remote terminal ask",
@@ -3415,14 +3470,6 @@ def verify_remote_presentation(env):
             "cmd": "session.overlay.result", "target": origin_id,
         }).get("result", {}).get("exitCode") == 0,
                  "origin did not receive the remote overlay exit code")
-        def origin_lead():
-            tree = raw_control_json(origin_env, {"cmd": "tree"})["result"]["tree"]
-            session = next(item for workspace in tree["workspaces"] for item in workspace["sessions"]
-                           if item["id"] == origin_id)
-            return next(surface.get("lead") for surface in session["surfaces"]
-                        if surface["kind"] == "left")
-
-        wait_for(lambda: origin_lead() == "follower", "origin did not report its follower role")
         typed_marker = os.path.join(origin_state, "follower-type.marker")
         typed = raw_control_json(origin_env, {
             "cmd": "session.type", "target": origin_id,
@@ -3438,11 +3485,102 @@ def verify_remote_presentation(env):
         assert text_read["ok"], text_read
         refused = raw_control_json(origin_env, {"cmd": "session.paste", "target": origin_id})
         assert not refused["ok"] and "covered" in refused["error"], refused
+
+        def focus_origin():
+            # Both windows are titled after the same session, so `focus_window`'s title match can pick the viewer.
+            # A PID-only search must end its xdotool invocation: a following argument becomes its pattern.
+            pid = str(origin_process.pid)
+
+            def origin_active():
+                found = subprocess.run(["xdotool", "search", "--onlyvisible", "--pid", pid],
+                                       check=False, capture_output=True, text=True)
+                for window in found.stdout.split():
+                    subprocess.run(["xdotool", "windowactivate", window], check=False,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                active = subprocess.run(["xdotool", "getactivewindow", "getwindowpid"],
+                                        check=False, capture_output=True, text=True)
+                return active.returncode == 0 and active.stdout.strip() == pid
+
+            assert poll(origin_active, timeout=5), "the origin window did not take X11 focus"
+            time.sleep(0.5)
+
+        def origin_zoomed_surface():
+            return raw_control_json(origin_env, {"cmd": "tree"})["result"]["tree"].get("zoomedSurface")
+
+        def origin_zoom(slot):
+            zoomed = control_json(origin_env, "surface", "zoom", "show",
+                                  "--target", f"surface:{origin_id}:{slot}", "--json")
+            assert zoomed["ok"], zoomed
+            expected = f"surface:{origin_id}:{slot}".lower()
+            wait_for(lambda: (origin_zoomed_surface() or "").lower() == expected,
+                     f"origin {slot} zoom did not engage")
+
+        # Staged through the daemon, so only a Return that reaches the shell writes the marker.
+        leak_marker = os.path.join(origin_state, "zoom-takeover.marker")
+        staged = raw_control_json(origin_env, {
+            "cmd": "session.type", "target": origin_id,
+            "args": {"text": "printf zoom-key-leak > " + shlex.quote(leak_marker), "pane": "right"},
+        })
+        assert staged["ok"], staged
+        wait_for(lambda: "zoom-key-leak" in (raw_control_json(origin_env, {
+            "cmd": "session.text", "target": origin_id, "args": {"pane": "right", "all": True},
+        }).get("result", {}).get("text") or ""), "the staged command did not reach the covered split")
+        focus_origin()
+        origin_zoom("left")
+        origin_zoom("right")
+        assert origin_lead("left") == "follower" and origin_lead("right") == "follower", (
+            "zooming a covered pane changed its lead before any key"
+        )
+        subprocess.run(["xdotool", "keydown", "Return"], check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            wait_for(lambda: origin_lead("right") == "leader",
+                     "a key on the zoomed covered split did not take its lead")
+            # Keep autorepeat running past its delay once the split is uncovered.
+            time.sleep(1.5)
+        finally:
+            released = subprocess.run(["xdotool", "keyup", "Return"], check=False,
+                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        assert released.returncode == 0, "xdotool could not release Return; it is still held"
+        assert origin_lead("left") == "follower", "the split's takeover moved the other pane's lead"
+        time.sleep(NEGATIVE_SETTLE_SECONDS)
+        assert not os.path.exists(leak_marker), "the takeover key or a repeat reached the shell"
+        unzoomed = control_json(origin_env, "surface", "zoom", "hide",
+                                "--target", f"surface:{origin_id}:right", "--json")
+        assert unzoomed["ok"], unzoomed
+        wait_for(lambda: not origin_zoomed_surface(), "origin zoom did not exit")
+        split_reclaimed = raw_control_json(viewer_env, {
+            "cmd": "session.lead", "target": viewer_id, "args": {"pane": "right"},
+        })
+        assert split_reclaimed["ok"], split_reclaimed
+        wait_for(lambda: origin_lead("right") == "follower", "viewer did not reclaim the split pane lead")
+        cleared = raw_control_json(origin_env, {
+            "cmd": "session.type", "target": origin_id, "args": {"text": "\x15", "pane": "right"},
+        })
+        assert cleared["ok"], cleared
         activate(wait_for(lambda: named(origin_app, "Pane in use elsewhere · Take lead", role="button"),
                           "origin did not cover its follower pane"))
         wait_for(lambda: origin_lead() == "leader", "origin did not take back the pane lead")
         wait_for(lambda: viewer_session()["surfaces"][0].get("lead") == "follower",
                  "viewer did not become a follower")
+        local_ask = raw_control_json(origin_env, {
+            "cmd": "ask.open", "target": origin_id,
+            "args": {"title": "Origin-led GUI ask", "style": "gui",
+                     "buttons": [{"id": "local", "label": "Answer while leading"}]},
+        })
+        assert local_ask["ok"], local_ask
+        local_window = wait_for(lambda: named(origin_app, "Origin-led GUI ask", role="frame"),
+                                "origin did not show a session-wide ask while it leads a pane")
+        time.sleep(NEGATIVE_SETTLE_SECONDS)
+        assert not named(viewer_app, "Origin-led GUI ask", role="frame"), (
+            "an ask opened while the origin leads a pane reached the viewer"
+        )
+        assert not viewer_session().get("ask"), viewer_session()
+        activate(wait_for(lambda: named(local_window, "Answer while leading", role="button"),
+                          "origin did not show the local ask button"))
+        wait_for(lambda: raw_control_json(origin_env, {"cmd": "ask.result", "target": local_ask["result"]["id"]})
+                 .get("result", {}).get("ask", {}).get("result") == "answered",
+                 "origin did not answer its local ask")
         reclaimed = raw_control_json(viewer_env, {"cmd": "session.lead", "target": viewer_id})
         assert reclaimed["ok"], reclaimed
         wait_for(lambda: viewer_session()["surfaces"][0].get("lead") == "leader",
@@ -3456,12 +3594,17 @@ def verify_remote_presentation(env):
         assert closed["ok"], closed
         wait_for(lambda: viewer_session().get("hasSplit") is None,
                  "viewer did not remove the origin's closed split")
+        wait_for(lambda: origin_lead() == "follower", "the surviving origin pane did not report its follower role")
         handback = raw_control_json(origin_env, {
             "cmd": "ask.open", "target": origin_id,
             "args": {"title": "Returned GUI ask", "style": "gui",
                      "buttons": [{"id": "return", "label": "Answer at origin"}]},
         })
         assert handback["ok"], handback
+        wait_for(lambda: viewer_session().get("ask", {}).get("id") == handback["result"]["id"],
+                 "the returned GUI ask was not handed to the viewer")
+        wait_for(lambda: named(viewer_app, "Returned GUI ask", role="frame"),
+                 "viewer did not show the returned GUI ask window")
         stop(viewer_process)
         viewer_process = None
         returned_window = wait_for(lambda: named(origin_app, "Returned GUI ask", role="frame"),

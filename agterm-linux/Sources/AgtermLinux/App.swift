@@ -194,7 +194,7 @@ private let onOpen: @MainActor @convention(c) (OpaquePointer?, UnsafeMutablePoin
             socketDirectory: ZmxSupport.socketDirectory(forStateDirectory: stateDirectory.path)
         ) : nil
     gZmxClient = zmxClient
-    gZmxForegroundResolver = zmxClient.map(LinuxZmxForegroundResolver.init(client:))
+    gZmxForegroundResolver = zmxClient.map { LinuxZmxForegroundResolver(client: $0) }
     // The notification click-to-reveal target: an `app.reveal` action carrying a session-id string.
     let revealAction = g_simple_action_new("reveal", g_variant_type_new("s"))
     connect(revealAction, "activate", unsafeBitCast(onRevealAction as @convention(c) (OpaquePointer?, OpaquePointer?, gpointer?) -> Void, to: GCallback.self))
@@ -203,14 +203,12 @@ private let onOpen: @MainActor @convention(c) (OpaquePointer?, UnsafeMutablePoin
         directory: stateDirectory,
         paneFinalizer: { identities in
             _ = zmxClient?.kill(paneIdentities: identities)
-            gZmxForegroundResolver?.noteLifecycleChange()
         },
         launchInventorySink: { identities in
             gZmxRunningNames = zmxClient?.reap(
                 knownPaneIdentities: identities,
                 launchDecision: restoreDecision
             ).runningNames
-            gZmxForegroundResolver?.noteLifecycleChange()
         },
         launchPaneDrop: { identities in identities.forEach(gSpawnRegistry.pacer.discard) },
         defaultSessionCwd: ConfigPaths.defaultNewSessionCwd()
