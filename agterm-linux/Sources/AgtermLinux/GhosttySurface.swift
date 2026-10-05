@@ -891,7 +891,7 @@ private let surfaceKeyPressed: @MainActor @convention(c) (OpaquePointer?, UInt32
     }
 }
 /// Modifier-only releases reach libghostty (macOS `flagsChanged` parity). The Ctrl-Tab commit this release
-/// may end waits a GLib turn (`scheduleSessionSwitchCommit`), so this forwarding lands before it moves focus.
+/// may end waits for a GLib idle (`scheduleSessionSwitchCommit`), so this forwarding lands before it moves focus.
 private let surfaceKeyReleased: @MainActor @convention(c) (OpaquePointer?, UInt32, UInt32, UInt32, gpointer?) -> Void = { _, keyval, keycode, state, data in
     guard ModifierKeyMods.modifierBit(forKeyval: keyval) != nil else { return }
     MainActor.assumeIsolated { wrap(data)?.modifierKeyReleased(keyval: keyval, keycode: keycode, state: state) }
