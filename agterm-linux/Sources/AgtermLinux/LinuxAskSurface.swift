@@ -33,6 +33,7 @@ extension AppController {
             return false
         }
         guiAskWindow = win
+        installPaneLeadReleaseCapture(on: win)
         suppressAutoFollow()
         guiAskSuppressesAutoFollow = true
         attachControllerContext(to: win, windowID: windowID)

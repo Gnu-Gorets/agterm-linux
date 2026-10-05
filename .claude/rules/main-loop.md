@@ -235,8 +235,10 @@ paths:
   presses are consumed without taking the lead, and the first other key takes it once.
   Their modifier releases stay off the covered terminal too; the Ctrl-Tab commit is the window's, above.
   GTK4 has no repeat flag, so the takeover keycode is one app-wide value consuming every further press of it
-  until its own release, from whichever surface or cover then holds the keyboard: the press lands on the
-  surface `reattachPane` tears down, its repeats and release on the replacement.
+  until its own release: the press lands on the surface `reattachPane` tears down, its repeats on the replacement.
+  The window capture controller clears that latch on release even when an entry or chrome has taken focus.
+  Auxiliary palette, theme, control-picker and GUI-ask toplevels install the same release observation.
+  Surface and cover release handlers still decide whether to forward modifier releases to libghostty.
   Never clear it on focus change or teardown.
   `reattachPane` hands focus to the replacement when the old GLArea OR its cover held it.
 - **A GtkPopover takes the keyboard on popup and does NOT give it back — the dismissal has to.**

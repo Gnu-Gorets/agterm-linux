@@ -1,3 +1,4 @@
+import CGtk
 import Foundation
 import agtermCore
 
@@ -26,4 +27,24 @@ extension AppController {
     static func paneLeadKeyReleased(_ surface: GhosttySurface, keyval: UInt32, keycode: UInt32) -> Bool {
         paneLeadKeys.release(keyval: keyval, keycode: keycode, pane: UUID(uuidString: surface.paneToken))
     }
+
+    /// A takeover can move focus to an entry or chrome before release; the window still sees that edge.
+    static func paneLeadKeyReleased(keycode: UInt32) {
+        _ = paneLeadKeys.release(keycode: keycode)
+    }
 }
+
+/// Auxiliary toplevels do not receive the main window's capture controller.
+@MainActor
+func installPaneLeadReleaseCapture(on window: OpaquePointer) {
+    let keys = gtk_event_controller_key_new()
+    gtk_event_controller_set_propagation_phase(keys, GTK_PHASE_CAPTURE)
+    connect(keys, "key-released", unsafeBitCast(onPaneLeadKeyReleased as @convention(c)
+        (OpaquePointer?, UInt32, UInt32, UInt32, gpointer?) -> Void, to: GCallback.self))
+    gtk_widget_add_controller(W(window), keys)
+}
+
+private let onPaneLeadKeyReleased: @MainActor @convention(c)
+    (OpaquePointer?, UInt32, UInt32, UInt32, gpointer?) -> Void = { _, _, keycode, _, _ in
+        MainActor.assumeIsolated { AppController.paneLeadKeyReleased(keycode: keycode) }
+    }

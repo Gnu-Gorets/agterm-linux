@@ -3558,6 +3558,13 @@ def verify_remote_presentation(env):
             "cmd": "session.type", "target": origin_id, "args": {"text": "\x15", "pane": "right"},
         })
         assert cleared["ok"], cleared
+        from atspi_pane_lead import verify_takeover_release_in_entry
+        for palette in (False, True):
+            verify_takeover_release_in_entry(origin_env, origin_app, origin_id, origin_lead, origin_zoom, palette=palette)
+            assert raw_control_json(viewer_env, {
+                "cmd": "session.lead", "target": viewer_id, "args": {"pane": "right"},
+            })["ok"]
+            wait_for(lambda: origin_lead("right") == "follower", "viewer did not reclaim the release probe split")
         activate(wait_for(lambda: named(origin_app, "Pane in use elsewhere · Take lead", role="button"),
                           "origin did not cover its follower pane"))
         wait_for(lambda: origin_lead() == "leader", "origin did not take back the pane lead")
