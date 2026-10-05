@@ -50,9 +50,8 @@ This matches macOS's `.control`-cleared test, which the GDK event mask cannot an
 release event carries the modifier state from BEFORE it, so that mask's control bit is set whether or
 not the other Ctrl key remains down (see `ModifierKeyMods`).
 GTK/X11 updates its cached device state in a separate `XkbStateNotify` after the release event.
-The idle runs below GDK's event priority so that notification is processed before the read.
-A zero-delay `MainTimer` has the same priority as GDK events and can run first, leaving a cycle stranded
-because it still sees Ctrl held.
+The cached state can still report Ctrl held from a zero-delay `MainTimer` callback, stranding the cycle.
+The idle runs below GDK's event priority, giving pending GDK work precedence before the read.
 The device read also sees physical Ctrl keys already held when the window gained focus.
 The deferred closure reacquires the default display, seat, and keyboard; no event-owned pointer leaves
 the callback.

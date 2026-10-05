@@ -217,8 +217,8 @@ paths:
 - **The Ctrl-Tab commit reads the keyboard device from a GLib idle after the Ctrl release.**
   The window's capture-phase switcher controller (`AppController+SessionSwitchCapture.swift`) schedules
   it through `runOnMain`: GTK/X11 updates its cached modifier state in a separate `XkbStateNotify` event.
-  A zero-delay `MainTimer` runs at the same priority as GDK events and can read stale Ctrl state before that
-  notification; the lower-priority idle lets queued GDK events drain first.
+  The cached Ctrl state was observed still set in a zero-delay `MainTimer` callback after release.
+  The lower-priority idle gives pending GDK work precedence before reading the device.
   Reacquire the display/seat/keyboard there; never retain the event or its borrowed pointers.
 - **A GtkPopover takes the keyboard on popup and does NOT give it back — the dismissal has to.**
   Measured (GTK 4.22): `gtk_popover_popup` moves the window's focus widget onto the popover's first item
