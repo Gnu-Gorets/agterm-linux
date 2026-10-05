@@ -193,6 +193,7 @@ extension AppController {
     func showPalette(sessions: Bool = false, recent: Bool = false, attention: Bool = false) {
         if paletteWindow != nil { closePalette(); return }   // re-invoking toggles the palette closed
         guard let win = op(gtk_window_new()) else { return }
+        installPaneLeadReleaseCapture(on: win)
         attachControllerContext(to: win, windowID: windowID)
         paletteWindow = win
         suppressAutoFollow()

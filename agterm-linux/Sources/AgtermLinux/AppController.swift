@@ -343,8 +343,7 @@ final class AppController {
         reconcile()
     }
     func newSessionCwd() -> String {
-        linuxSettingsStore().load().resolveNewSessionCwd(currentSessionCwd: store.activeSession?.focusedCwd,
-                                                    home: Self.homeCwd)
+        Self.newSessionCwd(settings: linuxSettingsStore().load(), activeSession: store.activeSession)
     }
     func newWorkspace() {
         noteUserActivity()
@@ -547,7 +546,7 @@ final class AppController {
                 socketPath: gControlServer.resolvedSocketPath,
                 programVersion: LinuxAppMetadata.version)
             environment["AGTERM_WINDOW_ID"] = windowID.uuidString
-            let q = GhosttySurface(sessionID: UUID(), cwd: Self.homeCwd,
+            let q = GhosttySurface(sessionID: UUID(), cwd: Self.quickTerminalCwd(activeSession: store.activeSession),
                                    env: environment,
                                    controller: self, role: .quick, reportsPaneState: false)
             q.onExit = { [weak self] in self?.closeQuick() }

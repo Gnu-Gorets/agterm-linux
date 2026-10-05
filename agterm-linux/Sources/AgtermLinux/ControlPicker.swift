@@ -75,6 +75,7 @@ extension AppController {
             return
         }
         controlPickWindow = win
+        installPaneLeadReleaseCapture(on: win)
         suppressAutoFollow()
         controlPickSuppressesAutoFollow = true
         attachControllerContext(to: win, windowID: windowID)

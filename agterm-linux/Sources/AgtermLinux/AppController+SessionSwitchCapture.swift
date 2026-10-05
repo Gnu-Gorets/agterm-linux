@@ -43,8 +43,9 @@ private let onSessionSwitchKeyPressed: @MainActor @convention(c)
 
 private let onSessionSwitchKeyReleased: @MainActor @convention(c)
     (OpaquePointer?, UInt32, UInt32, UInt32, gpointer?) -> Void = { controller, keyval, keycode, _, _ in
-        guard ModifierKeyMods.modifierBit(forKeyval: keyval) == ModifierKeyMods.controlBit else { return }
         MainActor.assumeIsolated {
+            AppController.paneLeadKeyReleased(keycode: keycode)
+            guard ModifierKeyMods.modifierBit(forKeyval: keyval) == ModifierKeyMods.controlBit else { return }
             controllerForEventController(controller)?.scheduleSessionSwitchCommit(releasing: keycode)
         }
 }

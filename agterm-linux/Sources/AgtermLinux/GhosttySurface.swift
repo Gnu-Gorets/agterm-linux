@@ -100,6 +100,7 @@ final class GhosttySurface: PaneRoleMutableSurface {
 
     /// Set by the host: the shell process exited.
     var onExit: (() -> Void)?
+    var onExitHeld: (() -> Void)?
     private var exitCodeFile: String?
     private var onExitCodeCaptured: ((Int) -> Void)?
     var didHandleProcessExit = false
@@ -647,6 +648,7 @@ final class GhosttySurface: PaneRoleMutableSurface {
                                  context: shortcutKeyContext(event: event, keycode: keycode)) == true {
             return true
         }
+        if controller?.paneLeadConsumesPress(self, keyval: keyval, keycode: keycode, state: state) == true { return true }
 
         // Route through the IM context: a dead-key/compose/CJK sequence is CONSUMED here (its result
         // arrives via the `commit` signal → imCommit). Plain keys pass through (filter returns false) and
@@ -832,6 +834,7 @@ final class GhosttySurface: PaneRoleMutableSurface {
 
     func teardown() {
         onExit = nil
+        onExitHeld = nil
         if let spawnKey { gSpawnRegistry.cancel(spawnKey) }
         spawnPacer = nil
         spawnKey = nil
@@ -878,12 +881,6 @@ private let surfaceKeyPressed: @MainActor @convention(c) (OpaquePointer?, UInt32
             keyval: keyval, keycode: keycode, state: state, event: event
         ) ?? false) ? 1 : 0
     }
-}
-/// Modifier-only releases reach libghostty (macOS `flagsChanged` parity). The Ctrl-Tab commit this release
-/// may end waits for a GLib idle (`scheduleSessionSwitchCommit`), so this forwarding lands before it moves focus.
-private let surfaceKeyReleased: @MainActor @convention(c) (OpaquePointer?, UInt32, UInt32, UInt32, gpointer?) -> Void = { _, keyval, keycode, state, data in
-    guard ModifierKeyMods.modifierBit(forKeyval: keyval) != nil else { return }
-    MainActor.assumeIsolated { wrap(data)?.modifierKeyReleased(keyval: keyval, keycode: keycode, state: state) }
 }
 private let surfaceFocusEnter: @MainActor @convention(c) (OpaquePointer?, gpointer?) -> Void = { _, data in
     MainActor.assumeIsolated {

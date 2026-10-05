@@ -99,7 +99,7 @@ extension AppController {
                   let row = op(gtk_box_new(GTK_ORIENTATION_VERTICAL, 1)),
                   let titleLine = op(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4)),
                   let title = op(gtk_label_new(session.displayName)) else { continue }
-            if session.remoteHost != nil, let cloud = op(gtk_image_new_from_icon_name("weather-overcast-symbolic")) {
+            if session.remoteHost != nil, let cloud = op(gtk_image_new_from_icon_name(LinuxRemoteGlyph.connected)) {
                 gtk_widget_set_tooltip_text(W(cloud), "Remote")
                 gtk_box_append(cast(titleLine), W(cloud))
             }
@@ -318,7 +318,7 @@ extension AppController {
             }
 
             let titleLine = op(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4))
-            if session.remoteHost != nil, let cloud = op(gtk_image_new_from_icon_name("weather-overcast-symbolic")) {
+            if session.remoteHost != nil, let cloud = op(gtk_image_new_from_icon_name(LinuxRemoteGlyph.connected)) {
                 gtk_widget_set_tooltip_text(W(cloud), "Remote")
                 gtk_box_append(cast(titleLine), W(cloud))
             }
