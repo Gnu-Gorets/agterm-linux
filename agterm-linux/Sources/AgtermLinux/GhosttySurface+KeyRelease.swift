@@ -5,7 +5,7 @@ private func wrap(_ data: gpointer?) -> GhosttySurface? {
     return Unmanaged<GhosttySurface>.fromOpaque(data).takeUnretainedValue()
 }
 
-/// A forwarded modifier release reaches libghostty before the Ctrl-Tab commit, which waits a GLib turn
+/// A forwarded modifier release reaches libghostty before the Ctrl-Tab commit, which waits for a GLib idle
 /// (`scheduleSessionSwitchCommit`) and then moves focus.
 /// Also installed on the lead cover's button, with its surface as `data`.
 let surfaceKeyReleased: @MainActor @convention(c) (OpaquePointer?, UInt32, UInt32, UInt32, gpointer?) -> Void = { _, keyval, keycode, state, data in

@@ -46,13 +46,16 @@ extension AppController {
     /// Fires after EVERY Ctrl chord (Ctrl+C too), so it must do nothing with no cycle in flight. Ending the
     /// model BEFORE selecting is load-bearing: `selectSession` grabs focus, whose blur reaches
     /// `cancelSessionSwitch`, which must find the cycle already over.
-    /// GTK updates the keyboard device's modifier state only after the release signal returns. Defer one
-    /// GLib turn through MainTimer, then reacquire the device instead of retaining an event-owned pointer.
+    /// GTK/X11 updates the device's modifier state in a separate XkbStateNotify after the key release.
+    /// The cached state can still be stale at a zero-delay MainTimer callback. Use an idle to give pending
+    /// GDK work priority before reading it. Reacquire the device instead of retaining an event-owned pointer.
     func scheduleSessionSwitchCommit(releasing keycode: UInt32) {
-        MainTimer.schedule(after: 0) { [weak self] in
-            self?.commitSessionSwitch(
-                releasing: keycode, controlStillHeld: ModifierKeyMods.currentControlIsHeld()
-            )
+        runOnMain { [weak self] in
+            MainActor.assumeIsolated {
+                self?.commitSessionSwitch(
+                    releasing: keycode, controlStillHeld: ModifierKeyMods.currentControlIsHeld()
+                )
+            }
         }
     }
 

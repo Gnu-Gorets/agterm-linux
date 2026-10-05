@@ -223,10 +223,11 @@ paths:
   `surfaceFocusLeave` (`GhosttySurface.swift`) abandons a typed custom-command leader AND an in-flight
   Ctrl-Tab cycle. Why the cancel is broader than the blur that triggers it:
   `agterm-linux/docs/menu-actions.md`.
-- **The Ctrl-Tab commit reads the keyboard device one GLib turn after the Ctrl release.**
+- **The Ctrl-Tab commit reads the keyboard device from a GLib idle after the Ctrl release.**
   The window's capture-phase switcher controller (`AppController+SessionSwitchCapture.swift`) schedules
-  it through `MainTimer.schedule(after: 0)`: GTK's keyboard-device modifier state remains pre-release
-  inside the signal callback and becomes current on the next GLib turn.
+  it through `runOnMain`: GTK/X11 updates its cached modifier state in a separate `XkbStateNotify` event.
+  The cached Ctrl state was observed still set in a zero-delay `MainTimer` callback after release.
+  The lower-priority idle gives pending GDK work precedence before reading the device.
   Reacquire the display/seat/keyboard there; never retain the event or its borrowed pointers.
 - **A covered pane's keys go to the keymap first, then `LinuxPaneLeadKeyPolicy`.**
   Both entry points share that order: `GhosttySurface.keyPressed` after `handleKey` declines, and the lead
