@@ -88,8 +88,9 @@ cp "$ROOT/scripts/setup-linux.sh" "$ROOT/scripts/verify-linux-architecture.sh" \
   "$ROOT/scripts/verify-linux-resources.sh" "$ROOT/scripts/verify-linux-vendor-cache.sh" \
   "$ROOT/scripts/verify-linux-zmx-cache.sh" \
   "$SETUP_ROOT/scripts/"
-mkdir -p "$SETUP_ROOT/scripts/zmx-patches"
+mkdir -p "$SETUP_ROOT/scripts/zmx-patches/ghostty"
 cp "$ROOT/scripts/zmx-patches/"*.patch "$SETUP_ROOT/scripts/zmx-patches/"
+cp "$ROOT/scripts/zmx-patches/ghostty/"*.patch "$SETUP_ROOT/scripts/zmx-patches/ghostty/"
 cp "$ROOT/linux/arch.sh" "$ROOT/linux/ghostty-resources.env" "$ROOT/linux/zmx.env" "$SETUP_ROOT/linux/"
 cp -R "$WORK/complete/." "$SETUP_ROOT/agterm-linux/vendor/ghostty/"
 cat > "$SETUP_ROOT/agterm-linux/vendor/zmx/zmx" <<'EOF'
@@ -100,7 +101,7 @@ chmod 0755 "$SETUP_ROOT/agterm-linux/vendor/zmx/zmx"
 printf 'test license\n' > "$SETUP_ROOT/agterm-linux/vendor/zmx/LICENSE"
 # shellcheck source=../linux/zmx.env
 source "$ROOT/linux/zmx.env"
-ZMX_PATCH_DIGEST="$(cat "$ROOT/scripts/zmx-patches"/*.patch | sha256sum | cut -c1-16)"
+ZMX_PATCH_DIGEST="$(cat "$ROOT/scripts/zmx-patches"/*.patch "$ROOT/scripts/zmx-patches/ghostty"/*.patch | sha256sum | cut -c1-16)"
 printf '%s %s\n' "$ZMX_REV" "$ZMX_PATCH_DIGEST" > "$SETUP_ROOT/agterm-linux/vendor/zmx/REVISION"
 cat > "$WORK/git" <<'EOF'
 #!/usr/bin/env bash

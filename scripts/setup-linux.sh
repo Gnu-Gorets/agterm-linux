@@ -14,7 +14,7 @@ GHOSTTY_REPO="https://github.com/ghostty-org/ghostty"
 source "$ROOT/linux/ghostty-resources.env"
 # shellcheck source=../linux/zmx.env
 source "$ROOT/linux/zmx.env"
-ZMX_PATCH_DIGEST="$(cat "$ROOT/scripts/zmx-patches"/*.patch | sha256sum | cut -c1-16)"
+ZMX_PATCH_DIGEST="$(cat "$ROOT/scripts/zmx-patches"/*.patch "$ROOT/scripts/zmx-patches/ghostty"/*.patch | sha256sum | cut -c1-16)"
 ZMX_STAMP="$ZMX_REV $ZMX_PATCH_DIGEST"
 # shellcheck source=../linux/arch.sh
 source "$ROOT/linux/arch.sh"
@@ -115,6 +115,15 @@ if $need_zmx; then
   mkdir -p "$ZMX_BUILD"
   curl -fsSLo "$BUILD_DIR/zmx.tgz" "https://codeload.github.com/$ZMX_SLUG/tar.gz/$ZMX_REV"
   tar -xzf "$BUILD_DIR/zmx.tgz" -C "$ZMX_BUILD" --strip-components=1
+  ZMX_GHOSTTY_REV="$(sed -n 's|.*ghostty-org/ghostty#\([0-9a-f]\{40\}\)".*|\1|p' "$ZMX_BUILD/build.zig.zon")"
+  [[ -n "$ZMX_GHOSTTY_REV" ]] || { echo "missing zmx ghostty revision" >&2; exit 1; }
+  ZMX_GHOSTTY="$BUILD_DIR/zmx-ghostty"
+  mkdir -p "$ZMX_GHOSTTY"
+  curl -fsSLo "$BUILD_DIR/zmx-ghostty.tgz" "https://codeload.github.com/ghostty-org/ghostty/tar.gz/$ZMX_GHOSTTY_REV"
+  tar -xzf "$BUILD_DIR/zmx-ghostty.tgz" -C "$ZMX_GHOSTTY" --strip-components=1
+  for ghostty_patch in "$ROOT/scripts/zmx-patches/ghostty"/*.patch; do
+    git -C "$ZMX_GHOSTTY" apply --whitespace=nowarn "$ghostty_patch"
+  done
   for zmx_patch in "$ROOT/scripts/zmx-patches"/*.patch; do
     echo "applying $(basename "$zmx_patch")..."
     git -C "$ZMX_BUILD" apply --whitespace=nowarn "$zmx_patch"
