@@ -32,13 +32,15 @@ final class LinuxZmxClient: @unchecked Sendable {
     let socketDirectory: String
     private let timeout: TimeInterval
     private let runner: Runner
+    private let sweeper: LinuxProcessSweeper?
 
     init(executablePath: String, socketDirectory: String, timeout: TimeInterval = 3,
-         runner: @escaping Runner = LinuxZmxClient.run) {
+         sweeper: LinuxProcessSweeper? = nil, runner: @escaping Runner = LinuxZmxClient.run) {
         self.executablePath = executablePath
         self.socketDirectory = socketDirectory
         self.timeout = timeout
         self.runner = runner
+        self.sweeper = sweeper
     }
 
     var endpoint: ControlZmxEndpoint {
@@ -98,9 +100,11 @@ final class LinuxZmxClient: @unchecked Sendable {
 
     func killObservedOrphan(names: [String]) -> [String: KillOutcome] {
         var outcomes: [String: KillOutcome] = [:]
+        let jobs = foregroundJobs(of: names)
         for name in Set(names) {
             do {
                 outcomes[name] = Self.outcome(of: try invoke(["kill", name], mergesStderr: true), name: name)
+                if outcomes[name] == .killed, let job = jobs[name] { sweeper?.send(SIGHUP, to: job) }
             } catch {
                 outcomes[name] = .failed(String(describing: error))
             }
@@ -109,8 +113,11 @@ final class LinuxZmxClient: @unchecked Sendable {
     }
 
     func killConfirmed(name: String) -> KillOutcome {
+        let job = foregroundJobs(of: [name])[name]
         do {
-            return Self.outcome(of: try invoke(["kill", name, "--force"], mergesStderr: true), name: name)
+            let outcome = Self.outcome(of: try invoke(["kill", name, "--force"], mergesStderr: true), name: name)
+            if outcome == .killed, let job { sweeper?.send(SIGHUP, to: job) }
+            return outcome
         } catch {
             return .failed(String(describing: error))
         }
@@ -129,7 +136,20 @@ final class LinuxZmxClient: @unchecked Sendable {
         var seen = Set<String>()
         let unique = names.filter { seen.insert($0).inserted }
         guard !unique.isEmpty else { return true }
-        return (try? invoke(["kill"] + unique + ["--force"], mergesStderr: true)) != nil
+        let jobs = foregroundJobs(of: unique)
+        guard let output = try? invoke(["kill"] + unique + ["--force"], mergesStderr: true) else { return false }
+        for (name, job) in jobs where Self.outcome(of: output, name: name) == .killed { sweeper?.send(SIGHUP, to: job) }
+        return true
+    }
+
+    func foregroundJob(ofShell pid: Int32) -> [ProcessRecord]? { sweeper?.foregroundJob(of: pid) ?? (sweeper == nil ? [] : nil) }
+    func isRunning(_ job: [ProcessRecord]) -> Bool { sweeper?.isRunning(job) ?? false }
+    func forceEnd(_ job: [ProcessRecord]) { sweeper?.send(SIGKILL, to: job) }
+
+    private func foregroundJobs(of names: [String]) -> [String: [ProcessRecord]] {
+        guard let sweeper, let records = listSessions() else { return [:] }
+        let leaders = Dictionary(records.compactMap { record in record.leaderPID.map { (record.name, $0) } }) { first, _ in first }
+        return leaders.filter { names.contains($0.key) }.compactMapValues { sweeper.foregroundJob(of: $0) }
     }
 
     private func invoke(_ arguments: [String], timeout timeoutOverride: TimeInterval? = nil,

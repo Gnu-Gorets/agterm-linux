@@ -6,6 +6,13 @@ extension LinuxControlDispatcher {
     func dispatchHtmlOverlayCommand(_ request: ControlRequest) -> ControlResponse {
         switch request.cmd {
         case .sessionOverlayOpen:
+            if request.args?.chromeless == true {
+                guard request.args?.html != nil else { return ControlResponse(ok: false, error: OverlayHtmlError.chromelessRequiresFile) }
+                if request.args?.navigation == true { return ControlResponse(ok: false, error: OverlayHtmlError.chromelessWithNavigation) }
+            }
+            if request.args?.persistent == true, request.args?.url == nil {
+                return ControlResponse(ok: false, error: OverlayHtmlError.persistentRequiresURL)
+            }
             let command = request.args?.command ?? ""
             let page: HtmlSource?
             switch (request.args?.html, request.args?.url) {
@@ -64,7 +71,9 @@ extension LinuxControlDispatcher {
                                                 pane: pane,
                                                 page: page,
                                                 navigation: request.args?.navigation ?? false,
-                                                javascript: request.args?.javascript ?? false
+                                                javascript: request.args?.javascript ?? false,
+                                                chromeless: request.args?.chromeless ?? false,
+                                                persistent: request.args?.persistent ?? false
                                               ))
         case .sessionOverlayReload:
             switch parseOverlayPane(request.args?.pane) {

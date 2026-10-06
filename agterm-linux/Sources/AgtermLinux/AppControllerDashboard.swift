@@ -214,14 +214,26 @@ extension AppController {
             gtk_widget_set_hexpand(W(frame), 1)
             gtk_widget_set_vexpand(W(frame), 1)
             let cell = OpaquePointer(gtk_overlay_new())
-            let paintable = gtk_widget_paintable_new(W(surface.rootWidget))
-            let picture = OpaquePointer(gtk_picture_new_for_paintable(paintable))
-            gtk_picture_set_can_shrink(picture, 1)
-            gtk_picture_set_content_fit(picture, GTK_CONTENT_FIT_FILL)
-            gtk_widget_set_hexpand(W(picture), 1)
-            gtk_widget_set_vexpand(W(picture), 1)
-            gtk_overlay_set_child(cell, W(picture))
-            g_object_unref(RAW(paintable))
+            if let cover = store.session(withID: member.session)?.dashboardCover(for: member.surface == .split ? .right : .left) {
+                let text: String
+                switch cover {
+                case .page(let identity, let title): text = [identity, title].compactMap { $0 }.joined(separator: "\n")
+                case .program(let command): text = command ?? "Program overlay"
+                }
+                let label = OpaquePointer(gtk_label_new(text))
+                gtk_label_set_wrap(label, 1)
+                gtk_widget_add_css_class(W(label), "dim-label")
+                gtk_overlay_set_child(cell, W(label))
+            } else {
+                let paintable = gtk_widget_paintable_new(W(surface.rootWidget))
+                let picture = OpaquePointer(gtk_picture_new_for_paintable(paintable))
+                gtk_picture_set_can_shrink(picture, 1)
+                gtk_picture_set_content_fit(picture, GTK_CONTENT_FIT_FILL)
+                gtk_widget_set_hexpand(W(picture), 1)
+                gtk_widget_set_vexpand(W(picture), 1)
+                gtk_overlay_set_child(cell, W(picture))
+                g_object_unref(RAW(paintable))
+            }
             let sessionName = store.session(withID: member.session)?.displayName ?? "Session"
             let paneName = member.surface == .split ? "Right" : "Left"
             gtk_widget_set_tooltip_text(W(frame), "\(sessionName) · \(paneName)")

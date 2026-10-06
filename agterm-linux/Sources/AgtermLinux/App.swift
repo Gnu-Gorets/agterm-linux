@@ -32,6 +32,12 @@ struct AgtermApp {
             FileHandle.standardError.write(Data((line + "\n").utf8))
         }
         AppImageChildEnvironment.sanitizeCurrentProcess()
+        #if DEBUG
+        if let state = DebugStateDirectory.adopted(environment: ProcessInfo.processInfo.environment,
+                                                    liveDirectory: PersistenceStore.defaultDirectory) {
+            setenv(DebugStateDirectory.environmentKey, state, 1)
+        }
+        #endif
         // AGTERM_APP_ID overrides the GApplication id so a dev/test instance registers separately on
         // the session bus and runs ALONGSIDE a deployed one (the Linux analogue of the macOS .debug
         // bundle id) instead of forwarding its launch to the running instance.
@@ -191,9 +197,10 @@ private let onOpen: @MainActor @convention(c) (OpaquePointer?, UnsafeMutablePoin
     let zmxClient = FileManager.default.isExecutableFile(atPath: zmxPath)
         ? LinuxZmxClient(
             executablePath: zmxPath,
-            socketDirectory: ZmxSupport.socketDirectory(forStateDirectory: stateDirectory.path)
+            socketDirectory: ZmxSupport.socketDirectory(forStateDirectory: stateDirectory.path), sweeper: LinuxProcessSweeper()
         ) : nil
     gZmxClient = zmxClient
+    LinuxRemoteLinkObserver.shared.install()
     gZmxForegroundResolver = zmxClient.map { LinuxZmxForegroundResolver(client: $0) }
     // The notification click-to-reveal target: an `app.reveal` action carrying a session-id string.
     let revealAction = g_simple_action_new("reveal", g_variant_type_new("s"))

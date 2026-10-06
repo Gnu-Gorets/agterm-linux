@@ -13,7 +13,7 @@ extension AppController {
         for session in sessions where session.remotePresentation != nil && remoteClients[session.id] == nil {
             startRemotePresentation(session)
         }
-        if remoteClients.isEmpty {
+        if remoteClients.isEmpty && RemoteReconnectBook.shared.isEmpty {
             remoteTickCancel?()
             remoteTickCancel = nil
         } else {
@@ -41,13 +41,14 @@ extension AppController {
         client.start()
     }
 
-    private func scheduleRemoteTick() {
+    func scheduleRemoteTick() {
         guard remoteTickCancel == nil else { return }
         remoteTickCancel = MainTimer.schedule(after: 1) { [weak self] in
             guard let self else { return }
             self.remoteTickCancel = nil
             for client in self.remoteClients.values { client.tick() }
-            if !self.remoteClients.isEmpty { self.scheduleRemoteTick() }
+            self.tickReconnects()
+            if !self.remoteClients.isEmpty || !RemoteReconnectBook.shared.isEmpty { self.scheduleRemoteTick() }
         }
     }
 }

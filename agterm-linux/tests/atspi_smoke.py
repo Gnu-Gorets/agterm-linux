@@ -3243,10 +3243,17 @@ def verify_remote_presentation(env):
     with open(ssh, "w", encoding="utf-8") as destination:
         destination.write(
             "#!/bin/sh\n"
+            '[ "$1" = "-G" ] && { printf "serveraliveinterval 0\\n"; exit 0; }\n'
             '[ -e "$AGTERM_TEST_SSH_DOWN" ] && { echo "ssh: connect to host: Connection refused" >&2; exit 255; }\n'
             "for argument do remote=$argument; done\n"
             'export AGTERM_STATE_DIR="$AGTERM_TEST_ORIGIN_STATE"\n'
             'export AGTERM_CONTROL_SOCKET="$AGTERM_TEST_ORIGIN_SOCKET"\n'
+            'case "$remote" in *"\'attach\'"*)\n'
+            '  exec 3<&0\n'
+            '  /bin/sh -c "$remote" <&3 3<&- & child=$!\n'
+            '  trap \'kill "$child" 2>/dev/null; wait "$child" 2>/dev/null; exit 255\' TERM\n'
+            '  wait "$child"; exit $?;;\n'
+            'esac\n'
             'exec /bin/sh -c "$remote"\n'
         )
     os.chmod(ssh, 0o755)
@@ -3354,6 +3361,13 @@ def verify_remote_presentation(env):
                  "the viewer did not reconnect its presentation stream", timeout=30)
         wait_for(lambda: remote_row_notice() == "",
                  "the stream notice outlived the reconnect")
+        from atspi_reconnect_v0351 import verify_pane_reconnect
+        verify_pane_reconnect(viewer_session, ssh, ssh_down, origin_state)
+        for pane in ("left", "right"):
+            reclaim = raw_control_json(viewer_env, {"cmd": "session.lead", "target": viewer_id, "args": {"pane": pane}})
+            assert reclaim["ok"], reclaim
+        wait_for(lambda: all(row.get("lead") == "leader" for row in viewer_session()["surfaces"]
+                             if row["kind"] in ("left", "right")), "viewer did not reclaim its reconnected panes")
         status = raw_control_json(origin_env, {
             "cmd": "session.status", "target": origin_id, "args": {"status": "active"},
         })
@@ -7431,12 +7445,12 @@ def main():
     if scenario is None:
         failures = []
         for child_scenario in (
-            "normal", "upstream-controls", "html-overlay", "dashboard-modal", "context-menu",
+            "normal", "upstream-controls", "html-overlay", "live-restart", "dashboard-modal", "context-menu",
             "window-key-dispatch",
             "split-exit", "split-primary-exit", "window-ownership", "preferences-pages",
             "notification-reveal", "notification-focus", "session-pickers",
             "session-switch-commit", "session-switch-zoom", "session-switch-scroll",
-            "session-switch-sessionless", "session-switch-leader", "session-switch-entry",
+            "session-switch-sessionless", "session-switch-leader", "leader-repeat", "session-switch-entry",
             "session-switch-deactivate", "child-gdk-env",
             "child-gdk-env-inverted",
             "custom-command-failures", "remote-presentation", "control-hooks",
@@ -7516,6 +7530,11 @@ def main():
         elif scenario == "html-overlay":
             from atspi_html_overlay import verify_html_overlay
             verify_html_overlay(env, state)
+            from atspi_html_v0351 import verify_html_v0351
+            verify_html_v0351(env, state)
+        elif scenario == "live-restart":
+            from atspi_restart_v0351 import verify_restart_v0351
+            verify_restart_v0351(env, state)
         elif scenario == "control-ask":
             verify_control_ask(env)
         elif scenario == "dashboard-modal":
@@ -7599,6 +7618,9 @@ def main():
             verify_session_switch_sessionless(env)
         elif scenario == "session-switch-leader":
             verify_session_switch_leader(env)
+        elif scenario == "leader-repeat":
+            from atspi_leader_v0351 import verify_leader_repeat
+            verify_leader_repeat(env)
         elif scenario == "session-switch-entry":
             verify_session_switch_entry(env)
         elif scenario == "session-switch-deactivate":

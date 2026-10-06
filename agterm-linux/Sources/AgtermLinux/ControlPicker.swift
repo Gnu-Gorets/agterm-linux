@@ -310,7 +310,9 @@ private let onControlPickRow: @MainActor @convention(c)
     }
 
 private let onControlPickKey: @MainActor @convention(c)
-    (OpaquePointer?, UInt32, UInt32, UInt32, gpointer?) -> gboolean = { keys, keyval, _, _, _ in
+    (OpaquePointer?, UInt32, UInt32, UInt32, gpointer?) -> gboolean = { keys, originalKeyval, _, state, _ in
+    let keyval: UInt32 = state & UInt32(GDK_CONTROL_MASK.rawValue) != 0
+        ? (originalKeyval == 106 ? 0xFF54 : (originalKeyval == 107 ? 0xFF52 : originalKeyval)) : originalKeyval
         switch keyval {
         case 0xFF1B:
             MainActor.assumeIsolated { controllerForEventController(keys)?.cancelControlPick() }

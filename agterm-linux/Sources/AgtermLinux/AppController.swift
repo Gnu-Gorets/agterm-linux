@@ -184,8 +184,14 @@ final class AppController {
     var keymap = Keymap(builtinOverrides: [:], commands: [])
     var keymapDiagnostics: [KeymapDiagnostic] = []
     var resolvedBuiltinChords: [Chord: BuiltinAction] = [:]
-    var customCommandEngine = CustomCommandEngine(commands: [])   // matcher + id-lookup (shared, host-free)
-    var leaderTimeout: guint = 0   // g_timeout source for the custom-command leader deadline (0 = none)
+    var customCommandEngine: CustomCommandEngine {
+        get { LinuxLeaderState.shared.engine }
+        set { LinuxLeaderState.shared.engine = newValue }
+    }
+    var leaderTimeout: guint {
+        get { LinuxLeaderState.shared.timeout }
+        set { LinuxLeaderState.shared.timeout = newValue }
+    }
     static var homeCwd: String { ConfigPaths.defaultNewSessionCwd() }
     /// The main window, exposed to the palette extension (different file).
     var windowPointer: OpaquePointer { window }
@@ -339,7 +345,7 @@ final class AppController {
     func newSession() {
         guard let wsID = store.currentWorkspaceID else { return }
         noteUserActivity()
-        _ = store.addSession(toWorkspace: wsID, cwd: newSessionCwd())
+        _ = store.addSession(toWorkspace: wsID, cwd: newSessionCwd(), at: newSessionIndex(in: wsID))
         reconcile()
     }
     func newSessionCwd() -> String {

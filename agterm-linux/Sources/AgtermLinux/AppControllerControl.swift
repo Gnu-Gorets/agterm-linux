@@ -24,7 +24,7 @@ extension AppController {
             return typeSessionSync(req.target, window: req.args?.window,
                                    options: ControlSessionTypeOptions(text: text,
                                                                       select: req.args?.select ?? false,
-                                                                      pane: pane))
+                                                                      pane: pane, paneID: req.args?.paneID))
         case .sessionSearch:
             guard let id = resolveSession(req.target) else { return sessionResolveError(req.target) }
             if req.args?.to == "close" {

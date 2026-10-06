@@ -41,7 +41,7 @@ Code layout:
 
 ### Linux feature parity and platform differences
 
-The `linux-port` branch carries the upstream v0.33.1 terminal model and control protocol, including
+The `linux-port` branch carries the upstream v0.35.1 terminal model and control protocol, including
 split/scratch/overlay terminals, Quick terminal input and read-back, terminal zoom, fullscreen,
 recently closed sessions with grouped undo, light/dark themes, configurable toolbar and sidebar text,
 recent-session and attention popovers, agent status in the multi-session dashboard, stable pane status
@@ -54,6 +54,13 @@ Markdown, per-pane backgrounds, cross-window attention, and managed zmx pane lea
 HTML files and URLs can occupy full, floating, or split-pane overlays through `agtermctl`.
 Linux renders them with WebKitGTK 6.0, including source identity, navigation, theme variables,
 load status in `tree`, and a file-manager action corresponding to macOS Show in Finder.
+File pages support the shared DOM command bridge and optional `agterm.request` JavaScript helper,
+submitted values, chromeless panels, and page zoom.
+URL pages can share cookies and site data with `--persistent`; `browser clear` clears that store
+once every persistent page is closed.
+Remote panes retain their last screen while retrying a lost SSH connection, with retry reasons in `tree`.
+Live panes support `session restart` while preserving their pane identity.
+Repeatable keymap leaders, new-session placement preferences, `keymap run`, and `zmx screen` are available.
 The HTML view blocks file and URI-list drag or paste transfers; link drags advertised as URI lists
 are blocked too.
 Attached sessions mirror origin status, context, notifications, HUDs, asks, overlays, and split-layout
@@ -736,7 +743,15 @@ Page JavaScript is off by default and requires `--js`.
 The `--navigation` toolbar adds browser navigation and Open in Browser, plus Show in Files for local
 pages or Copy Link for URLs.
 The page's load state and current address are readable in `tree --json` under `htmlOverlays`.
-The `session overlay result`, `text`, and `copy` commands apply only to program overlays.
+`session overlay result --page ID` reads a submitted or dismissed HTML page outcome.
+File pages can use `data-agterm` buttons and forms with page JavaScript disabled; `--js` also enables
+`agterm.request("session.rename", {args: {name: "Review"}})`.
+Use `session overlay submit VALUE` to return a value and close the page, or open with `--block`
+to wait for that outcome.
+`--chromeless` hides the toolbar on file pages, and Ctrl+/Ctrl−/Ctrl+0 adjust page zoom.
+URL pages use ephemeral storage by default; `--persistent` shares a store within the active state directory.
+`agtermctl browser clear` waits for storage removal and refuses while any persistent page remains open.
+The overlay `text` and `copy` commands apply only to program overlays.
 The [HTML document overlay recipe](cookbook/html-doc-overlay/) contains generated-page examples.
 
 A session's terminal surface is created lazily — it does not exist until the session has been shown at least once. Injecting text into a never-shown session therefore fails with `session not realized` unless you pass `--select`, which selects the session (realizing its surface) before injecting:
@@ -928,7 +943,16 @@ For Codex, the installer merges a matching set of lifecycle hooks into `~/.codex
 
 For Pi, the installer copies a bundled TypeScript lifecycle extension to `~/.pi/agent/extensions/agterm-status.ts` when Pi has already created `~/.pi/agent`. It sets `active --blink` when Pi starts work and `completed --auto-reset` only when it settles — after automatic retries, compaction retries, and queued continuations. Pi deliberately has no built-in permission prompt or structured question event, so the extension does not infer `blocked` from its prose. It preserves a same-named extension without agterm's ownership marker; restart Pi or run `/reload` after installing or upgrading it.
 
-For OpenCode, the installer copies a bundled JavaScript lifecycle plugin to `~/.config/opencode/plugins/agterm-status.js` when OpenCode has already created `~/.config/opencode`. The file exports only the plugin function (OpenCode's legacy loader treats every export as a plugin). OpenCode `session.status` `busy`/`retry` set `active --blink` and remember the sessionID; `idle` clears that id and sets `completed --auto-reset` only when no session remains busy (so a task subagent's busy/idle pair cannot paint completed onto a still-working parent). Permission/question prompts set `blocked`. For a session already reported busy, a turn-ending `session.error` also sets `blocked` and suppresses the following `session.status(idle)` that OpenCode's halt path always publishes — including a sibling session's later idle, since every session of one OpenCode instance drives the same pane and a clean sibling must not erase a failed turn. Abort (`MessageAbortedError`) is ignored so Esc ends on completed, and a context overflow waits for the next event: `busy` means auto-compaction resumed and nothing is reported, while `idle` means the turn really ended and sets `blocked`. Reply/reject events clear blocked with `active --blink`. Deprecated `session.idle` is ignored so it does not double-fire with `session.status(type=idle)`. It preserves a same-named plugin without agterm's ownership marker; restart OpenCode after installing or upgrading it.
+For OpenCode, the Linux installer probes the interactive login shell's major version and copies the corresponding
+managed entrypoint: `plugins/agterm-status.js` for v1 or `plugins/agterm-v2/tui.js` for v2.
+For v2 it respects exported `OPENCODE_CONFIG_DIR` and `XDG_CONFIG_HOME`; v1 keeps `~/.config/opencode`.
+An explicitly empty v2 override skips installation.
+It uses an existing managed entrypoint
+when the CLI cannot be detected.
+Preferences offers v1, v2, or skip when the major is unknown; the offline CLI accepts
+`integration install hooks --opencode-version v1|v2|skip`.
+It preserves unmarked files in either version's destination.
+For the legacy v1 plugin: The file exports only the plugin function (OpenCode's legacy loader treats every export as a plugin). OpenCode `session.status` `busy`/`retry` set `active --blink` and remember the sessionID; `idle` clears that id and sets `completed --auto-reset` only when no session remains busy (so a task subagent's busy/idle pair cannot paint completed onto a still-working parent). Permission/question prompts set `blocked`. For a session already reported busy, a turn-ending `session.error` also sets `blocked` and suppresses the following `session.status(idle)` that OpenCode's halt path always publishes — including a sibling session's later idle, since every session of one OpenCode instance drives the same pane and a clean sibling must not erase a failed turn. Abort (`MessageAbortedError`) is ignored so Esc ends on completed, and a context overflow waits for the next event: `busy` means auto-compaction resumed and nothing is reported, while `idle` means the turn really ended and sets `blocked`. Reply/reject events clear blocked with `active --blink`. Deprecated `session.idle` is ignored so it does not double-fire with `session.status(type=idle)`. It preserves a same-named plugin without agterm's ownership marker; restart OpenCode after installing or upgrading it.
 
 A generic bash/zsh/fish `shell/integration.sh` (or `.fish`) covers any agent launched as a shell command: it flags `active` while a command matching `AGTERM_AGENT_RE` runs and `idle` at the next prompt. The default regex matches `gemini`, `cursor-agent`, `aider`, `crush`, and `goose`; Claude Code, Codex, Pi, and OpenCode are excluded by default because their own hooks/extensions/plugins drive finer per-turn state that the coarse process-level `active`/`idle` would only fight. Override `AGTERM_AGENT_RE` before sourcing to change the set. All hooks are no-ops outside an agterm session.
 

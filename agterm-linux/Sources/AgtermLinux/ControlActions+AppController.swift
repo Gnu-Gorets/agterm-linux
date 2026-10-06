@@ -98,7 +98,8 @@ extension AppController: ControlActions {
                 case .auto: return "auto"
                 }
             }, app: LinuxAppMetadata.identity,
-            flaggedLayout: linuxSettingsStore().load().effectiveFlaggedViewLayout
+            flaggedLayout: linuxSettingsStore().load().effectiveFlaggedViewLayout,
+            htmlZoom: linuxSettingsStore().load().effectiveHtmlOverlayZoom
         )
         let tree = projectingLinuxAutoFollow(baseTree)
         return ControlResponse(ok: true, result: ControlResult(tree: tree))
@@ -598,6 +599,10 @@ extension AppController: ControlActions {
                 }
                 surface = scratch
             }
+            if store.session(withID: id)?.htmlHidesTerminal(pane) == true {
+                LinuxHtmlOverlayRegistry.shared.stepZoom(action)
+                return ok(id)
+            }
             guard let surface else { return err("session not realized") }
             surface.performBindingAction(action)
             return ok(id)
@@ -777,6 +782,13 @@ extension AppController: ControlActions {
         case .failure(let response): return response
         case .success(let id):
             guard let session = store.session(withID: id) else { return err("session not found") }
+            let addressed: StatusPane?
+            switch session.paneAddress(token: options.paneID, pane: options.pane) {
+            case .unknownToken(let token): return err("unknown pane id: \(token)")
+            case .pane(let value): addressed = value
+            }
+            let options = ControlSessionTypeOptions(text: options.text, select: options.select,
+                                                    pane: addressed, paneID: options.paneID)
             switch options.pane {
             case nil, .left: break
             case .right where !session.hasSplit: return err("session has no split pane")
@@ -794,11 +806,13 @@ extension AppController: ControlActions {
                 case .right: splitSurfaces[id]
                 case .scratch: scratchSurfaces[id]
                 }
-                if let surface, let response = leadType(options.text, surface: surface, session: id) {
+                if let surface, var response = leadType(options.text, surface: surface, session: id) {
+                    if response.ok { response.result?.pane = (options.pane ?? .left).rawValue }
                     return response
                 }
                 if let surface, surface.inject(text: options.text) {
-                    return ok(id)
+                    return ControlResponse(ok: true, result: ControlResult(id: id.uuidString,
+                        pane: (options.pane ?? .left).rawValue))
                 }
                 usleep(30_000)
             }
@@ -899,7 +913,11 @@ extension AppController: ControlActions {
         case .failure(let response): return response
         case .success(let id):
             guard let session = store.session(withID: id) else { return err("session not realized") }
-            let pane = options.paneID.flatMap { session.paneRole(forToken: $0) } ?? options.pane
+            let pane: StatusPane?
+            switch session.paneAddress(token: options.paneID, pane: options.pane) {
+            case .unknownToken(let token): return err("unknown pane id: \(token)")
+            case .pane(let value): pane = value
+            }
             let surface: GhosttySurface?
             switch pane {
             case nil: surface = session.onScreenSurface as? GhosttySurface
@@ -911,14 +929,16 @@ extension AppController: ControlActions {
                 guard session.scratchSurface != nil else { return err("session has no scratch terminal") }
                 surface = scratchSurfaces[id]
             }
-            if let surface, let response = leadText(surface, session: id,
+            if let surface, var response = leadText(surface, session: id,
                                                     all: options.all, lines: options.lines) {
+                if response.ok { response.result?.pane = session.paneRole(forToken: surface.paneToken)?.rawValue }
                 return response
             }
             guard let text = surface?.readScreenText(all: options.all, lines: options.lines) else {
                 return err("session not realized")
             }
-            return ControlResponse(ok: true, result: ControlResult(id: id.uuidString, text: text))
+            return ControlResponse(ok: true, result: ControlResult(id: id.uuidString, text: text,
+                pane: surface.flatMap { session.paneRole(forToken: $0.paneToken)?.rawValue }))
         }
     }
 

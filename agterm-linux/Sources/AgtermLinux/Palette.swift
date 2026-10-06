@@ -376,7 +376,9 @@ private let onPaletteActivate: @MainActor @convention(c) (OpaquePointer?, gpoint
 private let onPaletteRow: @MainActor @convention(c) (OpaquePointer?, OpaquePointer?, gpointer?) -> Void = { list, row, _ in
     MainActor.assumeIsolated { controllerForWidget(list)?.runPaletteRow(row) }
 }
-private let onPaletteKey: @MainActor @convention(c) (OpaquePointer?, UInt32, UInt32, UInt32, gpointer?) -> gboolean = { keys, keyval, _, _, _ in
+private let onPaletteKey: @MainActor @convention(c) (OpaquePointer?, UInt32, UInt32, UInt32, gpointer?) -> gboolean = { keys, originalKeyval, _, state, _ in
+    let keyval: UInt32 = state & UInt32(GDK_CONTROL_MASK.rawValue) != 0
+        ? (originalKeyval == 106 ? 0xFF54 : (originalKeyval == 107 ? 0xFF52 : originalKeyval)) : originalKeyval
     switch keyval {
     case 0xFF1B: MainActor.assumeIsolated { controllerForEventController(keys)?.closePalette() }; return 1
     case 0xFF52: MainActor.assumeIsolated { controllerForEventController(keys)?.paletteMove(down: false) }; return 1

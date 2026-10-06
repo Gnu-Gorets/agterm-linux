@@ -1057,15 +1057,14 @@ shell (no controlling terminal — `/dev/tty` errors). See examples.md for usage
 ## Linux integration management
 
 These Linux-only commands inspect or install local files and never connect to the agterm control
-socket. They work when the app is stopped, ignore `--socket`, and are not counted among the 60 runtime
-control commands above.
+socket. They work when the app is stopped, ignore `--socket`, and operate separately from the runtime control commands above.
 
-- `integration status [--json]` — inspect the command-line tool, Claude Code hooks, Codex hooks, and
+- `integration status [--json]` — inspect the command-line tool, Claude Code hooks, Codex hooks, Pi hooks, OpenCode plugin, and
   agent skill in that stable order. JSON is `{"items":[...]}`; each item has `kind`, `state`, `path`,
   optional `version`, and `detail`. `state` is `not-installed`, `installed`, `update-available`,
   `partial`, `conflict`, or `unavailable`.
-- `integration install hooks [--dry-run] [--json]` — preview or safely apply the shared Claude/Codex
-  hook plan. It preserves settings, symlinks, file modes, and backups; malformed files or unrelated
+- `integration install hooks [--dry-run] [--json] [--opencode-version v1|v2|skip]` — preview or safely apply the agent
+  hook plan. OpenCode uses the detected major or an existing managed entrypoint; an unknown major is skipped unless chosen. It preserves settings, symlinks, file modes, and backups; malformed files or unrelated
   custom hooks are conflicts.
 - `integration install skill [--dry-run] [--json]` — preview or safely install/update the bundled
   skill in detected Claude Code and Codex destinations. It replaces only agterm-managed content.

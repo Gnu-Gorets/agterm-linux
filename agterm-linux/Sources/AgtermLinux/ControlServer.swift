@@ -176,12 +176,54 @@ final class ControlServer: @unchecked Sendable {
                 adoptOverlayJobOnMain(conn, job: job)
                 return true
             }
-            response = Self.isRemoteZmxRequest(req) ? dispatchRemoteZmx(req) : dispatchOnMain(req)
+            response = performRequest(req)
         } else {
             response = ControlResponse(ok: false, error: "could not decode request")
         }
         _ = writeResponse(conn, response)
         return false
+    }
+
+    /// Shared one-request entry point for socket and file-page workers.
+    func performRequest(_ request: ControlRequest) -> ControlResponse {
+        if request.cmd == .sessionRestart { return restartOnMain(request) }
+        if request.cmd == .browserClear { return clearBrowserOnMain(request) }
+        return Self.isRemoteZmxRequest(request) ? dispatchRemoteZmx(request) : dispatchOnMain(request)
+    }
+
+    private func restartOnMain(_ request: ControlRequest) -> ControlResponse {
+        let semaphore = DispatchSemaphore(value: 0)
+        let box = ResponseBox()
+        runOnMain {
+            MainActor.assumeIsolated {
+                switch Self.route(for: request) {
+                case .controller(let controller?):
+                    controller.restartPane(request) { box.value = $0; semaphore.signal() }
+                case .controller(nil): box.value = ControlResponse(ok: false, error: "no controller"); semaphore.signal()
+                case .failure(let error): box.value = ControlResponse(ok: false, error: error); semaphore.signal()
+                }
+            }
+        }
+        semaphore.wait()
+        return box.value
+    }
+
+    private func clearBrowserOnMain(_ request: ControlRequest) -> ControlResponse {
+        if request.target != nil || request.args?.window != nil {
+            return ControlResponse(ok: false, error: "browser.clear takes no target or --window")
+        }
+        let semaphore = DispatchSemaphore(value: 0)
+        let box = ResponseBox()
+        runOnMain {
+            MainActor.assumeIsolated {
+                LinuxBrowserStore.shared.clear { response in
+                    box.value = response
+                    semaphore.signal()
+                }
+            }
+        }
+        semaphore.wait()
+        return box.value
     }
 
     private func writeResponse(_ conn: Int32, _ response: ControlResponse) -> Bool {
@@ -333,7 +375,7 @@ final class ControlServer: @unchecked Sendable {
             return .controller(controller)
         }
         switch req.cmd {
-        case .sessionClose, .sessionDuplicate, .sessionSelect, .sessionGo, .sessionRename, .sessionReveal,
+        case .sessionRestart, .sessionOverlaySubmit, .keymapRun, .sessionClose, .sessionDuplicate, .sessionSelect, .sessionGo, .sessionRename, .sessionReveal,
              .sessionMove, .sessionType,
              .sessionStatus, .sessionRestore, .sessionFlag, .sessionContext, .sessionSeen,
              .sessionSplit, .sessionSplitClose, .sessionSwap, .sessionLead, .sessionScratch, .sessionFocus,
@@ -351,6 +393,12 @@ final class ControlServer: @unchecked Sendable {
             return routeOwningWorkspace(req.target) ?? .controller(gController)
         case .sessionNew:
             return routeOwningWorkspace(req.args?.workspace) ?? .controller(gController)
+        case .surfaceCursor where req.args?.paneID?.isEmpty == false:
+            let target = req.target?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if target == "quick" || target.flatMap(TerminalSurfaceID.init(rawValue:)) != nil {
+                return .failure("surface.cursor: --pane-id takes a session target")
+            }
+            return routeOwningSession(req.target) ?? .controller(gController)
         case .surfaceZoom, .surfaceCursor:
             return routeOwningSurface(req.target) ?? .controller(gController)
         case .tree, .eventsRead, .workspaceNew, .workspaceGo, .quick, .quickType, .quickText, .dashboard,
@@ -360,7 +408,7 @@ final class ControlServer: @unchecked Sendable {
              .keymapReload, .keymapList, .hooksReload, .hooksList, .configReload, .themeSet, .themeList,
              .pickOpen, .pickResult, .pickCancel, .askResult, .askCancel, .sidebarWidth,
              .restoreClear, .restoreCapture, .restoreMode, .recentClear, .version,
-             .zmxList, .zmxPrune, .zmxKill, .zmxReset, .zmxTree, .zmxAttach, .zmxPresent,
+             .browserClear, .zmxScreen, .zmxList, .zmxPrune, .zmxKill, .zmxReset, .zmxTree, .zmxAttach, .zmxPresent,
              .sessionOverlayJobRun, .debugAppearance:
             return .controller(gController)
         }

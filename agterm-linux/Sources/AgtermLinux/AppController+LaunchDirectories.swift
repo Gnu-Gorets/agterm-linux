@@ -22,6 +22,11 @@ extension AppController {
         return session.localWorkingDirectory(reported: session.effectiveCwd, homeDirectory: home)
     }
 
+    func newSessionIndex(in workspace: UUID) -> Int? {
+        store.newSessionInsertionIndex(inWorkspace: workspace,
+                                      placement: linuxSettingsStore().load().effectiveNewSessionPlacement)
+    }
+
     static func newSessionCwd(settings: AppSettings, activeSession: Session?, home: String = homeCwd) -> String {
         let current = activeSession.map { $0.localWorkingDirectory(reported: $0.focusedCwd, homeDirectory: home) }
         return settings.resolveNewSessionCwd(currentSessionCwd: current, home: home)

@@ -53,13 +53,23 @@ extension AppController {
     }
 
     func leadType(_ text: String, surface: GhosttySurface, session: UUID) -> ControlResponse? {
+        if RemoteReconnectBook.shared.waiting(pane: UUID(uuidString: surface.paneToken)) {
+            return err("pane is waiting to reconnect")
+        }
         switch leadPaneSource(surface) {
         case .surface: return nil
         case .refused(let reason): return err(reason)
         case .daemon(let name, let client):
-            let bytes = KeystrokeSegments.ptyBytes(text)
+            let paced = KeystrokeSegments.paced(text)
+            let bytes = KeystrokeSegments.ptyBytes(paced.head)
             guard bytes.isEmpty || client.type(name: name, bytes: bytes) else {
                 return err("the pane's zmx daemon did not accept the input")
+            }
+            if paced.pacedReturn {
+                Thread.sleep(forTimeInterval: KeystrokeSegments.submitGap)
+                guard client.type(name: name, bytes: [0x0D]) else {
+                    return err("the pane's zmx daemon did not accept the final Return")
+                }
             }
             if !text.isEmpty, let role = store.session(withID: session)?.paneRole(forToken: surface.paneToken) {
                 clearAttentionStatus(session, pane: role, keystroke: InterruptKeystroke.classify(text: text))

@@ -12,16 +12,20 @@ extension AppController {
                 if store.session(withID: id)?.remoteOverlays.slot(options.pane) != nil {
                     return err(options.pane == nil ? "overlay already open" : PaneOverlayError.alreadyOpen)
                 }
+                if options.persistent, let error = LinuxBrowserStore.shared.failure() {
+                    return err("session.overlay.open: \(error)")
+                }
                 let overlay = HtmlOverlay(source: page, navigation: options.navigation,
-                                          javascript: options.javascript)
+                                          javascript: options.javascript, chromeless: options.chromeless, persistent: options.persistent)
                 if let failure = store.openHtmlOverlay(id, pane: options.pane, overlay: overlay,
                                                        sizePercent: options.sizePercent,
                                                        backgroundColor: options.backgroundColor) {
                     return err(failure.message(pane: options.pane))
                 }
+                _ = LinuxHtmlOverlayRegistry.shared.page(for: overlay, controller: self, backgroundColor: options.backgroundColor)
                 if options.follow { selectSession(id, userInitiated: false) }
                 reconcile()
-                return ok(id)
+                return ControlResponse(ok: true, result: ControlResult(id: id.uuidString, pageID: overlay.id.uuidString))
             }
             if let remote = gControlServer.openRemoteOverlay(in: store, sessionID: id, options: options) {
                 return remote

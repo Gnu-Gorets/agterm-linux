@@ -134,6 +134,7 @@ enum LinuxCustomCommandProcess {
             standardIO: stderrPath.map(LinuxProcessStandardIO.stderrFile) ?? .null)
     }
 
+    @discardableResult
     static func launch(
         command: CustomCommand,
         context: CommandContext,
@@ -141,7 +142,7 @@ enum LinuxCustomCommandProcess {
         localWorkingDirectory: String? = nil,
         launcher: any LinuxProcessLaunching,
         onFailure: @escaping @Sendable (LinuxCustomCommandFailure) -> Void
-    ) {
+    ) -> Bool {
         let capture = command.errorHud ? LinuxCommandStderrCapture() : nil
         let request = request(command: command, context: context, baseEnvironment: baseEnvironment,
                               stderrPath: capture?.path, localWorkingDirectory: localWorkingDirectory)
@@ -150,9 +151,11 @@ enum LinuxCustomCommandProcess {
                 let detail = capture?.consume()
                 if status != 0 { onFailure(.exit(status, detail)) }
             }
+            return true
         } catch {
             _ = capture?.consume()
             onFailure(.launch(error.localizedDescription))
+            return false
         }
     }
 }

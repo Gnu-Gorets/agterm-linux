@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import agtermCore
+@testable import agtermCore
 @testable import AgtermLinux
 
 @Suite("Pane lead key policy")

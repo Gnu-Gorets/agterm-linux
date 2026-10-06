@@ -55,6 +55,8 @@ final class GhosttySurface: PaneRoleMutableSurface {
     /// owning session's primary/split pane state.
     private let reportsPaneState: Bool
     var leadCover: OpaquePointer?
+    var reconnectNote: OpaquePointer?
+    var preservesReconnectOnTeardown = false
     /// Per-session font-size override (points) to seed at creation, restoring a persisted ⌘+/⌘− zoom;
     /// nil uses the config default.
     private let fontSize: Double?
@@ -148,6 +150,7 @@ final class GhosttySurface: PaneRoleMutableSurface {
         let me = Unmanaged.passRetained(self).toOpaque()
         connect(glArea, "destroy", unsafeBitCast(surfaceDestroy as @convention(c) (OpaquePointer?, gpointer?) -> Void, to: GCallback.self), me)
         connect(glArea, "realize", unsafeBitCast(surfaceRealize as @convention(c) (OpaquePointer?, gpointer?) -> Void, to: GCallback.self), me)
+        installVisibilityTracking()
         connect(glArea, "render", unsafeBitCast(surfaceRender as @convention(c) (OpaquePointer?, OpaquePointer?, gpointer?) -> gboolean, to: GCallback.self), me)
         connect(glArea, "resize", unsafeBitCast(surfaceResize as @convention(c) (OpaquePointer?, Int32, Int32, gpointer?) -> Void, to: GCallback.self), me)
 
@@ -283,6 +286,7 @@ final class GhosttySurface: PaneRoleMutableSurface {
             return
         }
         clearCreationFailure()
+        syncRendererVisibility()
         ghostty_surface_set_content_scale(surface, Double(scale), Double(scale))
         pushSize()
         ghostty_surface_set_focus(surface, true)
@@ -354,10 +358,21 @@ final class GhosttySurface: PaneRoleMutableSurface {
     /// ghostty_surface_text, whose bracketed-paste wrapping suppresses Enter.
     @discardableResult
     func inject(text: String) -> Bool {
-        guard let surface else { return false }
+        guard surface != nil else { return false }
         // Split into printable runs + Return keys via the shared segmenter (one typing policy for both
         // platforms); send each run as text and each line break as a real Return key press.
-        for segment in KeystrokeSegments.split(text) {
+        let paced = KeystrokeSegments.paced(text)
+        inject(segments: paced.head)
+        if paced.pacedReturn {
+            usleep(UInt32(KeystrokeSegments.submitGap * 1_000_000))
+            inject(segments: [.returnKey])
+        }
+        return true
+    }
+
+    private func inject(segments: [KeystrokeSegment]) {
+        guard let surface else { return }
+        for segment in segments {
             switch segment {
             case .text(let run):
                 run.withCString { ptr in
@@ -375,7 +390,6 @@ final class GhosttySurface: PaneRoleMutableSurface {
                 _ = ghostty_surface_key(surface, ke)
             }
         }
-        return true
     }
 
     // MARK: - In-terminal search (libghostty replies via the START/END/TOTAL/SELECTED actions)
@@ -648,6 +662,9 @@ final class GhosttySurface: PaneRoleMutableSurface {
                                  context: shortcutKeyContext(event: event, keycode: keycode)) == true {
             return true
         }
+        if state & (ModifierKeyMods.controlBit | ModifierKeyMods.superBit | ModifierKeyMods.altBit) == 0,
+           ModifierKeyMods.modifierBit(forKeyval: keyval) == nil,
+           controller?.retryRemotePane(self, keycode: keycode) == true { return true }
         if controller?.paneLeadConsumesPress(self, keyval: keyval, keycode: keycode, state: state) == true { return true }
 
         // Route through the IM context: a dead-key/compose/CJK sequence is CONSUMED here (its result
@@ -738,6 +755,10 @@ final class GhosttySurface: PaneRoleMutableSurface {
     // MARK: - Actions from libghostty
 
     func applyTitle(_ title: String) {
+        if let notice = RemoteLinkNotice(title: title) {
+            controller?.remoteLinkLost(notice, surface: self)
+            return
+        }
         if let notice = ZmxLeadNotice(title: title) {
             controller?.reportPaneLead(notice, from: self)
             return
@@ -833,6 +854,7 @@ final class GhosttySurface: PaneRoleMutableSurface {
     // MARK: - TerminalSurface
 
     func teardown() {
+        if !preservesReconnectOnTeardown, let pane = UUID(uuidString: paneToken) { RemoteReconnectBook.shared.cancel(pane: pane) }
         onExit = nil
         onExitHeld = nil
         if let spawnKey { gSpawnRegistry.cancel(spawnKey) }
@@ -897,7 +919,7 @@ private let surfaceFocusLeave: @MainActor @convention(c) (OpaquePointer?, gpoint
     MainActor.assumeIsolated {
         wrap(data)?.setFocus(false)
         wrap(data)?.imFocus(false)
-        wrap(data)?.controller?.abandonLeader()
+        wrap(data)?.controller?.leaderFocusLeft()
         wrap(data)?.controller?.cancelSessionSwitch()
     }
 }

@@ -46,5 +46,8 @@ func installPaneLeadReleaseCapture(on window: OpaquePointer) {
 
 private let onPaneLeadKeyReleased: @MainActor @convention(c)
     (OpaquePointer?, UInt32, UInt32, UInt32, gpointer?) -> Void = { _, _, keycode, _, _ in
-        MainActor.assumeIsolated { AppController.paneLeadKeyReleased(keycode: keycode) }
+        MainActor.assumeIsolated {
+            AppController.paneLeadKeyReleased(keycode: keycode)
+            gWindows.values.first?.leaderKeyReleased(keycode)
+        }
     }

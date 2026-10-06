@@ -13,6 +13,7 @@ struct LinuxControlDispatcher {
     let actions: AppController
 
     func dispatch(_ request: ControlRequest) -> ControlResponse? {
+        if let response = dispatchNewParityCommand(request) { return response }
         switch request.cmd {
         case .tree:
             return actions.controlTree(window: request.args?.window)
@@ -455,7 +456,7 @@ struct LinuxControlDispatcher {
             }
             return actions.setSurfaceZoom(request.target, window: request.args?.window, mode: mode)
         case .surfaceCursor:
-            return actions.readSurfaceCursor(request.target, window: request.args?.window)
+            return actions.readSurfaceCursor(request.target, window: request.args?.window, paneID: request.args?.paneID)
         case .sessionOverlayOpen, .sessionOverlayReload, .sessionOverlayNavigate:
             return dispatchHtmlOverlayCommand(request)
         case .sessionOverlayClose:

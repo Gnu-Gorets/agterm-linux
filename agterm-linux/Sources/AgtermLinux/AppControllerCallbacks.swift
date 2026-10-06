@@ -27,6 +27,7 @@ let onWindowActive: @MainActor @convention(c) (OpaquePointer?, OpaquePointer?, g
         } else {
             // The Ctrl release lands in whichever window took over, so the cycle can never commit here.
             ctl.cancelSessionSwitch()
+            ctl.leaderFocusLeft()
         }
     }
 }

@@ -9,6 +9,7 @@ extension AppController {
               session.surface === surface || session.splitSurface === surface,
               let pane = UUID(uuidString: surface.paneToken),
               let role = ZmxLeadBook.shared.apply(notice, pane: pane) else { return }
+        guard !RemoteReconnectBook.shared.waiting(pane: pane) else { return }
         surface.syncLeadCover()
         store.leadRoleChanged()
         if role == .unowned { reattachPane(surface, claim: false) }
@@ -41,9 +42,10 @@ extension AppController {
         }
     }
 
-    private func reattachPane(_ old: GhosttySurface, claim: Bool) {
+    @discardableResult
+    func reattachPane(_ old: GhosttySurface, claim: Bool, cover: Bool = true) -> Bool {
         guard let session = store.session(withID: old.sessionID),
-              let identity = UUID(uuidString: old.paneToken) else { return }
+              let identity = UUID(uuidString: old.paneToken) else { return false }
         let role: StatusPane
         let host: OpaquePointer?
         if session.surface === old {
@@ -52,15 +54,15 @@ extension AppController {
         } else if session.splitSurface === old {
             role = .right
             host = splitPaneHosts[session.id]
-        } else { return }
-        guard let host else { return }
+        } else { return false }
+        guard let host else { return false }
         let lead = ZmxLeadAttachment(claim: claim)
         let command: String
         let environment: [String: String]
         let wait: Bool
         if old.backedByZmx {
             guard let config = try? LinuxZmxLaunch.configuration(
-                paneIdentity: identity, baseEnvironment: old.env, lead: lead).get() else { return }
+                paneIdentity: identity, baseEnvironment: old.env, lead: lead).get() else { return false }
             let gone = "printf '%s\\n' 'agterm: session is gone'; exit 1"
             command = CommandRestore.shellQuotedLine(config.attachArguments + ["/bin/sh", "-c", gone])
             environment = config.environment
@@ -71,11 +73,20 @@ extension AppController {
                   let remote = try? RemoteSession.attachPaneCommand(
                     host: origin.host, endpoint: origin.endpoint, daemon: daemon,
                     session: origin.sessionName, pane: role == .right ? .right : .left, lead: lead)
-            else { return }
+            else { return false }
             command = remote
-            environment = old.env
+            environment = old.env.merging([ZmxLeadAttachment.nonceVariable: lead.nonce]) { _, new in new }
             wait = true
         }
+        return replacePane(old, command: command, environment: environment, wait: wait, lead: lead, cover: cover) != nil
+    }
+
+    func replacePane(_ old: GhosttySurface, command: String, environment: [String: String],
+                     wait: Bool, lead: ZmxLeadAttachment, cover: Bool = true) -> GhosttySurface? {
+        guard let session = store.session(withID: old.sessionID), let identity = UUID(uuidString: old.paneToken) else { return nil }
+        let role: StatusPane = session.splitSurface === old ? .right : .left
+        guard (role == .right ? session.splitSurface : session.surface) === old,
+              let host = role == .right ? splitPaneHosts[session.id] : primaryPaneHosts[session.id] else { return nil }
         let coverFocused = old.leadCover.flatMap { gtk_widget_get_first_child(W($0)) }.map { gtk_widget_has_focus($0) != 0 }
         let focused = LinuxPaneLeadKeyPolicy.replacementTakesFocus(
             surfaceFocused: gtk_widget_has_focus(W(old.glArea)) != 0, coverFocused: coverFocused ?? false)
@@ -84,11 +95,10 @@ extension AppController {
                                          role: role == .right ? .split : .main, fontSize: session.fontSize,
                                          backedByZmx: old.backedByZmx)
         installPaneExitHandler(replacement, sessionID: session.id)
-        ZmxLeadBook.shared.begin(lead, pane: identity, reattaching: true)
+        if cover { ZmxLeadBook.shared.begin(lead, pane: identity, reattaching: true) }
         replacement.syncLeadCover()
         _ = old.claimProcessExit()
         if searchSurface === old { abandonSearch(ownedBy: session.id) }
-        old.teardown()
         if role == .right {
             session.splitSurface = replacement
             splitSurfaces[session.id] = replacement
@@ -97,10 +107,17 @@ extension AppController {
             surfaces[session.id] = replacement
         }
         if let title = GhosttyApp.shared.staticTitle { replacement.applyTitle(title) }
+        // Keep the old libghostty allocation alive until the fresh surface exists, so a queued child
+        // exit cannot be delivered to a reused address.
+        g_object_ref(RAW(old.rootWidget))
         gtk_overlay_set_child(host, W(replacement.rootWidget))
         replacement.realizeWidgetIfNeeded()
+        old.preservesReconnectOnTeardown = true
+        old.teardown()
+        g_object_unref(RAW(old.rootWidget))
         if focused { replacement.grabFocus() }
         store.leadRoleChanged()
+        return replacement
     }
 }
 

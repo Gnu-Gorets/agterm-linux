@@ -33,6 +33,24 @@ final class LinuxHtmlOverlayRegistry {
         return page
     }
 
+    var persistentPageCount: Int { pages.values.filter { $0.overlay.persistent }.count }
+
+    func ownsKeyboard(in controller: AppController) -> Bool {
+        guard let focus = gtk_root_get_focus(controller.windowPointer) else { return false }
+        return pages.values.contains {
+            $0.controller === controller && (focus == W($0.webView) || gtk_widget_is_ancestor(focus, W($0.webView)) != 0)
+        }
+    }
+
+    func stepZoom(_ action: String) {
+        let settingsStore = linuxSettingsStore()
+        var settings = settingsStore.load()
+        guard let zoom = HtmlZoom.applying(fontAction: action, to: settings.effectiveHtmlOverlayZoom) else { return }
+        settings.htmlOverlayZoom = zoom == 1 ? nil : zoom
+        try? settingsStore.save(settings)
+        for page in pages.values { page.applyZoom() }
+    }
+
     func existing(_ id: UUID) -> LinuxHtmlOverlayPage? { pages[id] }
 
     func release(_ id: UUID) {

@@ -43,3 +43,11 @@ static inline void agterm_disconnect_signals(gpointer object, gpointer data)
 {
     g_signal_handlers_disconnect_by_data(object, data);
 }
+
+static inline GtkWidget *agterm_web_view_new_with_session(WebKitUserContentManager *manager,
+                                                         WebKitSettings *settings,
+                                                         WebKitNetworkSession *session)
+{
+    return g_object_new(WEBKIT_TYPE_WEB_VIEW, "network-session", session,
+                        "user-content-manager", manager, "settings", settings, NULL);
+}

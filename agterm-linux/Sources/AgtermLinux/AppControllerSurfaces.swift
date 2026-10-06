@@ -318,6 +318,9 @@ extension AppController {
         guard Self.hudGeometryNeedsRefresh(
             previous: lastHudGeometryDeckSize, width: width, height: height) else { return }
         lastHudGeometryDeckSize = (width, height)
+        for (id, paned) in sessionPanes where store.session(withID: id)?.isSplit == true {
+            scheduleSplitRatioRestore(sessionID: id, paned: paned)
+        }
         for (id, frame) in floatingOverlayFrames {
             guard let session = store.session(withID: id), session.hudActive,
                   let percent = session.overlaySizePercent else { continue }
@@ -362,13 +365,14 @@ extension AppController {
             read: { surface, snapshot in surface.foregroundCommand(zmxSnapshot: snapshot) })
     }
 
+    @discardableResult
     func runCustomCommand(_ cmd: CustomCommand, origin: GhosttySurface? = nil,
-                          allowSessionless: Bool = false) {
-        let s = store.activeSession
-        guard s != nil || allowSessionless else { return }
+                          allowSessionless: Bool = false, targetSession: Session? = nil) -> Bool {
+        let s = targetSession ?? store.activeSession
+        guard s != nil || allowSessionless else { return false }
         if s == nil, CommandContext.referencesSessionScopedContext(cmd.command) {
             showToast("\(cmd.name) needs an active session")
-            return
+            return false
         }
         let workspace = s.flatMap { store.workspace(forSession: $0.id) }
         let pane: CommandContext.Pane
@@ -404,7 +408,7 @@ extension AppController {
                                      socket: gControlServer.resolvedSocketPath)
         let controllerOrigin = customCommandOrigin
         let launcher = controllerOrigin.launcher
-        LinuxCustomCommandProcess.launch(command: cmd, context: context,
+        return LinuxCustomCommandProcess.launch(command: cmd, context: context,
                                          localWorkingDirectory: localCwd, launcher: launcher) { [weak self] failure in
             runOnMain { [weak self, weak controllerOrigin] in
                 MainActor.assumeIsolated {
@@ -421,7 +425,8 @@ extension AppController {
 
     func configDirectory() -> URL {
         ConfigPaths.configDirectory(setting: linuxSettingsStore().load().configDirectory,
-                                    stateDir: ProcessInfo.processInfo.environment["AGTERM_STATE_DIR"],
+                                    stateDir: DebugStateDirectory.configStateDirectory(environment: ProcessInfo.processInfo.environment,
+                                        liveDirectory: PersistenceStore.defaultDirectory),
                                     home: FileManager.default.homeDirectoryForCurrentUser)
     }
 

@@ -41,9 +41,9 @@ final class LinuxHtmlOverlayPage {
     let root: OpaquePointer
     let webView: OpaquePointer
     let backgroundColor: String?
-    private weak var controller: AppController?
-    private weak var store: AppStore?
-    private var overlay: HtmlOverlay
+    weak var controller: AppController?
+    weak var store: AppStore?
+    var overlay: HtmlOverlay
     private var theme: HtmlOverlayTheme
     private var appliedRevision: Int
     private var loadFailed = false
@@ -51,8 +51,12 @@ final class LinuxHtmlOverlayPage {
     private var pendingDialog: OpaquePointer?
     private var promptSilenced = false
     private var onScreen = false
-    private let manager: OpaquePointer
+    let manager: OpaquePointer
     private var inputController: OpaquePointer?
+    private var strip: OpaquePointer?
+    let bridgeNonce = UUID().uuidString
+    var closed = false
+    private let pageTitle: OpaquePointer
     private let title: OpaquePointer
     private let errorLabel: OpaquePointer
     private var buttons: [String: OpaquePointer] = [:]
@@ -73,11 +77,16 @@ final class LinuxHtmlOverlayPage {
         webkit_settings_set_allow_file_access_from_file_urls(settings, 0)
         webkit_settings_set_allow_universal_access_from_file_urls(settings, 0)
         webkit_settings_set_javascript_can_open_windows_automatically(settings, 0)
-        webView = op(agterm_web_view_new_ephemeral(manager, settings))!
+        if overlay.persistent, let session = LinuxBrowserStore.shared.session {
+            webView = op(agterm_web_view_new_with_session(manager, settings, session))!
+        } else {
+            webView = op(agterm_web_view_new_ephemeral(manager, settings))!
+        }
         g_object_unref(RAW(settings))
         root = OpaquePointer(gtk_box_new(GTK_ORIENTATION_VERTICAL, 0))
         g_object_ref_sink(RAW(root))
         title = OpaquePointer(gtk_label_new(nil))
+        pageTitle = OpaquePointer(gtk_label_new(nil))
         errorLabel = OpaquePointer(gtk_label_new(nil))
         Self.transferGuard.withCString { source in
             let script = "agterm-transfer-guard".withCString { world in
@@ -87,7 +96,9 @@ final class LinuxHtmlOverlayPage {
             webkit_user_content_manager_add_script(manager, script)
             webkit_user_script_unref(script)
         }
+        installBridge()
         buildUI()
+        applyZoom()
         connectSignals()
         applyTheme(theme)
     }
@@ -95,6 +106,8 @@ final class LinuxHtmlOverlayPage {
     func start() { loadOriginal() }
 
     func close() {
+        closed = true
+        agterm_disconnect_signals(RAW(manager), Unmanaged.passUnretained(self).toOpaque())
         let data = Unmanaged.passUnretained(self).toOpaque()
         let dialog = pendingDialog
         pendingDialog = nil
@@ -125,7 +138,7 @@ final class LinuxHtmlOverlayPage {
         refreshToolbar()
         guard newer.reloadRevision != appliedRevision else { return }
         appliedRevision = newer.reloadRevision
-        if newer.reloadTarget == .current, webkit_web_view_get_uri(cast(webView)) != nil {
+        if newer.reloadTarget == .current, !loadFailed, webkit_web_view_get_uri(cast(webView)) != nil {
             webkit_web_view_reload(cast(webView))
         } else {
             loadOriginal()
@@ -262,12 +275,16 @@ final class LinuxHtmlOverlayPage {
     }
 
     private func refreshToolbar() {
+        if let strip { gtk_widget_set_visible(W(strip), overlay.chromeless ? 0 : 1) }
         if let slot = store?.htmlOverlaySlot(id) {
             if let current = slot.pane.flatMap({ slot.session.paneOverlay($0)?.html }) ?? slot.session.htmlOverlay {
                 overlay = current
             }
         }
         overlay.identity.withCString { gtk_label_set_text(title, $0) }
+        let titleText = overlay.current?.title ?? ""
+        titleText.withCString { gtk_label_set_text(pageTitle, $0) }
+        gtk_widget_set_visible(W(pageTitle), titleText.isEmpty ? 0 : 1)
         for (name, button) in buttons {
             let isNavigation = ["back", "forward", "reload", "browser", "finder", "copy"].contains(name)
             let isFile: Bool = if case .file = overlay.source { true } else { false }
@@ -284,6 +301,7 @@ final class LinuxHtmlOverlayPage {
 
     private func buildUI() {
         guard let strip = OpaquePointer(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4)) else { return }
+        self.strip = strip
         gtk_widget_add_css_class(W(strip), "toolbar")
         gtk_widget_set_size_request(W(strip), -1, 30)
         for (name, icon, tooltip) in [
@@ -293,6 +311,9 @@ final class LinuxHtmlOverlayPage {
         gtk_label_set_ellipsize(title, PANGO_ELLIPSIZE_MIDDLE)
         gtk_widget_set_hexpand(W(title), 1)
         gtk_box_append(cast(strip), W(title))
+        gtk_label_set_ellipsize(pageTitle, PANGO_ELLIPSIZE_END)
+        gtk_widget_add_css_class(W(pageTitle), "dim-label")
+        gtk_box_append(cast(strip), W(pageTitle))
         for (name, icon, tooltip) in [
             ("browser", "web-browser-symbolic", "Open in Browser"),
             ("finder", "folder-open-symbolic", "Show in Files"),
@@ -491,7 +512,11 @@ final class LinuxHtmlOverlayPage {
             if type == GDK_DROP_START { gdk_drop_finish(drop, GdkDragAction(rawValue: 0)) }
             return 1
         }
+        if type == GDK_KEY_RELEASE {
+            controller?.leaderKeyReleased(gdk_key_event_get_keycode(event))
+        }
         if type == GDK_KEY_PRESS {
+            if handleNativeKey(event) { return 1 }
             let key = gdk_keyval_to_lower(gdk_key_event_get_keyval(event))
             let modifiers = UInt32(gdk_event_get_modifier_state(event).rawValue)
             let paste = (key == UInt32(GDK_KEY_v) && modifiers & UInt32(GDK_CONTROL_MASK.rawValue) != 0)
