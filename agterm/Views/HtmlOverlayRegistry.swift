@@ -11,6 +11,23 @@ final class HtmlOverlayRegistry {
     /// browser receives every URL a page hands off; pages created later use whatever is set here.
     var browser: any HtmlBrowser = SystemBrowser()
     var sharing: any HtmlSharing = SystemHtmlSharing()
+    /// zoom is the page zoom every page shows at, pushed by `SettingsModel`.
+    private(set) var zoom = 1.0
+    /// dispatch runs the requests pages send; `ControlServer` supplies it, and pages read it when a request arrives.
+    var dispatch: HtmlBridgeDispatch?
+    /// windowID names the window a store belongs to, so a page's untargeted request stays in its own window.
+    var windowID: (@MainActor (AppStore) -> String?)?
+    /// profile names the saved browser store of this state directory; setting it drops the store built
+    /// from the one before.
+    var profile: BrowserProfile? { didSet { persistentStore = nil } }
+    private var persistentStore: WKWebsiteDataStore?
+    /// removeWebsiteData empties a store and returns once WebKit is done.
+    var removeWebsiteData: @MainActor (WKWebsiteDataStore) async -> Void = {
+        await $0.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
+    }
+    // the main actor is free while WebKit removes data, so a page opened then would write into the store
+    // being emptied
+    private var clearing = false
     private var pages: [UUID: HtmlOverlayPage] = [:]
     private var appearanceObserver: NSObjectProtocol?
 
@@ -29,9 +46,63 @@ final class HtmlOverlayRegistry {
     func page(for overlay: HtmlOverlay, store: AppStore, backgroundColor: String? = nil) -> HtmlOverlayPage {
         if let page = pages[overlay.id] { return page }
         let page = HtmlOverlayPage(overlay: overlay, store: store, backgroundColor: backgroundColor,
-                                   theme: theme(backgroundColor: backgroundColor), browser: browser, sharing: sharing)
+                                   theme: theme(backgroundColor: backgroundColor), browser: browser, sharing: sharing,
+                                   storage: storage(for: overlay))
+        page.webView.pageZoom = zoom
         pages[overlay.id] = page
         return page
+    }
+
+    /// persistentStoreFailure builds the saved store on first use and says why it cannot be used, nil when
+    /// it can. The open adapter asks before it accepts a persistent page, so the refusal reaches the caller.
+    func persistentStoreFailure() -> String? {
+        if clearing { return BrowserClearError.clearing }
+        guard persistentStore == nil else { return nil }
+        guard let profile else { return OverlayHtmlError.persistentUnavailable }
+        do {
+            persistentStore = WKWebsiteDataStore(forIdentifier: try profile.identifier())
+            return nil
+        } catch let failure as BrowserProfile.Failure {
+            return failure.description
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    /// clearPersistentStore removes everything the saved store holds and says why it could not, nil when it
+    /// did. A profile never created has nothing to remove and is not created for it. A registered persistent
+    /// page blocks it, a soft-closed one included: its login lives in memory and would be written back.
+    func clearPersistentStore() async -> String? {
+        if clearing { return BrowserClearError.clearing }
+        let open = pages.values.filter(\.usesSavedStore).count
+        if open > 0 { return BrowserClearError.pagesOpen(open) }
+        guard let profile else { return OverlayHtmlError.persistentUnavailable }
+        do {
+            guard try profile.existingIdentifier() != nil else { return nil }
+        } catch let failure as BrowserProfile.Failure {
+            return failure.description
+        } catch {
+            return error.localizedDescription
+        }
+        if let failure = persistentStoreFailure() { return failure }
+        guard let persistentStore else { return OverlayHtmlError.persistentUnavailable }
+        clearing = true
+        defer { clearing = false }
+        await removeWebsiteData(persistentStore)
+        return nil
+    }
+
+    // a persistent page whose store cannot be used gets no store at all: an in-memory one would hold a
+    // login the user asked to keep
+    private func storage(for overlay: HtmlOverlay) -> HtmlOverlayPage.Storage {
+        guard overlay.persistent, case .url = overlay.source else { return .ready(.nonPersistent()) }
+        if let failure = persistentStoreFailure() { return .unavailable(failure) }
+        return persistentStore.map(HtmlOverlayPage.Storage.ready) ?? .unavailable(OverlayHtmlError.persistentUnavailable)
+    }
+
+    func setZoom(_ zoom: Double) {
+        self.zoom = zoom
+        for page in pages.values { page.webView.pageZoom = zoom }
     }
 
     /// theme is the terminal theme's colors as a page's default style, the overlay's own background first.
@@ -105,6 +176,12 @@ final class HtmlOverlayRegistry {
 /// state, the page and title shown, history, and the navigation policy.
 @MainActor
 final class HtmlOverlayPage: NSObject, WKNavigationDelegate, WKUIDelegate {
+    /// Storage is the browser store a page is built on, or the reason it has none and loads nothing.
+    enum Storage {
+        case ready(WKWebsiteDataStore)
+        case unavailable(String)
+    }
+
     let id: UUID
     let webView: HtmlOverlayWebView
     let backgroundColor: String?
@@ -127,9 +204,12 @@ final class HtmlOverlayPage: NSObject, WKNavigationDelegate, WKUIDelegate {
     private var loadPending = false
     // a document this web content process still shows, which an interrupted load leaves in place
     private var committed = false
+    private let storageFailure: String?
+    /// usesSavedStore is true for a page built on the saved browser store.
+    let usesSavedStore: Bool
 
     init(overlay: HtmlOverlay, store: AppStore, backgroundColor: String?, theme: HtmlOverlayTheme,
-         browser: any HtmlBrowser, sharing: any HtmlSharing) {
+         browser: any HtmlBrowser, sharing: any HtmlSharing, storage: Storage) {
         id = overlay.id
         self.browser = browser
         self.sharing = sharing
@@ -139,8 +219,16 @@ final class HtmlOverlayPage: NSObject, WKNavigationDelegate, WKUIDelegate {
         appliedRevision = overlay.reloadRevision
         self.theme = theme
         let configuration = WKWebViewConfiguration()
-        // an in-memory store per page: cookies and storage last as long as this overlay and reach no other
-        configuration.websiteDataStore = .nonPersistent()
+        switch storage {
+        case .ready(let dataStore):
+            configuration.websiteDataStore = dataStore
+            storageFailure = nil
+            usesSavedStore = dataStore.isPersistent
+        case .unavailable(let failure):
+            configuration.websiteDataStore = .nonPersistent()
+            storageFailure = failure
+            usesSavedStore = false
+        }
         // the page's own scripts only; the theme user script and app evaluation run either way
         configuration.defaultWebpagePreferences.allowsContentJavaScript = overlay.javascript
         webView = HtmlOverlayWebView(frame: .zero, configuration: configuration)
@@ -150,7 +238,16 @@ final class HtmlOverlayPage: NSObject, WKNavigationDelegate, WKUIDelegate {
         // opaque canvas, since a web app styled against it would lose its background here.
         if case .file = overlay.source { webView.setValue(false, forKey: "drawsBackground") }
         super.init()
-        installTheme()
+        installScripts()
+        if themed {
+            let handler = HtmlOverlayBridgeHandler()
+            handler.page = self
+            let controller = webView.configuration.userContentController
+            controller.addScriptMessageHandler(handler, contentWorld: HtmlOverlayBridge.world, name: HtmlOverlayBridge.handlerName)
+            if overlay.javascript {
+                controller.addScriptMessageHandler(handler, contentWorld: .page, name: HtmlOverlayBridge.handlerName)
+            }
+        }
         webView.navigationDelegate = self
         webView.uiDelegate = self
         webView.setAccessibilityIdentifier("htmlOverlay.page")
@@ -186,16 +283,47 @@ final class HtmlOverlayPage: NSObject, WKNavigationDelegate, WKUIDelegate {
     func applyTheme(_ theme: HtmlOverlayTheme) {
         guard theme != self.theme else { return }
         self.theme = theme
-        installTheme()
+        installScripts()
         if themed { reloadShown() }
     }
 
-    private func installTheme() {
+    // one set, because removing user scripts removes them all: the theme, and on a file page the bridge adapter
+    private func installScripts() {
         let controller = webView.configuration.userContentController
         controller.removeAllUserScripts()
         controller.addUserScript(WKUserScript(source: theme.script(themed: themed), injectionTime: .atDocumentStart,
                                               forMainFrameOnly: true, in: Self.themeWorld))
-        if themed { webView.underPageBackgroundColor = NSColor(agtermHex: theme.background) }
+        guard themed else { return }
+        controller.addUserScript(WKUserScript(source: HtmlOverlayBridge.adapterScript, injectionTime: .atDocumentEnd,
+                                              forMainFrameOnly: true, in: HtmlOverlayBridge.world))
+        if overlay.javascript {
+            controller.addUserScript(WKUserScript(source: HtmlOverlayBridge.helperScript, injectionTime: .atDocumentStart,
+                                                  forMainFrameOnly: true, in: .page))
+        }
+        webView.underPageBackgroundColor = NSColor(agtermHex: theme.background)
+    }
+
+    /// handleBridgeRequest runs one request the page sent and answers it through `reply` exactly once.
+    /// The page is resolved where it sits NOW, so a request after a swap or a move acts from its new place, and a
+    /// page that left its slot is refused before anything runs.
+    func handleBridgeRequest(_ body: Any, mainFrame: Bool, reply: @escaping @MainActor (Any?, String?) -> Void) {
+        guard mainFrame else { return reply(nil, "requests from frames are refused") }
+        guard let store, let slot = store.htmlOverlaySlot(id) else { return reply(nil, "page closed") }
+        guard JSONSerialization.isValidJSONObject(body), let data = try? JSONSerialization.data(withJSONObject: body) else {
+            return reply(nil, "invalid request")
+        }
+        let registry = HtmlOverlayRegistry.shared
+        let origin = HtmlBridgePage(window: registry.windowID?(store), session: slot.session.id, pane: slot.pane)
+        let request: ControlRequest
+        switch HtmlBridge.request(from: data, page: origin) {
+        case .success(let built): request = built
+        case .failure(let refusal): return reply(nil, refusal.message)
+        }
+        guard let dispatch = registry.dispatch else { return reply(nil, "control is unavailable") }
+        Task {
+            let (value, error) = HtmlOverlayBridge.reply(await dispatch(request))
+            reply(value, error)
+        }
     }
 
     private var themed: Bool {
@@ -213,7 +341,7 @@ final class HtmlOverlayPage: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     private func reloadShown() {
         // before a first commit WebKit has nothing to reload, so the source is loaded again instead
-        if !textLoaded, webView.url != nil {
+        if !textLoaded, committed {
             loadPending = true
             webView.reload()
         } else {
@@ -251,6 +379,7 @@ final class HtmlOverlayPage: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     func close() {
         endPrompt()
+        webView.configuration.userContentController.removeAllScriptMessageHandlers()
         observations.removeAll()
         webView.stopLoading()
         webView.navigationDelegate = nil
@@ -270,6 +399,7 @@ final class HtmlOverlayPage: NSObject, WKNavigationDelegate, WKUIDelegate {
     }
 
     private func loadOriginal() {
+        if let storageFailure { return fail(storageFailure) }
         loadPending = true
         switch overlay.source {
         case .url(let url):
@@ -487,10 +617,12 @@ final class HtmlOverlayWebView: WKWebView {
     var onUserInput: (() -> Void)?
     var onDetach: (() -> Void)?
     private var parkedDragTypes: [NSPasteboard.PasteboardType] = []
+    private var dropsEnabled = true
 
     /// setDropsEnabled keeps a page that is not on screen out of drag-destination lookup, which SwiftUI
     /// opacity does not do; a rejecting `draggingEntered` would still swallow the drop.
     func setDropsEnabled(_ enabled: Bool) {
+        dropsEnabled = enabled
         if enabled {
             guard !parkedDragTypes.isEmpty else { return }
             registerForDraggedTypes(parkedDragTypes)
@@ -499,6 +631,16 @@ final class HtmlOverlayWebView: WKWebView {
             parkedDragTypes = registeredDraggedTypes
             unregisterDraggedTypes()
         }
+    }
+
+    // a web view answers AppKit's drag-destination lookup for any point in its frame, whatever types it has
+    // registered, so parking them is not enough: an off-screen page declines here and AppKit moves on to the
+    // views stacked beneath it; the selector is absent from the headers, so forwarding uses the base IMP
+    @objc(_hitTest:dragTypes:) func dragDestination(at point: UnsafeMutablePointer<NSPoint>, types: NSSet) -> NSView? {
+        let selector = #selector(dragDestination(at:types:))
+        guard dropsEnabled, let method = class_getInstanceMethod(WKWebView.self, selector) else { return nil }
+        typealias Lookup = @convention(c) (AnyObject, Selector, UnsafeMutablePointer<NSPoint>, NSSet) -> NSView?
+        return unsafeBitCast(method_getImplementation(method), to: Lookup.self)(self, selector, point, types)
     }
 
     /// deferFocusToAsk hands the keyboard to a pending ask or picker that owns this page's slot, as a pane

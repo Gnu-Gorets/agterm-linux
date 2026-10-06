@@ -31,6 +31,11 @@ paths:
   Default-off nil fields include attention button, Dock bounce, global config inheritance, close
   confirmation, auto-follow, hidden inactive sidebars, and interface hiding. `restoreMode` defaults to
   `none`; the legacy `restoreRunningCommand` boolean migrates to `rerun` or `none`.
+- `newSessionPlacement` (nil = `end`) applies only to New Session: `AppActions.newSession()` and the
+  workspace row's New Session and "+", through `AppActions.resolvedNewSessionIndex`. It inserts after the
+  selection only when that lives in the destination workspace. Open Directory, folder drops, and
+  `open -a agterm <dir>` keep appending; `session new` keeps its own `--after`/`--before` rules.
+  Deliberate control exemption, like `newSessionDirectory`: no command sets or reads it.
 - `sidebarFontSize` and `interfaceFontSize` are separate settings, both 9...20 default 13, read through
   `effectiveSidebarFontSize`/`effectiveInterfaceFontSize`. Neither falls back to the other: the sidebar
   is a density knob, the palette a readability one.
@@ -123,7 +128,8 @@ paths:
   blur is not pixel-identical to CGS blur. Reapply on key/main/fullscreen and appearance changes.
   `SystemAccessibilityObserver` bridges workspace accessibility changes to every window; SwiftUI's
   environment independently makes palettes/switcher opaque and changes the hint.
-- `configDirectory` resolution is explicit setting, else `<AGTERM_STATE_DIR>/config`, else
+- `configDirectory` resolution is explicit setting, else `<AGTERM_STATE_DIR>/config` unless that
+  directory is the `agterm-debug` sibling (`DebugStateDirectory.configStateDirectory`), else
   `~/.config/agterm`. It contains keymap, scoped Ghostty config, and restore denylist. Seed starter files
   only when absent. Keymap starter documents every action/default and token but rebinds nothing; reload
   posts `.agtermKeymapChanged`, never a surface config update.
@@ -146,13 +152,13 @@ paths:
   requested or active mode. Exit capture and `restore.capture` read the configured next-launch mode.
 - **Command replay is launch-scoped; capture runs at two exits and on demand.**
   `AppDelegate.captureForegroundCommands` runs at three points: `applicationWillTerminate` before
-  `saveAllOpen()`, the LAST window's `willClose` before its surface teardown, which precedes
+  `saveAllChecked()`, the LAST window's `willClose` before its surface teardown, which precedes
   `applicationWillTerminate` and is therefore the only point where a close-the-last-window exit's
   commands are still readable, and `restore.capture` on demand, which exists for the exit that reaches
   neither: a force quit, a crash, a hard reset, a power loss. A system shutdown/restart/logout is NOT in
   that set — since #447 it reaches `applicationWillTerminate` like any quit — so do not re-motivate the
   command with an OS update. The on-demand arm changes nothing else: it fills the same
-  slots, persists through the same `saveAllOpen`, and replay stays launch-only and one-shot.
+  slots, persists through `saveAllOpenChecked`, and replay stays launch-only and one-shot.
   The two automatic exit arms run when the configured mode is `rerun` or `live`. The on-demand arm remains
   rerun-only: it refuses when `none` or `live` is configured and names that mode. Deliberately unlike a
   `session.restore` pin, which saves future rerun policy with an explanatory note, because a pin outlives
@@ -277,5 +283,9 @@ paths:
   overflowing tab still reports every control hittable; `testFlaggedViewLayoutPickerPersists` compares the
   tab's last line against the window frame instead.
   The control catalog carries it as `sidebar.flagged-layout` ([[control-api]]).
+- `htmlOverlayZoom` is the one page zoom every HTML overlay shows at, nil = 1, stepped only by the font
+  commands through `SettingsModel.stepHtmlOverlayZoom`, which saves and mirrors to `HtmlOverlayRegistry`
+  without `persistAndApply`: nothing else renders it, so a keypress must not broadcast an appearance change.
+  No Settings control.
 - These settings are GUI-only unless the control catalog explicitly says otherwise. Do not add settings
   commands merely to mirror chrome; user actions already have control coverage.

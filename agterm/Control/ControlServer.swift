@@ -121,21 +121,6 @@ final class ControlServer {
         }
     }
 
-    /// The sentence inside a `DecodingError`, read off its `Context` rather than off the error: the error's
-    /// own `debugDescription` is macOS 26.4+, so at this app's 14.0 deployment target `String(describing:)`
-    /// falls back to a reflection dump that buries the same sentence inside `DecodingError.Context(...)`.
-    /// Every case carries a context, and the `@unknown default` keeps a future case readable rather than
-    /// silent.
-    nonisolated private static func decodeDetail(_ error: DecodingError) -> String {
-        switch error {
-        case .dataCorrupted(let context), .keyNotFound(_, let context),
-                .typeMismatch(_, let context), .valueNotFound(_, let context):
-            return context.debugDescription
-        @unknown default:
-            return String(describing: error)
-        }
-    }
-
     /// Cap on a request line, shared with the client via `ControlWire` so the two sides can't drift; over
     /// it the line is rejected and the connection closed, so a bad client can't grow the buffer unbounded.
     nonisolated private static let maxLineBytes = ControlWire.maxRequestLineBytes
@@ -255,6 +240,12 @@ final class ControlServer {
                                                queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.refreshWindowCache() }
         }
+        // through `dispatch`, not the dispatcher, so a page request refreshes the window cache and reaches the
+        // commands only the app's own switch handles
+        HtmlOverlayRegistry.shared.dispatch = { [weak self] request in
+            await self?.dispatch(request) ?? ControlResponse(ok: false, error: "control is unavailable")
+        }
+        HtmlOverlayRegistry.shared.windowID = { [weak library] store in library?.windowID(for: store)?.uuidString }
     }
 
     /// The socket path the app and the CLI rendezvous on. `AGTERM_CONTROL_SOCKET` wins (tests need it —
@@ -436,8 +427,7 @@ final class ControlServer {
             // the decode CONTEXT over `localizedDescription`, which is the generic "data couldn't be read":
             // the context names the rejected `cmd`, telling a caller its agterm is older than its agtermctl,
             // and only for a command added after THIS code shipped, since an older server returns the generic.
-            let detail = (error as? DecodingError).map(Self.decodeDetail) ?? error.localizedDescription
-            _ = server.responseWriter(conn, ControlResponse(ok: false, error: "invalid request: \(detail)"))
+            _ = server.responseWriter(conn, ControlResponse(ok: false, error: ControlWire.invalidRequestMessage(error)))
             return
         }
 
@@ -505,8 +495,9 @@ final class ControlServer {
 
     /// Commands whose dispatch awaits an ssh round trip. `zmx.attach` re-resolves the remote first, so it
     /// carries the same wait; local `zmx.list` blocks too, but bounded, and stays inline to keep cache order.
+    /// `session.restart` waits on process exits for seconds, while the shell it starts calls this socket.
     nonisolated private static func waitsOnNetwork(_ cmd: Command) -> Bool {
-        cmd == .zmxTree || cmd == .zmxAttach
+        cmd == .zmxTree || cmd == .zmxAttach || cmd == .sessionRestart
     }
 
     /// Read bytes from `conn` up to (and excluding) the first newline. Returns nil on EOF-before-newline, a
@@ -586,24 +577,24 @@ final class ControlServer {
                 .workspaceNew, .workspaceSelect, .workspaceGo, .workspaceRename, .workspaceDelete, .workspaceMove,
                 .workspaceFocus,
                 .workspaceFilter, .workspaceCollapse, .workspaceExpand,
-                .sessionSplit, .sessionSplitClose, .sessionSwap, .sessionLead, .sessionScratch, .sessionFocus,
+                .sessionSplit, .sessionSplitClose, .sessionSwap, .sessionLead, .sessionRestart, .sessionScratch, .sessionFocus,
                 .sessionResize, .surfaceZoom,
                 .surfaceCursor,
                 .sessionStatus, .sessionFlag, .sessionContext, .sessionSeen, .sessionRestore, .notify,
-                .fontInc, .fontDec, .fontReset, .keymapReload, .keymapList, .hooksReload, .hooksList, .configReload,
-                .themeSet, .themeList,
+                .fontInc, .fontDec, .fontReset, .keymapReload, .keymapList, .keymapRun, .hooksReload, .hooksList, .browserClear,
+                .configReload, .themeSet, .themeList,
                 .sidebar, .sidebarMode, .sidebarFlaggedLayout, .sidebarExpand, .sidebarCollapse, .sidebarWidth,
                 .sessionType, .sessionCopy,
                 .sessionPaste, .sessionSelectAll,
                 .sessionSearch, .sessionOverlayOpen, .sessionOverlayClose, .sessionOverlayResize,
                 .sessionOverlayReload, .sessionOverlayNavigate,
-                .sessionOverlayResult, .sessionOverlayCopy, .sessionOverlayText,
+                .sessionOverlayResult, .sessionOverlaySubmit, .sessionOverlayCopy, .sessionOverlayText,
                 .sessionBackground, .sessionText, .quick, .quickType, .quickText,
                 .windowNew, .windowList, .windowSelect, .windowGo,
                 .windowClose, .windowRename, .windowDelete, .windowResize, .windowMove, .windowZoom,
                 .windowFullscreen, .windowMinimize,
                 .restoreClear, .restoreCapture, .restoreMode, .zmxList, .zmxPrune, .zmxKill, .zmxReset, .zmxTree,
-                .zmxAttach, .zmxPresent, .sessionOverlayJobRun, .dashboard, .version:
+                .zmxAttach, .zmxPresent, .zmxScreen, .sessionOverlayJobRun, .dashboard, .version:
             return ControlResponse(ok: false, error: "control dispatcher did not handle \(request.cmd.rawValue)")
         case .debugAppearance:
             return setDebugAppearance(args: request.args)
@@ -877,9 +868,10 @@ final class ControlServer {
                 }
             },
             app: identity,
-            liveReset: liveResetReadback(),
+            liveReset: liveResetReadback(), indexUnsaved: library.indexUnsaved,
             // the mirror the sidebars render from, so the read-back names what is on screen.
-            flaggedLayout: GhosttyApp.shared.flaggedViewLayout
+            flaggedLayout: GhosttyApp.shared.flaggedViewLayout,
+            htmlZoom: HtmlOverlayRegistry.shared.zoom
         )
     }
 

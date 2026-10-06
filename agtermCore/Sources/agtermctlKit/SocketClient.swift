@@ -230,6 +230,15 @@ struct SocketClient {
         }
     }
 
+    /// pageExitCode matches pick: 0 answered, 2 dismissed; a one-shot read of a pending page is a failure.
+    static func pageExitCode(for outcome: ControlHtmlPageOutcomeState) -> ExitCode {
+        switch outcome {
+        case .submitted: .success
+        case .pending: .failure
+        case .dismissed: ExitCode(rawValue: 2)
+        }
+    }
+
     /// Human choices may take minutes, so poll quickly only for the first second (ten 100 ms waits),
     /// then back off to 500 ms rather than hammering the server's serial accept loop indefinitely.
     static func pickPollDelay(afterPendingPoll poll: Int) -> TimeInterval {
@@ -435,12 +444,13 @@ struct SocketClient {
             let mark = action.overridden == true ? "*" : " "
             let name = action.action.padding(toLength: max(width, action.action.count), withPad: " ", startingAt: 0)
             let binds = ((action.chord.map { [$0] } ?? []) + (action.alternates ?? [])).joined(separator: "|")
-            lines.append("  \(mark) \(name)  \(binds.isEmpty ? "-" : binds)")
+            lines.append("  \(mark) \(name)  \(binds.isEmpty ? "-" : binds)\(action.repeats == true ? "  --repeat" : "")")
         }
         if !keymap.commands.isEmpty {
             lines.append(contentsOf: ["", "commands:"])
             lines.append(contentsOf: keymap.commands.map { command in
                 var row = "    \(command.name)  \(command.shortcut ?? "(palette only)")"
+                if command.repeats { row += "  --repeat" }
                 if command.errorHud {
                     row += "  --error-hud --error-position \(command.errorPosition.rawValue)"
                     if let pane = command.errorPane { row += " --error-pane \(pane.rawValue)" }

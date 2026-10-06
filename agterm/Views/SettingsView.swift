@@ -117,6 +117,11 @@ private struct GeneralSettingsView: View {
                             .accessibilityIdentifier("settings-new-session-choose")
                     }
                 }
+                Picker("New sessions are added", selection: newSessionPlacement) {
+                    Text("At the end of the workspace").tag(AppSettings.NewSessionPlacement.end)
+                    Text("After the current session").tag(AppSettings.NewSessionPlacement.afterCurrent)
+                }
+                .accessibilityIdentifier("settings-new-session-placement")
                 Picker("Restore sessions", selection: restoreMode) {
                     ForEach(RestoreMode.allCases, id: \.self) { mode in
                         Text(mode.displayName).tag(mode)
@@ -204,6 +209,11 @@ private struct GeneralSettingsView: View {
     private var newSessionDirectory: Binding<AppSettings.NewSessionDirectory> {
         Binding(get: { AppSettings.NewSessionDirectory(rawValue: model.settings.newSessionDirectory ?? "") ?? .home },
                 set: { model.setNewSessionDirectory($0 == .home ? nil : $0.rawValue) })
+    }
+
+    private var newSessionPlacement: Binding<AppSettings.NewSessionPlacement> {
+        Binding(get: { model.settings.effectiveNewSessionPlacement },
+                set: { model.setNewSessionPlacement($0 == .end ? nil : $0.rawValue) })
     }
 
     /// Pick the `custom` new-session mode's fixed directory with the standard open panel (dirs only), persist.
@@ -809,12 +819,12 @@ private struct AgentStatusSettingsView: View {
 private struct KeyMappingSettingsView: View {
     let model: SettingsModel
 
-    /// The resolved config directory shown in the field: the explicit setting, else `AGTERM_STATE_DIR/config`
-    /// under test isolation, else `~/.config/agterm` — matching `SettingsModel`'s own resolution.
+    /// configDirectoryPath is the directory shown in the field, matching `SettingsModel`'s own resolution.
     private var configDirectoryPath: String {
         ConfigPaths.configDirectory(
             setting: model.settings.configDirectory,
-            stateDir: ProcessInfo.processInfo.environment["AGTERM_STATE_DIR"],
+            stateDir: DebugStateDirectory.configStateDirectory(environment: ProcessInfo.processInfo.environment,
+                                                               liveDirectory: PersistenceStore.defaultDirectory),
             home: FileManager.default.homeDirectoryForCurrentUser).path
     }
 

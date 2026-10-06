@@ -115,6 +115,45 @@ struct ControlDispatcherOverlayTests {
         ])
     }
 
+    @Test func sessionOverlaySubmitRoutesValuePaneAndWindow() async {
+        let actions = MockControlActions()
+        let dispatcher = ControlDispatcher(actions: actions)
+
+        let submit = await dispatcher.dispatch(ControlRequest(
+            cmd: .sessionOverlaySubmit, target: "session", args: ControlArgs(window: "win", pane: "right", value: "")))
+
+        #expect(submit == ControlResponse(ok: true))
+        #expect(actions.calls == [.overlaySubmit(target: "session", window: "win", pane: .right, value: "")])
+    }
+
+    @Test func sessionOverlaySubmitRefusesAMissingValueOrABadPane() async {
+        let actions = MockControlActions()
+        let dispatcher = ControlDispatcher(actions: actions)
+
+        let missing = await dispatcher.dispatch(ControlRequest(cmd: .sessionOverlaySubmit, target: "session"))
+        let badPane = await dispatcher.dispatch(ControlRequest(
+            cmd: .sessionOverlaySubmit, target: "session", args: ControlArgs(pane: "middle", value: "x")))
+
+        #expect(missing == ControlResponse(ok: false, error: OverlayHtmlError.submitValue))
+        #expect(badPane?.ok == false)
+        #expect(actions.calls.isEmpty)
+    }
+
+    @Test func sessionOverlayResultWithAPageReadsThePageOutcome() async throws {
+        let actions = MockControlActions()
+        let dispatcher = ControlDispatcher(actions: actions)
+        let id = UUID()
+
+        let page = await dispatcher.dispatch(ControlRequest(
+            cmd: .sessionOverlayResult, target: "session", args: ControlArgs(page: id.uuidString)))
+        let invalid = await dispatcher.dispatch(ControlRequest(
+            cmd: .sessionOverlayResult, args: ControlArgs(page: "not-a-uuid")))
+
+        #expect(page == ControlResponse(ok: true))
+        #expect(invalid == ControlResponse(ok: false, error: OverlayHtmlError.invalidPageID))
+        #expect(actions.calls == [.pageResult(id)])
+    }
+
     @Test func sessionOverlayResultKeepsExactActionErrorResponse() async {
         let actions = MockControlActions()
         let dispatcher = ControlDispatcher(actions: actions)
@@ -385,6 +424,11 @@ struct ControlDispatcherOverlayTests {
         (ControlArgs(sizePercent: 50, pane: "left", html: "/tmp/r.html"), PaneOverlayError.sizePercentConflict),
         (ControlArgs(command: "cat", navigation: true), OverlayHtmlError.navigationWithoutPage),
         (ControlArgs(command: "cat", javascript: true), OverlayHtmlError.javascriptWithoutPage),
+        (ControlArgs(command: "cat", chromeless: true), OverlayHtmlError.chromelessRequiresFile),
+        (ControlArgs(url: "http://localhost:5173/", chromeless: true), OverlayHtmlError.chromelessRequiresFile),
+        (ControlArgs(html: "/tmp/r.html", navigation: true, chromeless: true), OverlayHtmlError.chromelessWithNavigation),
+        (ControlArgs(command: "cat", persistent: true), OverlayHtmlError.persistentRequiresURL),
+        (ControlArgs(html: "/tmp/r.html", persistent: true), OverlayHtmlError.persistentRequiresURL),
         (ControlArgs(html: "/tmp/r.html", url: "http://localhost:5173/"), OverlayHtmlError.htmlAndURL),
         (ControlArgs(command: "cat", url: "http://localhost:5173/"), OverlayHtmlError.commandAndURL),
         (ControlArgs(wait: true, url: "http://localhost:5173/"), OverlayHtmlError.waitWithURL),
@@ -421,6 +465,24 @@ struct ControlDispatcherOverlayTests {
         ])
     }
 
+    @Test(arguments: [Bool?.none, false, true])
+    func urlOpenRoutesItsStorageChoice(_ persistent: Bool?) async throws {
+        let actions = MockControlActions()
+        let dispatcher = ControlDispatcher(actions: actions)
+
+        _ = await dispatcher.dispatch(ControlRequest(
+            cmd: .sessionOverlayOpen, target: "session", args: ControlArgs(url: "http://localhost:5173/", persistent: persistent)
+        ))
+
+        #expect(actions.calls == [
+            .overlayOpen(target: "session", window: nil,
+                         ControlSessionOverlayOpenOptions(command: "", cwd: nil, wait: false, sizePercent: nil,
+                                                          backgroundColor: nil,
+                                                          page: .url(try #require(URL(string: "http://localhost:5173/"))),
+                                                          persistent: persistent == true))
+        ])
+    }
+
     @Test(arguments: [Bool?.none, true])
     func urlOpenRoutesTheWebPageWithItsToolbar(_ javascript: Bool?) async throws {
         let actions = MockControlActions()
@@ -437,6 +499,24 @@ struct ControlDispatcherOverlayTests {
                                                           backgroundColor: nil,
                                                           page: .url(try #require(URL(string: "http://localhost:5173/app"))),
                                                           navigation: true, javascript: javascript == true))
+        ])
+    }
+
+    @Test(arguments: [Bool?.none, true])
+    func htmlOpenRoutesChromeless(_ chromeless: Bool?) async {
+        let actions = MockControlActions()
+        let dispatcher = ControlDispatcher(actions: actions)
+
+        _ = await dispatcher.dispatch(ControlRequest(
+            cmd: .sessionOverlayOpen, target: "session",
+            args: ControlArgs(html: "/tmp/r.html", javascript: true, chromeless: chromeless)
+        ))
+
+        #expect(actions.calls == [
+            .overlayOpen(target: "session", window: nil,
+                         ControlSessionOverlayOpenOptions(command: "", cwd: nil, wait: false, sizePercent: nil,
+                                                          backgroundColor: nil, page: .file(path: "/tmp/r.html", grantRoot: nil),
+                                                          javascript: true, chromeless: chromeless == true))
         ])
     }
 

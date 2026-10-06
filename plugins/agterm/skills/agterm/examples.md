@@ -334,6 +334,30 @@ agtermctl session overlay open "make test" --target "$AGTERM_SESSION_ID"   # thi
 agtermctl session overlay result --json   # errors "still running" until it exits, then result.exitCode
 ```
 
+## Ask for a choice with an HTML page, and switch sessions from one
+
+A page is a richer `pick`: write the rows, open it with `--block`, and read the answer. The page needs no
+JavaScript; agterm handles the `data-agterm` tags.
+
+```bash
+page=$(mktemp /tmp/branchesXXXXXX)
+{
+  echo '<title>Pick a branch</title>'
+  git for-each-ref --format='%(refname:short)' refs/heads | while read -r b; do
+    esc=$(printf '%s' "$b" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/"/\&quot;/g')
+    printf '<form data-agterm="session.overlay.submit"><input type="hidden" name="value" value="%s"><button>%s</button></form>\n' "$esc" "$esc"
+  done
+} > "$page"
+if out=$(agtermctl session overlay open --html "$page" --block --target "$AGTERM_SESSION_ID" --follow); then
+  branch=$(printf '%s' "$out" | jq -r .value)
+fi
+rm -f "$page"
+```
+
+Exit 2 means the user closed the page without choosing. For a switcher that stays current, open a page with
+`--js` that builds its rows from `agterm.request('tree')` and switches with
+`agterm.request('session.select', {target: id})`; rows written into a no-JS page are a snapshot.
+
 ## Read what the user highlighted inside an overlay
 
 `session copy` and `session text` address the pane the overlay COVERS, so a selection the user made in
@@ -659,6 +683,13 @@ agtermctl session text --lines 50              # the last 50 lines of the buffer
 agtermctl session text --pane right            # the split pane (errors if there is no split)
 agtermctl session text --pane-id "$AGTERM_PANE_ID" # this shell's terminal, even after a swap
 agtermctl session text --pane scratch --all    # the scratch terminal's full buffer, even while it's hidden
+# drive the split pane's terminal by its stable id, wherever a swap moves it; an empty id counts as no id
+# and reaches the default pane, so stop when the lookup finds none (no split, or the session is in another window)
+id=$(agtermctl tree --json | jq -er --arg s "$AGTERM_SESSION_ID" \
+  '.result.tree.workspaces[].sessions[] | select(.id == $s) | .surfaces[] | select(.kind == "right") | .paneID | select(. != null and . != "")') &&
+  agtermctl session text --pane-id "$id" --target "$AGTERM_SESSION_ID" --lines 5 &&
+  agtermctl surface cursor --pane-id "$id" --target "$AGTERM_SESSION_ID" &&
+  agtermctl session type $'make test\n' --pane-id "$id" --target "$AGTERM_SESSION_ID"
 # extract every URL from the full scrollback:
 agtermctl session text --all --json | jq -r '.result.text' | grep -oE 'https?://[^ ]+'
 ```
@@ -1195,7 +1226,7 @@ agtermctl keymap list --json \
 ```
 
 If those disagree, the keymap is fine and the menu is stale or the chord was taken: SwiftUI rebuilds the
-menu only on the next app activation, so switch away and back before concluding anything, and relaunch if
+menu lazily (on activation or a key press), so switch away and back before concluding anything, and relaunch if
 it persists.
 
 A menu entry with `"enabled": false` holds the chord but is inert — AppKit consumes the key and fires

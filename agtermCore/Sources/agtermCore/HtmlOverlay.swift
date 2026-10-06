@@ -38,6 +38,29 @@ struct HtmlOrigin: Equatable {
     }
 }
 
+/// HtmlZoom is the page-zoom ladder the font-size commands walk on an HTML page, one factor for every page.
+public enum HtmlZoom {
+    static let steps: [Double] = [0.5, 0.75, 0.85, 1, 1.15, 1.25, 1.5, 1.75, 2, 2.5, 3]
+    static let smallest = 0.5, largest = 3.0
+
+    /// resolve bounds a stored factor to the ladder's range; nil and a non-finite value mean actual size.
+    static func resolve(_ stored: Double?) -> Double {
+        guard let stored, stored.isFinite else { return 1 }
+        return min(largest, max(smallest, stored))
+    }
+
+    /// applying maps a font binding action (`increase_font_size:1`, `decrease_font_size:1`, `reset_font_size`)
+    /// to the next factor from `zoom`, nil for any other action. An off-ladder factor steps to its neighbor.
+    public static func applying(fontAction action: String, to zoom: Double) -> Double? {
+        switch action.split(separator: ":").first {
+        case "increase_font_size": return steps.first { $0 > zoom } ?? largest
+        case "decrease_font_size": return steps.last { $0 < zoom } ?? smallest
+        case "reset_font_size": return 1
+        default: return nil
+        }
+    }
+}
+
 /// HtmlOverlay is a page occupying an overlay slot (`session.overlay.open --html` or `--url`) in place of a
 /// program. `id` travels with the value, so a pane swap or promotion moves the page and the app's web view
 /// follows it; every adapter callback addresses the page by that id.
@@ -48,6 +71,10 @@ public struct HtmlOverlay: Equatable, Sendable {
     public let navigation: Bool
     /// javascript lets the page run its own scripts; agterm's theme script runs either way.
     public let javascript: Bool
+    /// chromeless drops the identity strip, file pages only: the strip is what names a URL page's origin.
+    public let chromeless: Bool
+    /// persistent puts a URL page on the saved browser store; every other page gets an in-memory one of its own.
+    public let persistent: Bool
     public var loadState: HtmlLoadState = .loading
     public var loadError: String?
     /// current is what the web view shows now, as the adapter last reported it; nil until the first load
@@ -58,11 +85,14 @@ public struct HtmlOverlay: Equatable, Sendable {
     public var reloadRevision = 0
     public var reloadTarget = HtmlReloadTarget.original
 
-    public init(source: HtmlSource, navigation: Bool = false, javascript: Bool = false, id: UUID = UUID()) {
+    public init(source: HtmlSource, navigation: Bool = false, javascript: Bool = false, chromeless: Bool = false,
+                persistent: Bool = false, id: UUID = UUID()) {
         self.id = id
         self.source = source
         self.navigation = navigation
         self.javascript = javascript
+        self.chromeless = chromeless
+        self.persistent = persistent
     }
 
     /// grantError says why `file` cannot be opened under `grantRoot`, nil when it can. Both must be absolute, and the file
@@ -234,6 +264,7 @@ public final class HtmlOverlayReleases {
 
     func release(_ overlay: HtmlOverlay?) {
         guard let overlay else { return }
+        HtmlPageOutcomes.shared.dismiss(overlay.id)
         onRelease?(overlay.id)
     }
 }

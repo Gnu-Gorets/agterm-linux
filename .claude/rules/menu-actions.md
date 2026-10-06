@@ -85,7 +85,8 @@ paths:
 - The View menu carries no fullscreen item of agterm's own, and `toggle_fullscreen` rides the key monitor
   rather than a menu shortcut; see [[windows]]. It remains rebindable and control-drivable.
 - Font shortcuts call libghostty binding actions on the key window's first-responder surface, falling back
-  to the active session. Persistence still flows from cell-size callbacks.
+  to the active session, unless an HTML page owns the keys, which zooms the pages instead ([[control-api]]).
+  Persistence still flows from cell-size callbacks.
 - `shortcutGlyph` delegates to host-free `Keymap.glyphHint`. Use it for palette hints and the ten built-in
   toolbar/sidebar tooltips so rebinds update both. This visual text is keep-in-sync exempt.
 
@@ -132,6 +133,8 @@ paths:
 - Persist each pane cwd and the 0...1 primary-pane `splitRatio`. `SplitRatioAccessor` is an unconditional
   background representable on primary, introspects `NSSplitView`, retries until its axis extent exists, observes
   `didResizeSubviews` but writes only during a drag, and debounces save by about 0.4 seconds. Regular saves and quit flush also persist it.
+  It re-applies the stored ratio whenever the split's safe-area inset or axis length changes, because
+  SwiftUI's own redistribution leaves the primary pane at zero after one large shrink (#691).
 - Double-clicking the divider restores `splitRatioDefault` through the same `applyRatio` path as
   `session.resize`, persisting immediately rather than through the drag debounce. AppKit offers no hook:
   `NSSplitView`'s own double-click collapses a pane through the delegate SwiftUI owns. One shared

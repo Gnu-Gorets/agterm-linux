@@ -75,6 +75,7 @@ final class SettingsModel {
         applyInterfaceElements()
         applyAutoHideSidebarInactiveWindows()
         applyFlaggedViewLayout()
+        applyHtmlOverlayZoom()
         ensureStarterKeymap()
         loadKeymap()
         ensureStarterHooks()
@@ -309,11 +310,21 @@ final class SettingsModel {
     func setNewSessionDirectory(_ value: String?) { settings.newSessionDirectory = value; try? settingsStore.save(settings) }
     /// Persist the fixed directory used when `newSessionDirectory` is `custom` (nil/empty falls back to home).
     func setNewSessionCustomDirectory(_ value: String?) { settings.newSessionCustomDirectory = value; try? settingsStore.save(settings) }
+    /// setNewSessionPlacement persists placement for future session creation; nil restores `end`.
+    func setNewSessionPlacement(_ value: String?) { settings.newSessionPlacement = value; try? settingsStore.save(settings) }
     /// Persist whether a GUI session close first asks for confirmation (nil = off). `AppActions` reads it on
     /// demand at close time, so it just saves.
     func setConfirmCloseSession(_ value: Bool?) { settings.confirmCloseSession = value; try? settingsStore.save(settings) }
     /// Persist whether GUI closes use the short undo grace period. nil = on; false = close immediately.
     func setCloseGraceUndoEnabled(_ value: Bool?) { settings.closeGraceUndoEnabled = value; try? settingsStore.save(settings) }
+    /// stepHtmlOverlayZoom moves every HTML page's zoom by a font binding action and persists it. Saves and
+    /// mirrors only: no chrome or config depends on it.
+    func stepHtmlOverlayZoom(_ action: String) {
+        guard let zoom = HtmlZoom.applying(fontAction: action, to: settings.effectiveHtmlOverlayZoom) else { return }
+        settings.htmlOverlayZoom = zoom == 1 ? nil : zoom
+        try? settingsStore.save(settings)
+        applyHtmlOverlayZoom()
+    }
     /// Persist that the first-run welcome has been shown, so it never appears again on this state directory.
     func setWelcomeShown(_ value: Bool?) { settings.welcomeShown = value; try? settingsStore.save(settings) }
     /// Persist the user-idle auto-follow timeout (nil = off) and push it into every open window's `AppStore`
@@ -488,12 +499,13 @@ final class SettingsModel {
         }
     }
 
-    /// The resolved config directory: the explicit setting, else `AGTERM_STATE_DIR/config` (test
-    /// isolation), else `~/.config/agterm`. Both `keymap.conf` and `ghostty.conf` live here.
+    /// configDirectoryURL follows `ConfigPaths.configDirectory`'s precedence. Both `keymap.conf` and
+    /// `ghostty.conf` live here.
     private func configDirectoryURL() -> URL {
         ConfigPaths.configDirectory(
             setting: settings.configDirectory,
-            stateDir: ProcessInfo.processInfo.environment["AGTERM_STATE_DIR"],
+            stateDir: DebugStateDirectory.configStateDirectory(environment: ProcessInfo.processInfo.environment,
+                                                               liveDirectory: PersistenceStore.defaultDirectory),
             home: FileManager.default.homeDirectoryForCurrentUser)
     }
 
@@ -762,6 +774,10 @@ final class SettingsModel {
 
     private func applyFlaggedViewLayout() {
         GhosttyApp.shared.setFlaggedViewLayout(settings.effectiveFlaggedViewLayout)
+    }
+
+    private func applyHtmlOverlayZoom() {
+        HtmlOverlayRegistry.shared.setZoom(settings.effectiveHtmlOverlayZoom)
     }
 
     private func applyAutoHideSidebarInactiveWindows() {
