@@ -5,7 +5,7 @@ import XCTest
 
 @MainActor
 final class TerminalDeckTests: XCTestCase {
-    func testShouldMeasureHiddenHostsOnlyAtAvailableSizeWhenRestoringManySessions() {
+    func testHiddenHostsAreMeasuredOnlyAtTheDeckSize() {
         let recorder = DeckRecorder()
         let host = NSHostingView(rootView: DeckFixture(recorder: recorder, selected: 0))
         host.frame = CGRect(x: 0, y: 0, width: 1200, height: 800)
@@ -16,11 +16,11 @@ final class TerminalDeckTests: XCTestCase {
         XCTAssertEqual(Set(recorder.proposals.keys), Set(0..<96))
         XCTAssertTrue(recorder.proposals.values.allSatisfy { proposals in
             !proposals.isEmpty && proposals.allSatisfy { $0.width == 900 && $0.height == 750 }
-        }, "Terminal hosts must not receive speculative min/ideal/max size proposals")
+        }, "terminal hosts must not receive speculative min/ideal/max size proposals")
         XCTAssertEqual(host.fittingSize, CGSize(width: 640, height: 400))
     }
 
-    func testShouldKeepEveryHostMountedWhenSelectionAndDeckSizeChange() {
+    func testEveryHostStaysMountedAcrossSelectionAndResize() {
         let recorder = DeckRecorder()
         let host = NSHostingView(rootView: DeckFixture(recorder: recorder, selected: 0))
         host.frame = CGRect(x: 0, y: 0, width: 1200, height: 800)
@@ -39,7 +39,7 @@ final class TerminalDeckTests: XCTestCase {
         }
     }
 
-    func testShouldCenterThePlaceholderWhenNoSessionIsSelected() {
+    func testPlaceholderIsCenteredWithNoSessionSelected() {
         let recorder = DeckRecorder()
         let host = NSHostingView(rootView: TerminalDeck {
             DeckProbe(index: 0, recorder: recorder).frame(width: 100, height: 30)

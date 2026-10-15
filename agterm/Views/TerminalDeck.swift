@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Terminal hosts fill the available area; their intrinsic sizes must not size the window.
+/// Parent stacks probe every ZStack child at min, ideal and max sizes, hidden deck entries included.
+/// The reader answers those probes itself and hands each terminal only the final size.
 struct TerminalDeck<Content: View>: View {
     @ViewBuilder var content: Content
 
