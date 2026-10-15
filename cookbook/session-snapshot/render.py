@@ -30,7 +30,7 @@ def clip(t):
 
 
 def mtime(path):
-    return datetime.datetime.fromtimestamp(os.path.getmtime(path)).strftime("%Y-%m-%d %H:%M")
+    return datetime.datetime.fromtimestamp(os.path.getmtime(path)).astimezone().strftime("%Y-%m-%d %H:%M")
 
 
 LIVE = "running claude process"
@@ -185,7 +185,7 @@ def restore_line(conv, matched, fg, here, start):
 
 
 snap_path = os.path.abspath(f"{out}/{stamp}.json")
-snap = {"stamp": stamp, "created": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "file": tilde(snap_path),
+snap = {"stamp": stamp, "created": datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M"), "file": tilde(snap_path),
         "windows": [], "sessions": []}
 with open(f"{work}/windows.json") as f:
     windows = json.load(f)["result"]["windows"]
