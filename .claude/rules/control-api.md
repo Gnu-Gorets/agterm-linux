@@ -1169,6 +1169,8 @@ side, and reads `lastAppliedIsDark` when bare. Refuse it outside XCUITest; provi
 - `backedByZmx` on a session is true only when every existing primary/split pane is currently backed.
   Primary/split entries in `surfaces` report their own Boolean; scratch and overlays omit it. Older servers
   omit both levels. There is no sidebar indicator.
+  A pane hidden since launch has no surface yet and reports its realized sibling's backing, the launch
+  disposition it attaches with once shown; otherwise `zmx tree` drops a session with a hidden split (#762).
 - `liveAttribution`/`splitLiveAttribution` report the observed responsibility attribution of a local Live
   pane's leader process, probed from `sessionLeaderPIDs`: `supervisor`, `app`, `orphaned` or `unknown`,
   from `SessionHost.classify`. Omitted for a non-Live or remote pane; the split field covers a hidden
