@@ -113,8 +113,10 @@ Use inline SVG for a diagram only when a flow or structure is easier to see than
 
 ## 5. Write the page
 
-- Read the design's template. Copy its `<head>` and `<style>` verbatim and fill the body by the
-  skeleton and the component list in its comments:
+- Read the design's template. Copy its `<head>` and `<style>` verbatim, except `TITLE`, which becomes
+  the page's subject, and `SUMMARY`, its bottom line in one sentence under ~160 characters. HTML-escape
+  both (`&` as `&amp;`, `<` as `&lt;`, `"` as `&quot;`). Both feed the link preview in Telegram and X
+  when the page is shared. Fill the body by the skeleton and the component list in its comments:
   - editorial: `.hero` (eyebrow, `h1` with an `em` tagline, `.lede`, `.stats`, an optional right
     column), `nav.index`, `main.body` with `.tldr` and `section id` blocks of `.sec-head` plus
     `.sec-body`;

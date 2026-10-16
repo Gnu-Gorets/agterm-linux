@@ -23,7 +23,7 @@ The built-in *Other* answer takes a design you describe in your own words.
 
 The page takes the terminal theme: its colors come from the CSS variables agterm gives every page, so it matches a dark or a light theme without a palette of its own. Every page ends with a collapsed "Markdown copy" box holding the same content as plain markdown, ready to paste elsewhere; asking for the markdown version puts it on the clipboard. A follow-up such as "drop the risks section" rewrites the same file and reloads the panel.
 
-Optionally, "share it" publishes the page on a private link that expires on its own, after you approve the exact copy in a dialog over the session. This part needs a Cloudflare tunnel of your own and is set up separately; without it, everything else works.
+Optionally, "share it" publishes the page on a private link that expires on its own, after you approve the exact copy in a dialog over the session. A shared link shows a preview card with the page's title and a one-line summary in Telegram and X. This part needs a Cloudflare tunnel of your own and is set up separately; without it, everything else works.
 
 ## Requirements
 
