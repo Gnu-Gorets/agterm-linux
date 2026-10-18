@@ -128,6 +128,10 @@ public struct PresentationAsk: Codable, Equatable, Sendable {
     /// The origin's pane the dialog covers, nil for the whole session.
     public var pane: PresentationPane?
     public var owner: Int
+    /// input and choices carry the ask's form; a presenter without `ask.form` never receives either.
+    public var input: AskInputForm?
+    public var choices: AskChoiceForm?
+    public var cancelID: String?
 
     public init(_ ask: PendingAsk, pane: PresentationPane?, owner: Int) {
         id = ask.id
@@ -141,20 +145,55 @@ public struct PresentationAsk: Codable, Equatable, Sendable {
         width = ask.width
         self.pane = pane
         self.owner = owner
+        cancelID = ask.cancelID
+        switch ask.form {
+        case .input(let form): input = form
+        case .choices(let form): choices = form
+        case nil: break
+        }
+    }
+
+    /// The form the request carries, input first should a malformed frame carry both.
+    public var form: AskForm? {
+        if let input { return .input(input) }
+        return choices.map(AskForm.choices)
+    }
+
+    /// Whether the presenter must understand `ask.form` to show this ask as the origin means it.
+    public var needsFormSupport: Bool { input != nil || choices != nil || cancelID != nil }
+
+    /// Whether the request, and the largest answer it can produce, each fit one stream frame, measured through
+    /// the codec with the widest counters. A text answer is tried with every button and the text cap at twice
+    /// its bytes, the worst escaping the allowed characters reach; a selection names only ids the request
+    /// already carried.
+    public func fitsFrames() -> Bool {
+        guard Self.fits(.askRequest(self)) else { return false }
+        guard input != nil else { return true }
+        let text = String(repeating: "\"", count: AskInputForm.maxTextBytes)
+        return buttons.allSatisfy { Self.fits(.askResolve(PresentationAskAnswer(id: id, owner: owner, button: $0.id, text: text))) }
+    }
+
+    private static func fits(_ body: PresentationFrame.Body) -> Bool {
+        (try? PresentationCodec.encode(PresentationFrame(gen: .max, rev: .max, body: body))) != nil
     }
 }
 
 /// PresentationAskAnswer is the presenter's answer: a button id, or nil for a dismissal with Esc or Command-W.
-/// Only the id travels; the origin derives label and index from the buttons it stored.
+/// The origin derives label and index from the buttons it stored and checks `text` and `selected` against
+/// the form it stored.
 public struct PresentationAskAnswer: Codable, Equatable, Sendable {
     public var id: String
     public var owner: Int
     public var button: String?
+    public var text: String?
+    public var selected: [String]?
 
-    public init(id: String, owner: Int, button: String?) {
+    public init(id: String, owner: Int, button: String?, text: String? = nil, selected: [String]? = nil) {
         self.id = id
         self.owner = owner
         self.button = button
+        self.text = text
+        self.selected = selected
     }
 }
 
