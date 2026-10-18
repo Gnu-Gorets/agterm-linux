@@ -1364,7 +1364,8 @@ Supply one to six buttons with unique ids and nonempty labels. A token without `
 otherwise the first `=` separates them. Title, message, and labels reject control characters.
 `--default ID` sets the initial highlight; otherwise the first non-destructive button is highlighted,
 or the first button if it is the only choice. Tab/arrows move the highlight, Return answers, and
-`--hotkey ID=LETTER` assigns a unique ASCII letter shortcut. `--destructive ID` cannot name the default.
+`--hotkey ID=LETTER` assigns a unique ASCII letter shortcut; a Latin layout matches the typed letter, any
+other layout the key that types it in the US layout. `--destructive ID` cannot name the default.
 `--align left|center|right` defaults to right. `--width N` fixes the width to 10...100 percent of the
 region; omitted means content sizing. Invalid style, alignment, and width return `unknown style`,
 `unknown align`, and `width must be 10 to 100` respectively.
