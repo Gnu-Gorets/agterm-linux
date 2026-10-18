@@ -921,6 +921,8 @@ side, and reads `lastAppliedIsDark` when bare. Refuse it outside XCUITest; provi
   Default seeds the highlight; otherwise the first non-destructive button is selected, or the first
   button if it is the only choice. Tab/Right/Down move forward, Shift-Tab/Left/Up move back, and wrap.
   Return chooses the highlight; a letter hotkey chooses directly. Outside clicks leave the dialog open.
+  The hotkey key resolves through `AskNavigation.resolvedHotkey`, the keymap's per-layout `chordKey` rule
+  (#769): an ASCII-capable layout matches the typed letter, any other the US-layout letter at that position.
 - Optional `style` is `terminal` (default) or `gui`; invalid values return `unknown style`.
   Style selects ownership, default placement, and appearance. It has no separate read-back field.
 - Optional `align` is `left`, `center`, or `right` (default). It aligns the whole button block, including
