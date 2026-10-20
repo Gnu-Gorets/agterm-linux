@@ -66,6 +66,8 @@ public struct PaneOverlay: Equatable, Sendable {
     public var replica: OverlayReplica?
     /// html is the page this overlay shows instead of running `command`, which is then empty and never read.
     public var html: HtmlOverlay?
+    /// hidden keeps the overlay running while it covers nothing; a new occupant starts shown.
+    public var hidden = false
 
     public init(command: String, cwd: String? = nil, backgroundColor: String? = nil, wait: Bool = false) {
         self.command = command
@@ -290,12 +292,13 @@ public final class Session: Identifiable {
     @ObservationIgnored public var pendingSplitForegroundCommand: [String]?
 
     /// overlayActive says the session-wide slot is occupied, by a covering program or page or by a passive HUD.
-    /// Where focus, coverage or input is decided, ask `coverOverlayActive`, `programOverlayActive` or
+    /// Where focus, coverage or input is decided, ask `coverOverlayVisible`, `programOverlayVisible` or
     /// `hudActive` instead. Ephemeral and control-channel only.
     public var overlayActive: Bool = false
+    /// overlayHidden keeps the session-wide program or page running while it covers nothing.
+    public var overlayHidden: Bool = false
 
-    /// The overlay's surface, created on open and torn down when its `overlayCommand` exits or the control
-    /// channel closes it — unlike the split, never kept alive while hidden.
+    /// The overlay's surface, created on open and kept, hidden or not, until the overlay closes.
     @ObservationIgnored public var overlaySurface: (any TerminalSurface)?
 
     /// The command the overlay runs as its process (e.g. `revdiff`), read by the overlay factory at creation.
@@ -520,12 +523,12 @@ public final class Session: Identifiable {
     public var hudActive: Bool { overlayActive && hudSpec != nil }
 
     /// programOverlayActive: the slot runs a CALLER'S PROGRAM, either coverage variant, the terminal-surface
-    /// question. Neither a HUD nor a page counts; "a session-wide cover owns input" is `coverOverlayActive`.
+    /// question, hidden or not. Neither a HUD nor a page counts; "a cover owns input" is `coverOverlayVisible`.
     public var programOverlayActive: Bool { overlayActive && !hudActive && htmlOverlay == nil }
 
-    /// fullOverlayActive says a program or page covers the whole session, with no size percent. It hides the
-    /// panes and a shown scratch, since under window translucency anything left visible would bleed through.
-    /// A HUD never counts, whatever its size.
+    /// fullOverlayActive says a program or page fills the whole session slot, with no size percent. Shown
+    /// (`fullOverlayVisible`), it hides the panes and a shown scratch, since under window translucency anything
+    /// left visible would bleed through. A HUD never counts, whatever its size.
     public var fullOverlayActive: Bool { overlayActive && !hudActive && overlaySizePercent == nil }
 
     /// The left pane's overlay, covering that pane only and leaving the sibling live; nil means none is up,
@@ -727,10 +730,10 @@ public final class Session: Identifiable {
         splitFocused && (isSplit || splitSurface != nil) ? .right : .left
     }
 
-    /// The focused pane's overlay pane, nil when that pane's slot is empty.
+    /// The focused pane's overlay pane, nil when that pane's slot is empty or its overlay hidden.
     public var focusedOverlayPane: OverlayPane? {
         let pane = focusedPane
-        return paneOverlay(pane) == nil ? nil : pane
+        return paneOverlayVisible(pane) ? pane : nil
     }
 
     /// Whether the detail pane LAYS THIS PANE OUT at all — the precondition for realizing a surface in it,
@@ -941,8 +944,8 @@ public final class Session: Identifiable {
     /// helper would take first responder off the session the message is about — the deck's exemptions one
     /// layer down.
     public var topmostSurface: (any TerminalSurface)? {
-        if htmlOverlayActive { return nil }
-        if programOverlayActive { return overlaySurface }
+        if htmlOverlayVisible { return nil }
+        if programOverlayVisible { return overlaySurface }
         if scratchActive { return scratchSurface }
         if let pane = focusedOverlayPane { return paneOverlaySurface(pane) }
         return activeSurface
@@ -954,9 +957,9 @@ public final class Session: Identifiable {
     /// for a covering pane overlay whose surface has not realized yet, leaving the retry to re-resolve.
     /// A HUD is no cover, so the requested pane stays reachable while one is up.
     public func focusTarget(wantSplit: Bool) -> (any TerminalSurface)? {
-        if coverOverlayActive || scratchActive { return topmostSurface }
+        if coverOverlayVisible || scratchActive { return topmostSurface }
         let pane: OverlayPane = wantSplit ? .right : .left
-        if paneOverlay(pane) != nil { return paneOverlaySurface(pane) }
+        if paneOverlayVisible(pane) { return paneOverlaySurface(pane) }
         return wantSplit ? splitSurface : surface
     }
 
@@ -965,7 +968,7 @@ public final class Session: Identifiable {
     /// scratch, not the pane beneath. A program overlay routes via `topmostSurface`; this stays
     /// pane-vs-scratch, like `searchTarget`, and a HUD leaves the scratch on screen underneath it.
     public var onScreenSurface: (any TerminalSurface)? {
-        scratchActive && !coverOverlayActive ? topmostSurface : activeSurface
+        scratchActive && !coverOverlayVisible ? topmostSurface : activeSurface
     }
 
     /// The match counter for the search bar and `session.search`: empty before a query runs, `"no matches"` at
