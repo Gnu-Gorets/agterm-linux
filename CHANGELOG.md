@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.38.1 - 2026-10-22
+
+### Improved
+
+- `session overlay open` and `session overlay resize` take `--width` and `--height` in points, each replacing `--size-percent` on its own axis, so a local floating program or page keeps its percent width and fits its height to what it shows. A `--js` page sizes itself through `agterm.request('session.overlay.resize', ...)`. A point-sized axis is capped at 80% of the session, and `tree` reports the laid-out size as `overlayWidth`/`overlayHeight` #798 @umputun
+
 ## v0.38.0 - 2026-10-22
 
 ### New Features
