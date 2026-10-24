@@ -6,6 +6,8 @@ Review a plan, a document or a draft as a rendered page over the session, and ha
 
 `/webrev docs/plan.md` opens the file as a rendered page in a floating panel over the session. Markdown is rendered with headings, tables and highlighted code; any other file is shown as plain text. Click a paragraph, a table row or a code line to attach a note to it, or use the File note button for the whole file, then press Submit. Claude Code gets the notes as annotation records, each block note with its source line range, answers the ones phrased as questions, applies the rest to the file, and opens the page again so you can check the result. The loop stops when you submit with no notes or cancel.
 
+The page has two looks, both using monospace type and terminal-theme colors. The default has larger headings, rounded buttons and a header bar at the top. `WEBREV_STYLE=terminal` switches to tighter spacing, flat buttons and a status bar at the bottom.
+
 The same page reviews a draft before it leaves the machine. Ask "review this draft before posting" while Claude Code is writing a PR body, an issue comment, release notes or a commit message, and it writes the draft to a temp file, opens it at a size fitted to the text, and applies your notes until a review comes back clean. A commit message is committed after the clean review; anything posted to a forge still waits for your explicit go-ahead, and is posted from the reviewed file.
 
 Notes come back in this shape, one record per note:
@@ -45,7 +47,7 @@ To review every draft before it goes out, not only when you ask, add a line like
 - Before posting text with gh, glab or tea, and before every git commit, review the draft with /webrev.
 ```
 
-Optional: `WEBREV_STYLE=terminal` in the same environment switches the page to a flat look with one text size and a status bar at the bottom.
+Optional: set `WEBREV_STYLE=terminal` in the same environment to make the terminal look the default for every review. Any value other than `terminal` or empty is an error.
 
 ## Usage
 
@@ -64,6 +66,7 @@ The script runs without the skill too, from any shell or agent in an agterm sess
 ```sh
 ~/.claude/skills/webrev/scripts/webrev.py review notes.md
 ~/.claude/skills/webrev/scripts/webrev.py review draft.txt --fit --title "commit message"
+WEBREV_STYLE=terminal ~/.claude/skills/webrev/scripts/webrev.py review notes.md
 ```
 
 It blocks until you answer. A submitted review exits 0 with the records on stdout, empty when you sent no notes; a cancelled one exits 2; a failure exits 1 with the reason on stderr. A malformed command line exits 1 too, so 2 always means the user cancelled; Ctrl-C exits 130. `--output PATH` writes the outcome to a file as well, for a caller that can lose the process: the records, `dismissed`, or `pending <page-id>`. `webrev.py result <page-id>` reads the outcome of a page later, with the same exit codes and 1 while it is still open.
