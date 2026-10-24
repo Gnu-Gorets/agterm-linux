@@ -81,12 +81,14 @@ struct Session: ParsableCommand {
     struct Close: RequestCommand {
         static let configuration = CommandConfiguration(abstract: "Close a session.")
         @OptionGroup var target: BatchTargetOptions
+        @Flag(name: .long, help: "Give a single close ⌘W's undo grace, so undo inside it brings the running shell back; closes at once when Settings turns undo off.")
+        var undoable = false
         @OptionGroup var options: ClientOptions
 
         func makeRequest() throws -> ControlRequest {
-            let batchArgs = target.batchTargets.map { ControlArgs(targets: $0) }
-            let args = options.withWindow(batchArgs)
-            return ControlRequest(cmd: .sessionClose, target: target.targets.first ?? "active", args: args)
+            let args = ControlArgs(targets: target.batchTargets, undoable: undoable ? true : nil)
+            return ControlRequest(cmd: .sessionClose, target: target.targets.first ?? "active",
+                                  args: options.withWindow(args == ControlArgs() ? nil : args))
         }
     }
 

@@ -352,37 +352,6 @@ extension ControlServer: ControlActions {
         }
     }
 
-    func closeSession(_ target: String?, window: String?) -> ControlResponse {
-        resolver.resolveSession(target, window: window) { store, id in
-            store.closeSession(id)
-            return ControlResponse(ok: true, result: ControlResult(id: id.uuidString))
-        }
-    }
-
-    func closeSessions(_ targets: [String], window: String?) -> ControlResponse {
-        resolveBatchSessions(targets, window: window) { store, ids in
-            guard ids.count > 1 else {
-                guard let id = ids.first else { return ControlResponse(ok: false, error: "session.close requires at least one --target") }
-                store.closeSession(id)
-                return ControlResponse(ok: true, result: ControlResult(id: id.uuidString))
-            }
-            let affected: Int
-            if settingsModel.settings.closeGraceUndoEnabled ?? true {
-                // one grouped grace record is the batch behavior scripts cannot reproduce by looping.
-                affected = store.softCloseSessions(ids) ? ids.count : 0
-            } else {
-                // match the GUI's immediate batch-close path when grace undo is disabled.
-                affected = ids.reduce(into: 0) { count, id in
-                    guard store.session(withID: id) != nil else { return }
-                    store.closeSession(id)
-                    count += 1
-                }
-            }
-            // `ok` with the count (0 included) mirrors `placeSessions` — every id resolved, so no error arm.
-            return ControlResponse(ok: true, result: ControlResult(affected: affected))
-        }
-    }
-
     func renameSession(_ target: String?, window: String?, name: String) -> ControlResponse {
         resolver.resolveSession(target, window: window) { store, id in
             store.renameSession(id, to: name)
@@ -793,8 +762,8 @@ extension ControlServer: ControlActions {
         }
     }
 
-    private func resolveBatchSessions(_ targets: [String], window: String?,
-                                      _ body: (AppStore, [UUID]) -> ControlResponse) -> ControlResponse {
+    func resolveBatchSessions(_ targets: [String], window: String?,
+                              _ body: (AppStore, [UUID]) -> ControlResponse) -> ControlResponse {
         guard let first = targets.first else {
             return ControlResponse(ok: false, error: "session command requires at least one --target")
         }

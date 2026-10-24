@@ -2230,7 +2230,10 @@ for (const ws of tree.workspaces) for (const s of ws.sessions) {
               <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">session close</span> and
               <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">session move</span> accept repeated
               <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">--target</span> options and print the
-              number of sessions actually changed. Add
+              number of sessions actually changed. With
+              <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">--undoable</span>, <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">session close</span> appends
+              <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">(undoable)</span> or <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">(not undoable)</span> to its output, after
+              <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">ok</span> or the count. Add
               <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">--json</span> for the raw response,
               or <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">--socket PATH</span> to override
               the socket. The exit code is zero on success, non-zero on error.
@@ -2408,6 +2411,8 @@ for (const ws of tree.workspaces) for (const s of ws.sessions) {
               <span style="color: #6b727a">&nbsp;&nbsp;# move a batch as one ordered block</span
               ><br />agtermctl session close --target 9f3c --target abcd
               <span style="color: #6b727a">&nbsp;&nbsp;# one grace-period undo for the batch</span
+              ><br />agtermctl session close --target <span style="color: #f2b45c">9f3c</span> --undoable
+              <span style="color: #6b727a">&nbsp;&nbsp;# close one with ⌘W's undo grace</span
               ><br />agtermctl workspace go --to next
               <span style="color: #6b727a">&nbsp;&nbsp;&nbsp;# step to the next workspace and select its first session</span
               ><br />agtermctl workspace move --to top

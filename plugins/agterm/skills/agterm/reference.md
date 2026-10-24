@@ -17,7 +17,8 @@ Full detail for every `agtermctl` command. See `SKILL.md` for the model and addr
   `exitCode` (overlay result), `count` (diagnostics/search), `restore` (the restore-mode policy),
   `zmx` (the daemon inventory), `remote` (another Mac's attachable sessions, for `zmx tree`),
   `affected` (things actually changed: sessions
-  for a batch close/move, daemons killed for `zmx prune`), `tree` (the tree), `windows` (window list), `app` (the serving app's identity, for
+  for a batch close/move, daemons killed for `zmx prune`), `undoable` (beside `id` or `affected`, for
+  `session close --undoable`), `tree` (the tree), `windows` (window list), `app` (the serving app's identity, for
   `version`). The process exit code is non-zero when
   `ok` is false.
 - **Options go after the subcommand**: `agtermctl session type "ls" --target active`, never before it.
@@ -488,9 +489,16 @@ buys nothing. A caller with no tree uses `version`.
   pane's directory, and for a remote source it is that cwd after the local rule, so it can read as home.
   It is the control half of the sidebar row's **Duplicate Session** context-menu item
   (single-selection only).
-- `session close [--target T ...] [--window W]` — close one session, or repeat `--target` to close
+- `session close [--target T ...] [--undoable] [--window W]` — close one session, or repeat `--target` to close
   several sessions in the same window/store. Batch close honors the GUI grace-undo setting: one grouped
   undo/reopen record when enabled, immediate close when disabled. Returns `result.affected`.
+  A single target closes at once unless `--undoable` asks for the same grace, which keeps its shell running until
+  the grace lapses: undo (Reopen Closed Item) brings it back, and for a local session so do Reopen Last Closed
+  Item and `recent open` (a remote session gets no Recent Closed entry). With `--undoable` the reply carries
+  `result.undoable`: true for an undoable close, false when Settings turned undo off and it closed at once. An
+  app predating the flag ignores it and closes a single target at once, so for a single target an ok reply
+  without `undoable` means the shell is already gone. The human output appends `(undoable)` or `(not undoable)` to `ok`
+  or the session count.
 - `session select [--target] [--window W]`.
 - `session rename <name> [--target] [--window W]`.
 - `session reveal [--target] [--window W]` — select the target session's focused-pane working

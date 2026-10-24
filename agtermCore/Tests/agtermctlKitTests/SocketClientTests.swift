@@ -873,6 +873,16 @@ struct SocketClientTests {
         #expect(SocketClient.formatResponse(response) == expected)
     }
 
+    @Test(arguments: [
+        (ControlResult(id: "9f3c", undoable: true), "ok (undoable)"),
+        (ControlResult(id: "9f3c", undoable: false), "ok (not undoable)"),
+        (ControlResult(affected: 2, undoable: true), "2 sessions (undoable)"),
+        (ControlResult(affected: 1, undoable: false), "1 session (not undoable)")
+    ])
+    func formatResponseUndoableClose(_ result: ControlResult, _ expected: String) {
+        #expect(SocketClient.formatResponse(ControlResponse(ok: true, result: result)) == expected)
+    }
+
     @Test func formatResponseError() {
         #expect(SocketClient.formatResponse(ControlResponse(ok: false, error: "boom")) == "error: boom")
     }

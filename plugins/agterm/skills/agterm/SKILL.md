@@ -356,8 +356,9 @@ omitted when expanded).
   source's focused-pane cwd (equal to the source node's `tree.cwd` unless the source is a split focused
   off its primary pane, where `tree.cwd` reports the primary, or a remote session, where it can read as
   home).
-- `session close [--target T ...]` — close one session, or repeat `--target` to close a batch with one
-  grace-period undo.
+- `session close [--target T ...] [--undoable]` — close one session, or repeat `--target` to close a batch with one
+  grace-period undo. `--undoable` gives a single target that grace too, as ⌘W does, so undo (⌘Z) or, for a local
+  session, `recent open` inside it brings the running shell back; `result.undoable` says whether it applied (false when Settings turns undo off).
 - `session select` · `session rename <name>` · `session reveal` (select the focused pane's cwd in Finder).
 - `session go --to next|prev|first|last|next-attention|prev-attention` — move the selection between sessions.
 - `session move <workspace>` (relocate) or `session move --to up|down|top|bottom` (reorder within the

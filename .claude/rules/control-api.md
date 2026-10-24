@@ -224,6 +224,14 @@ side, and reads `lastAppliedIsDark` when bare. Refuse it outside XCUITest; provi
   unique target remains the legacy hard path. Multi-target close follows `closeGraceUndoEnabled`, creates
   one grouped undo/reopen record, and returns actual `affected`; selecting any recent group member restores
   the group and selects that member.
+  `undoable` opts a single target into the same grace,
+  falling back to the hard close when the setting is off.
+  Every ok reply to a request with `undoable: true` carries `result.undoable`,
+  the only way to tell the two apart;
+  an older server drops the field and hard-closes a single target.
+  `ControlActions` keeps the two-argument forms,
+  and the defaults of the `undoable:` overloads refuse an undoable request
+  rather than quietly hard-closing it.
 - `session.move` accepts exactly one placement intent:
   - `--to up|down|top|bottom` reorders one session in its workspace.
   - workspace relocates and appends.
@@ -1380,7 +1388,7 @@ side, and reads `lastAppliedIsDark` when bare. Refuse it outside XCUITest; provi
   `killed session NAME` line, which zmx prints after draining to EOF.
 - `zmx kill` requires an explicit target, pane and `--force`, and the dispatcher refuses without any of
   them before the host is called. Not because other close commands are recoverable — `session.close` is
-  already immediate and `session.split.close` has no Reopen path — but because this destroys a backend
+  immediate by default and `session.split.close` has no Reopen path — but because this destroys a backend
   process reaching a claim no window shows and every client attached to it. Resolution runs against the
   INVENTORY rather than `ControlTargetResolver`, which searches open stores only; `--window` scopes the
   claims before the session resolves. `absent`, `unreadable`, `pendingClose`, `unknown`, `conflicted` and

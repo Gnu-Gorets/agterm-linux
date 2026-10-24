@@ -272,6 +272,9 @@ agtermctl session move --after "$anchor" --target "$server" --target "$logs"
 
 # close several sessions with one grace-period undo
 agtermctl session close --target "$server" --target "$logs"
+
+# close one session with ⌘W's undo grace: undo inside it brings the running shell back
+agtermctl session close --target "$server" --undoable
 ```
 
 `--after`/`--before` are mutually exclusive with each other, with `--to`, and with a destination
