@@ -488,12 +488,12 @@ private struct InterfaceSettingsView: View {
 
     var body: some View {
         Form {
-            twoColumnSection("Title Bar", elements: InterfaceElement.allCases.filter { $0.section == .titleBar }) {
+            twoColumnSection("Title Bar", elements: InterfaceElement.settingsOrder(in: .titleBar)) {
                 EmptyView()
             }
             // the multi-window toggle rides the Sidebar section: the tab is full at 540x680, and its own
             // section header would push the quick-terminal Size off the bottom.
-            twoColumnSection("Sidebar", elements: InterfaceElement.allCases.filter { $0.section == .sidebar }) {
+            twoColumnSection("Sidebar", elements: InterfaceElement.settingsOrder(in: .sidebar)) {
                 Toggle("Show sidebar only in the active window", isOn: autoHideSidebarInactiveWindows)
                     .accessibilityIdentifier("settings-auto-hide-inactive-sidebars")
             }
@@ -546,8 +546,21 @@ private struct InterfaceSettingsView: View {
 
     /// One element's show/hide toggle: ON = visible (the default), so hiding is the opt-in that writes.
     private func toggle(for element: InterfaceElement) -> some View {
-        Toggle(element.displayName, isOn: binding(for: element))
-            .accessibilityIdentifier("settings-interface-\(element.rawValue)")
+        Toggle(isOn: binding(for: element)) {
+            HStack(spacing: 6) {
+                Group {
+                    if let symbol = element.symbolName {
+                        Image(systemName: symbol).foregroundStyle(.secondary)
+                    } else {
+                        Color.clear
+                    }
+                }
+                .frame(width: 18).accessibilityHidden(true)
+                Text(element.displayName)
+            }
+        }
+        .accessibilityLabel(element.displayName)
+        .accessibilityIdentifier("settings-interface-\(element.rawValue)")
     }
 
     private func binding(for element: InterfaceElement) -> Binding<Bool> {
