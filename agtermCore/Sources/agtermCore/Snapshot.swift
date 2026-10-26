@@ -190,7 +190,7 @@ public struct SessionSnapshot: Codable, Equatable, Sendable {
     public var restoreCommand: String?
     /// The split (right) pane's restore-command override, the split analogue of `restoreCommand`.
     public var splitRestoreCommand: String?
-    /// `Session.lastSelectedAt` as epoch seconds; nil = never selected.
+    /// `Session.lastSelectedAt` as epoch seconds; nil when no selection timestamp has been recorded.
     public var lastSelectedAt: Double?
 
     public init(id: UUID, paneIdentity: UUID? = nil, splitPaneIdentity: UUID? = nil,

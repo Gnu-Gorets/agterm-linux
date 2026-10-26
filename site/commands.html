@@ -526,7 +526,8 @@
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace">ts</span>; omitted before any set, refreshed by every set
                 including idle and repeated values, and never persisted),
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace">lastSelectedAt</span> (when the session last became or
-                stopped being its window's selected session, in epoch seconds; persisted, omitted for a session never selected),
+                stopped being its window's selected session, in epoch seconds; persisted, omitted when no selection has been recorded,
+                including a session restored from a build that did not record it),
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace">foreground</span> /
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace">splitForeground</span> (each pane's live foreground
                 argv, omitted at the shell prompt or for a setuid program like top/sudo),

@@ -1616,6 +1616,8 @@ side, and reads `lastAppliedIsDark` when bare. Refuse it outside XCUITest; provi
   not fire on selection.
   The same observer stamps `Session.lastSelectedAt` on the session entered and the one left, under the
   same restore suppression, so a relaunch keeps the persisted value.
+  The observer cannot reach a session already removed, so `softCloseSessions` stamps the active member
+  itself before removal: undo may select a batch mate, and nothing else would record the departure.
 - `pane.focused` is emitted from one store observer over each session's selected pane IDENTITY
   (`AppStore+PaneFocus`), never from the `splitFocused` writers, which are spread across both targets.
   Identity is what keeps a swap silent: it exchanges both identities and toggles the flag. The check is a

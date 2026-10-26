@@ -161,6 +161,8 @@ extension AppStore {
 
         let previousSelection = selectedSessionID
         let removingActive = previousSelection.map { targetIDs.contains($0) } ?? false
+        // the selection didSet cannot stamp a session already removed, and undo may select a batch mate
+        if removingActive, let previousSelection { session(withID: previousSelection)?.lastSelectedAt = Date() }
         for close in closes.sorted(by: pendingSessionRemovalSort) {
             guard workspaces.indices.contains(close.workspaceIndex),
                   workspaces[close.workspaceIndex].sessions.indices.contains(close.sessionIndex),

@@ -288,7 +288,8 @@ public struct ControlSessionNode: Codable, Sendable, Equatable {
     /// When the status was last set, idle and repeated values included, as epoch seconds on the
     /// `ControlEvent.ts` clock. Omitted before any set; never persisted.
     public let statusChangedAt: Double?
-    /// lastSelectedAt is `Session.lastSelectedAt` as epoch seconds; omitted for a never-selected session.
+    /// lastSelectedAt is `Session.lastSelectedAt` as epoch seconds; omitted when no selection timestamp has
+    /// been recorded.
     public let lastSelectedAt: Double?
     /// The session's background watermark spec; nil/omitted when none is set. The read side of
     /// `session.background`.

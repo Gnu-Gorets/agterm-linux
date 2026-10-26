@@ -228,7 +228,9 @@ the configured color or shape — the tint and the silhouette report the per-cal
 `statusChangedAt` (when that status was last set, in epoch seconds — the same clock as an event's `ts`;
 omitted before any set, and refreshed by every set including idle and a re-push of the SAME status, so
 `now - statusChangedAt` is how long ago the status was last written; automatic and manual clears count
-too; ephemeral, so it does not survive a restart), `background` (the background
+too; ephemeral, so it does not survive a restart), `lastSelectedAt` (when the session last became or
+stopped being its window's selected session, on the same clock; persisted, omitted when no selection has
+been recorded, so find sessions nobody has looked at in a while by age, not by absence), `background` (the background
 spec — image/text watermark or solid color — set via `session background`, omitted when none — the read side of set/clear),
 `paneBackgrounds` (per-pane overrides from `session background --pane`; an absent pane inherits `background`),
 `unseen` (the unseen-notification badge count — raised by `notify`/OSC 9/777, cleared by `session

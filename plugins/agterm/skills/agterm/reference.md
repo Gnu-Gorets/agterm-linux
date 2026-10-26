@@ -236,8 +236,9 @@ change of state, so a hook re-pushing `active` refreshes it and
 Automatic and manual clears and pane promotion also count.
 Ephemeral like `unseen`: never persisted, so it is absent after a restart even for a restored session),
 `lastSelectedAt` (when the session last became or stopped being its window's selected session, in epoch
-seconds on the same clock; persisted, omitted for a session never selected. Read it with `active`: an
-active session is selected right now),
+seconds on the same clock; persisted, omitted when no selection has been recorded, which includes a
+session restored from a build that did not record it, so absence is not proof of never being used.
+Read it with `active`: an active session is selected right now),
 `foreground`/`splitForeground` (the live argv of each pane's foreground
 process — what it is running — omitted when the pane sits at its shell prompt, and also for a
 setuid/setgid foreground process like `top` or `sudo`, whose argv macOS refuses to expose),
