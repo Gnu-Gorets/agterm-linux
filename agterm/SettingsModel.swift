@@ -49,10 +49,7 @@ final class SettingsModel {
         self.settings = settingsStore.load()
         self.committedTheme = settings.theme
         self.committedDarkTheme = settings.darkTheme
-        // write NOW: GhosttyApp's loadConfig runs in applicationDidFinishLaunching, AFTER this App.init,
-        // and the SEEDED default theme (agterm) is memory-only, never in settings.json — without this the
-        // launch config carries no theme line and the terminal renders ghostty's built-in until the next
-        // settings change. Idempotent: no-ops when the file already matches.
+        // a no-op at launch, where agtermApp.init already wrote it; keeps a model built elsewhere current.
         _ = writeGhosttyConfig()
         // mirror the persisted settings into their shared channels before any settings change fires.
         applyWindowTranslucency()
@@ -204,6 +201,7 @@ final class SettingsModel {
     /// from `settings.json` on the next save; the Settings picker maps `.compact` back to nil.
     func setToolbarMode(_ mode: ToolbarMode?) { settings.toolbarMode = mode?.rawValue; settings.compactToolbar = nil; persistAndApply() }
     func setNotificationBadgeEnabled(_ value: Bool?) { settings.notificationBadgeEnabled = value; persistAndApply() }
+    func setIgnoreReduceTransparency(_ value: Bool?) { settings.ignoreReduceTransparency = value; persistAndApply() }
     func setDockBounce(_ mode: DockBounce?) { settings.dockBounce = mode?.rawValue; persistAndApply() }
     /// Persist the system sound played when a notification is delivered (nil/empty = none). Not a ghostty
     /// key; the `NotificationManager` mirror is read on the next notification, like `dockBounce`.
@@ -766,7 +764,8 @@ final class SettingsModel {
 
     private func applyWindowTranslucency() {
         GhosttyApp.shared.setWindowTranslucency(opacity: settings.backgroundOpacity ?? 1,
-                                                blurRadius: settings.backgroundBlur ?? 0)
+                                                blurRadius: settings.backgroundBlur ?? 0,
+                                                ignoreReduceTransparency: settings.ignoreReduceTransparency == true)
     }
 
     private func applyNotificationsEnabled() {
@@ -873,9 +872,12 @@ final class SettingsModel {
                                                completed: settings.effectiveStatusShape(for: .completed))
     }
 
+    private func writeGhosttyConfig() -> Bool { Self.writeGhosttyConfig(settings) }
+
     /// Write the ghostty config lines (font/size/theme + the translucency pins) to the file
     /// `GhosttyApp.loadConfig` reads. Returns true when the content changed, so the caller can skip the reload.
-    private func writeGhosttyConfig() -> Bool {
+    /// `agtermApp.init` calls it before libghostty boots, which loads the file once.
+    static func writeGhosttyConfig(_ settings: AppSettings) -> Bool {
         let url = GhosttyApp.settingsConfigURL
         // emit the raw single/dual theme, no appearance resolution: a dual value is stable across flips,
         // so `appearanceChanged` reloads directly rather than diffing this text.

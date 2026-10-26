@@ -65,6 +65,7 @@ struct WindowContentView: View {
     @State private var inactivePaneMute: Int = WindowContentView.resolvedInactivePaneMute()
     /// The window's saved background opacity, which scales the mute wash — see `muteWashOpacity`.
     @State private var windowOpacity: Double = WindowContentView.resolvedWindowOpacity()
+    @State private var ignoreReduceTransparency: Bool = WindowContentView.resolvedIgnoreReduceTransparency()
     /// Whether THIS window is in native fullscreen, where AppKit renders it opaque whatever the saved
     /// opacity says. Per-window, so it cannot ride the app-global mirrors.
     @State private var windowFullscreen = false
@@ -226,6 +227,7 @@ struct WindowContentView: View {
             hiddenInterfaceElements = WindowContentView.resolvedHiddenInterfaceElements()
             inactivePaneMute = WindowContentView.resolvedInactivePaneMute()
             windowOpacity = WindowContentView.resolvedWindowOpacity()
+            ignoreReduceTransparency = WindowContentView.resolvedIgnoreReduceTransparency()
             sidebarShift = WindowContentView.resolvedSidebarShift()
         }
         .modifier(FullscreenEdgeObserver { note in
@@ -464,7 +466,9 @@ struct WindowContentView: View {
     /// that setting. There body and title bar share one opaque backing, so the wash needs no scaling and
     /// scaling it would under-mute — down to nothing at a saved opacity of 0.
     private var effectiveWindowOpacity: Double {
-        windowFullscreen || reduceTransparency ? 1 : windowOpacity
+        let forcedOpaque = windowFullscreen
+            || AppSettings.windowReducesTransparency(system: reduceTransparency, ignoring: ignoreReduceTransparency)
+        return forcedOpaque ? 1 : windowOpacity
     }
 
     /// washColor blends background→background so the wash fades only text: the pane's solid color, else
@@ -513,6 +517,10 @@ struct WindowContentView: View {
 
     private static func resolvedWindowOpacity() -> Double {
         GhosttyApp.shared.windowOpacity
+    }
+
+    private static func resolvedIgnoreReduceTransparency() -> Bool {
+        GhosttyApp.shared.ignoreReduceTransparency
     }
 
     private static func resolvedSidebarShift() -> Int {

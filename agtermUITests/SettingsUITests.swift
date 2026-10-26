@@ -46,6 +46,26 @@ final class SettingsUITests: XCTestCase {
                       "moving the opacity slider should persist a sub-1 backgroundOpacity to settings.json")
     }
 
+    func testIgnoreReduceTransparencyTogglePersistsAndAppearanceTabFits() throws {
+        let toggle = settingsControl(tab: "Appearance", control: "settings-ignore-reduce-transparency")
+
+        let last = app.descendants(matching: .any)["settings-inactive-pane-mute"].firstMatch
+        XCTAssertTrue(last.waitForExistence(timeout: 5), "the Appearance tab's last control should exist")
+        let window = app.windows.containing(.any, identifier: "settings-ignore-reduce-transparency").firstMatch
+        XCTAssertLessThanOrEqual(last.frame.maxY, window.frame.maxY, "the Appearance tab's last control should be on screen")
+        let before = last.frame.minY
+        last.scroll(byDeltaX: 0, deltaY: -80)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        XCTAssertEqual(last.frame.minY, before, accuracy: 0.5, "the Appearance tab should not scroll")
+
+        toggle.click()
+        XCTAssertTrue(poll { self.settingsBool("ignoreReduceTransparency") == true },
+                      "turning the toggle on should persist ignoreReduceTransparency=true")
+        toggle.click()
+        XCTAssertTrue(poll { self.settingsObject()?["ignoreReduceTransparency"] == nil },
+                      "turning the toggle off should remove ignoreReduceTransparency from settings.json")
+    }
+
     func testNotificationsTogglePersists() throws {
         // type-agnostic match (a grouped-Form Toggle surfaces as a switch/checkbox depending on macOS)
         let toggle = settingsControl(tab: "Notifications", control: "settings-notifications")

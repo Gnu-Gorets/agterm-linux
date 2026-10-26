@@ -111,6 +111,24 @@ struct AppSettingsTests {
         }
     }
 
+    @Test func ignoreReduceTransparencyDefaultsNilAndOmitsFromJSON() throws {
+        #expect(AppSettings().ignoreReduceTransparency == nil)
+        let json = String(decoding: try JSONEncoder().encode(AppSettings()), as: UTF8.self)
+        #expect(!json.contains("ignoreReduceTransparency"))
+    }
+
+    @Test func ignoreReduceTransparencyRoundTripsAndIsNotAConfigLine() throws {
+        let original = AppSettings(backgroundOpacity: 0.63, ignoreReduceTransparency: true)
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(original))
+        #expect(decoded.ignoreReduceTransparency == true)
+        #expect(original.ghosttyConfigLines() == AppSettings(backgroundOpacity: 0.63).ghosttyConfigLines())
+    }
+
+    @Test(arguments: [(false, false, false), (false, true, false), (true, false, true), (true, true, false)])
+    func windowReducesTransparencyOnlyWhenSystemIsOnAndNotIgnored(system: Bool, ignoring: Bool, expected: Bool) {
+        #expect(AppSettings.windowReducesTransparency(system: system, ignoring: ignoring) == expected)
+    }
+
     @Test func mouseScrollMultiplierAlwaysEmittedAtDefaultThree() {
         #expect(AppSettings().ghosttyConfigLines().contains("mouse-scroll-multiplier = 3"))
     }

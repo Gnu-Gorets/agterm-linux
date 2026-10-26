@@ -2,6 +2,7 @@
 paths:
   - "agterm/SettingsModel.swift"
   - "agterm/Views/SettingsView.swift"
+  - "agterm/Views/AppearanceSettingsView.swift"
   - "agterm/SettingsCatalog.swift"
   - "agterm/Views/WindowAppearance.swift"
   - "agterm/NSColor+AgtermHex.swift"
@@ -117,7 +118,7 @@ paths:
   resolved by `effectiveStatusReset` and mirrored to `GhosttyApp.statusReset`, which the surface factories'
   keystroke-clear closure reads at keystroke time. Reset to defaults clears it with the glyph settings.
 - Keep titlebar construction in `WindowContentView+Titlebar.swift` so `WindowContentView.swift` remains
-  below the 1000-line limit.
+  below the 1000-line limit. The Appearance tab lives in `AppearanceSettingsView.swift` for the same reason.
 - Keep Agent Status shape pickers in a trailing-aligned 80-point column wider than the 64.5...68-point
   buttons; centered alignment leaves the cluster about 38 points inboard. Keep color wells aligned.
   `testAgentStatusShapePickerRowLayoutAndOptions` checks picker `maxX`
@@ -134,6 +135,10 @@ paths:
   `CGSSetWindowBackgroundBlurRadius`; absence is a no-op. `ghosttyConfigLines()` pins renderer opacity and
   blur to 0. At opacity 1, restore opaque rendering. Reduce Transparency temporarily forces opaque,
   unblurred windows/panels without changing saved settings or config.
+- `ignoreReduceTransparency` (default off) exempts the WINDOW from that rule, never palettes or the switcher,
+  whose system material the user never chose. `AppSettings.windowReducesTransparency` is the one rule:
+  `WindowAppearance.sync` gets it resolved through `Chrome`, and the mute wash and Settings hint call it too.
+  Mirrored through `setWindowTranslucency`; GUI-only, like opacity and blur.
 - On macOS 26, find the wrapping `NSContainerConcentricGlassEffectView` by walking from
   `agterm-sidebar-scroll`; for translucent windows use clear style plus terminal tint. Its Liquid Glass
   blur is not pixel-identical to CGS blur. Reapply on key/main/fullscreen and appearance changes.

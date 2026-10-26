@@ -1700,8 +1700,8 @@
               <p style="font-size: 13.5px; line-height: 1.6; color: #949ba4; margin: 8px 0 0">
                 <strong style="color: #bfbab0">color</strong> — a solid terminal background color, taking no opacity: it is drawn at
                 the Settings window translucency, so it honors your opacity and blur. macOS Reduce Transparency temporarily
-                presents it as opaque and unblurred without changing the saved opacity or blur; the requested presentation returns
-                when Reduce Transparency is disabled. An
+                presents it as opaque and unblurred without changing the saved opacity or blur, unless Ignore Reduce Transparency
+                is on; the requested presentation returns when Reduce Transparency is disabled. An
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace">image</span>/<span style="font-family: &quot;JetBrains Mono&quot;, monospace">text</span>
                 watermark instead forces the pane opaque. Read the current spec back from the node's
                 <span style="font-family: &quot;JetBrains Mono&quot;, monospace">background</span> object.
