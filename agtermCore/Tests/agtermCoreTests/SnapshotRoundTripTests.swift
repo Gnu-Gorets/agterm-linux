@@ -364,6 +364,27 @@ struct SnapshotRoundTripTests {
         #expect(restored.workspaces[0].sessions[0].context == "PR #517: restore reap ordering")
     }
 
+    @Test func lastSelectedAtSurvivesARestoreThatReselectsTheSession() throws {
+        let store = makeStore()
+        let ws = store.addWorkspace(name: "work")
+        let session = try #require(store.addSession(toWorkspace: ws.id, cwd: "/a"))
+        session.lastSelectedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let snap = store.snapshot()
+        #expect(snap.workspaces[0].sessions[0].lastSelectedAt == 1_700_000_000)
+        #expect(snap.selectedSessionID == session.id)
+
+        let restored = makeStore()
+        restored.restore(from: snap)
+
+        #expect(restored.workspaces[0].sessions[0].lastSelectedAt == Date(timeIntervalSince1970: 1_700_000_000))
+    }
+
+    @Test func snapshotWithoutLastSelectedAtDecodesNil() throws {
+        let json = #"{"id":"\#(UUID().uuidString)","cwd":"/tmp"}"#
+        let snap = try JSONDecoder().decode(SessionSnapshot.self, from: Data(json.utf8))
+        #expect(snap.lastSelectedAt == nil)
+    }
+
     @Test func snapshotWithoutContextDecodesNil() throws {
         let json = #"{"id":"\#(UUID().uuidString)","cwd":"/tmp"}"#
         let snap = try JSONDecoder().decode(SessionSnapshot.self, from: Data(json.utf8))

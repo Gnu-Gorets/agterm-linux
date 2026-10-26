@@ -122,6 +122,8 @@ public final class Session: Identifiable {
     /// Must stay a wall-clock `Date`: `controlTree` ships it as epoch seconds compared against `ControlEvent.ts`,
     /// so a monotonic instant would make a client's computed age meaningless.
     @ObservationIgnored public var statusChangedAt: Date?
+    /// When the session last became or stopped being its window's selection, on the same clock; persisted.
+    @ObservationIgnored public var lastSelectedAt: Date?
 
     /// Whether idle auto-follow already pulled the user to THIS blocked episode; ephemeral. Set on jumping
     /// here by `AppStore.autoFollowFire`, so a later idle fire won't yank the user back to a block already

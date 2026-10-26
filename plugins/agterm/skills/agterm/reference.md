@@ -235,6 +235,9 @@ change of state, so a hook re-pushing `active` refreshes it and
 `now - statusChangedAt` reads as how long ago the status was last WRITTEN, including idle.
 Automatic and manual clears and pane promotion also count.
 Ephemeral like `unseen`: never persisted, so it is absent after a restart even for a restored session),
+`lastSelectedAt` (when the session last became or stopped being its window's selected session, in epoch
+seconds on the same clock; persisted, omitted for a session never selected. Read it with `active`: an
+active session is selected right now),
 `foreground`/`splitForeground` (the live argv of each pane's foreground
 process — what it is running — omitted when the pane sits at its shell prompt, and also for a
 setuid/setgid foreground process like `top` or `sudo`, whose argv macOS refuses to expose),

@@ -288,6 +288,8 @@ public struct ControlSessionNode: Codable, Sendable, Equatable {
     /// When the status was last set, idle and repeated values included, as epoch seconds on the
     /// `ControlEvent.ts` clock. Omitted before any set; never persisted.
     public let statusChangedAt: Double?
+    /// lastSelectedAt is `Session.lastSelectedAt` as epoch seconds; omitted for a never-selected session.
+    public let lastSelectedAt: Double?
     /// The session's background watermark spec; nil/omitted when none is set. The read side of
     /// `session.background`.
     public let background: BackgroundWatermark?
@@ -367,7 +369,7 @@ public struct ControlSessionNode: Codable, Sendable, Equatable {
                 liveAttribution: String? = nil, splitLiveAttribution: String? = nil,
                 presentation: ControlPresentationNode? = nil, presenters: ControlPresentersNode? = nil,
                 remoteOverlays: [ControlRemoteOverlayNode]? = nil, htmlOverlays: [ControlHtmlOverlayNode]? = nil,
-                hiddenOverlays: [String]? = nil) {
+                hiddenOverlays: [String]? = nil, lastSelectedAt: Double? = nil) {
         self.id = id
         self.name = name
         self.cwd = cwd
@@ -403,6 +405,7 @@ public struct ControlSessionNode: Codable, Sendable, Equatable {
         self.statusColor = statusColor
         self.statusShape = statusShape
         self.statusChangedAt = statusChangedAt
+        self.lastSelectedAt = lastSelectedAt
         self.background = background
         self.paneBackgrounds = paneBackgrounds
         self.unseen = unseen

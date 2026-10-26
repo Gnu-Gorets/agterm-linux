@@ -1614,6 +1614,8 @@ side, and reads `lastAppliedIsDark` when bare. Refuse it outside XCUITest; provi
   suppresses it, since a reload is not a selection. `addSession` emits `session.created` first.
   The selection is per window, so a window coming forward emits nothing, and `tree.changed` still does
   not fire on selection.
+  The same observer stamps `Session.lastSelectedAt` on the session entered and the one left, under the
+  same restore suppression, so a relaunch keeps the persisted value.
 - `pane.focused` is emitted from one store observer over each session's selected pane IDENTITY
   (`AppStore+PaneFocus`), never from the `splitFocused` writers, which are spread across both targets.
   Identity is what keeps a swap silent: it exchanges both identities and toggles the flag. The check is a

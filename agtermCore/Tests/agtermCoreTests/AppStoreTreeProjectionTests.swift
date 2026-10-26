@@ -198,6 +198,8 @@ struct AppStoreTreeProjectionTests {
         store.setAgentIndicator(AgentIndicator(status: .blocked, statusPane: .right), forSession: b.id)
         b.statusChangedAt = Date(timeIntervalSince1970: 1_700_000_000) // wall-clock stamp, pinned to compare
         store.selectSession(b.id)
+        a.lastSelectedAt = Date(timeIntervalSince1970: 1_600_000_000)
+        b.lastSelectedAt = Date(timeIntervalSince1970: 1_700_000_100)
 
         let tree = store.controlTree()
 
@@ -214,7 +216,7 @@ struct AppStoreTreeProjectionTests {
                                                    backedByZmx: false),
                                ],
                                // store-only session: a surface slot with nothing in it has no terminal
-                               realized: false)
+                               realized: false, lastSelectedAt: 1_600_000_000)
         ])
         #expect(tree.workspaces[1].sessions == [
             ControlSessionNode(id: b.id.uuidString, name: "remote:~/b", cwd: "/live/b",
@@ -236,8 +238,30 @@ struct AppStoreTreeProjectionTests {
                                 ControlSurfaceNode(id: TerminalSurfaceID(sessionID: b.id, surface: .overlay).rawValue,
                                                    kind: "overlay", active: true, visible: true),
                                ],
-                               realized: false, splitCwd: "/live/b")
+                               realized: false, splitCwd: "/live/b", lastSelectedAt: 1_700_000_100)
         ])
+    }
+
+    @Test func selectionStampsTheSessionEnteredAndTheSessionLeft() throws {
+        let store = makeStore()
+        let work = store.addWorkspace(name: "work")
+        let a = try #require(store.addSession(toWorkspace: work.id, cwd: "/repo/a"))
+        let b = try #require(store.addSession(toWorkspace: work.id, cwd: "/repo/b", select: false))
+        let never = try #require(store.addSession(toWorkspace: work.id, cwd: "/repo/c", select: false))
+        a.lastSelectedAt = Date(timeIntervalSince1970: 1)
+        let before = Date()
+
+        store.selectSession(b.id)
+
+        let after = Date()
+        let aStamp = try #require(a.lastSelectedAt)
+        #expect((before...after).contains(aStamp))
+        #expect(b.lastSelectedAt == aStamp)
+        #expect(never.lastSelectedAt == nil)
+        let nodes = store.controlTree().workspaces[0].sessions
+        #expect(nodes.map(\.lastSelectedAt) == [aStamp.timeIntervalSince1970, aStamp.timeIntervalSince1970, nil])
+        let bare = try String(decoding: JSONEncoder().encode(nodes[2]), as: UTF8.self)
+        #expect(!bare.contains("lastSelectedAt"))
     }
 
     @Test func controlTreeProjectsSessionContext() throws {

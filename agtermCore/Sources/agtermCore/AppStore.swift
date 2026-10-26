@@ -63,6 +63,10 @@ public final class AppStore {
         didSet {
             guard selectedSessionID != oldValue else { return }
             freshWorkspaceID = nil
+            if !restoringSelection {
+                let now = Date()
+                for id in [oldValue, selectedSessionID].compactMap({ $0 }) { session(withID: id)?.lastSelectedAt = now }
+            }
             emitSessionSelected(previous: oldValue)
         }
     }
@@ -384,7 +388,8 @@ public final class AppStore {
                                           presentation: presentationNode(of: session), presenters: presentersNode(of: session),
                                           remoteOverlays: remoteOverlayNodes(of: session),
                                           htmlOverlays: htmlOverlayNodes(session, zoom: htmlZoom),
-                                          hiddenOverlays: hiddenOverlaysNode(session))
+                                          hiddenOverlays: hiddenOverlaysNode(session),
+                                          lastSelectedAt: session.lastSelectedAt?.timeIntervalSince1970)
             }
             return ControlWorkspaceNode(id: workspace.id.uuidString, name: workspace.name,
                                         active: workspace.id == activeWorkspaceID,

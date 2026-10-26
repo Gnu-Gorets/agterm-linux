@@ -190,6 +190,8 @@ public struct SessionSnapshot: Codable, Equatable, Sendable {
     public var restoreCommand: String?
     /// The split (right) pane's restore-command override, the split analogue of `restoreCommand`.
     public var splitRestoreCommand: String?
+    /// `Session.lastSelectedAt` as epoch seconds; nil = never selected.
+    public var lastSelectedAt: Double?
 
     public init(id: UUID, paneIdentity: UUID? = nil, splitPaneIdentity: UUID? = nil,
                 customName: String?, cwd: String, isSplit: Bool? = nil, hasSplit: Bool? = nil,
@@ -200,7 +202,7 @@ public struct SessionSnapshot: Codable, Equatable, Sendable {
                 splitInitialCommand: String? = nil, splitCommandWait: Bool? = nil,
                 backgroundWatermark: BackgroundWatermark? = nil, paneBackgrounds: PaneBackgrounds? = nil,
                 restoreCommand: String? = nil, splitRestoreCommand: String? = nil,
-                context: String? = nil) {
+                context: String? = nil, lastSelectedAt: Double? = nil) {
         self.id = id
         self.paneIdentity = paneIdentity
         self.splitPaneIdentity = splitPaneIdentity
@@ -224,6 +226,7 @@ public struct SessionSnapshot: Codable, Equatable, Sendable {
         self.restoreCommand = restoreCommand
         self.splitRestoreCommand = splitRestoreCommand
         self.context = context
+        self.lastSelectedAt = lastSelectedAt
     }
 
     enum CodingKeys: String, CodingKey {
@@ -231,7 +234,7 @@ public struct SessionSnapshot: Codable, Equatable, Sendable {
         case fontSize, splitCwd, splitRatio, flagged
         case foregroundCommand, splitForegroundCommand, initialCommand, commandWait
         case splitInitialCommand, splitCommandWait, backgroundWatermark, paneBackgrounds
-        case restoreCommand, splitRestoreCommand, context
+        case restoreCommand, splitRestoreCommand, context, lastSelectedAt
     }
 
     /// Custom decode so every optional is LOSSY, matching `Snapshot.init(from:)`: an unknown
@@ -265,6 +268,7 @@ public struct SessionSnapshot: Codable, Equatable, Sendable {
         paneBackgrounds = (try? c.decodeIfPresent(PaneBackgrounds.self, forKey: .paneBackgrounds)) ?? nil
         restoreCommand = (try? c.decodeIfPresent(String.self, forKey: .restoreCommand)) ?? nil
         splitRestoreCommand = (try? c.decodeIfPresent(String.self, forKey: .splitRestoreCommand)) ?? nil
+        lastSelectedAt = (try? c.decodeIfPresent(Double.self, forKey: .lastSelectedAt)) ?? nil
         // the only field checked for CONTENT, not just type: a hand-edited context carrying a newline or
         // 300 bytes would otherwise reach the title bar and the JSON read-back intact.
         let storedContext = (try? c.decodeIfPresent(String.self, forKey: .context)) ?? nil
