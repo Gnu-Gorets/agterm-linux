@@ -49,10 +49,7 @@ final class SettingsModel {
         self.settings = settingsStore.load()
         self.committedTheme = settings.theme
         self.committedDarkTheme = settings.darkTheme
-        // write NOW: GhosttyApp's loadConfig runs in applicationDidFinishLaunching, AFTER this App.init,
-        // and the SEEDED default theme (agterm) is memory-only, never in settings.json — without this the
-        // launch config carries no theme line and the terminal renders ghostty's built-in until the next
-        // settings change. Idempotent: no-ops when the file already matches.
+        // a no-op at launch, where agtermApp.init already wrote it; keeps a model built elsewhere current.
         _ = writeGhosttyConfig()
         // mirror the persisted settings into their shared channels before any settings change fires.
         applyWindowTranslucency()
@@ -875,9 +872,12 @@ final class SettingsModel {
                                                completed: settings.effectiveStatusShape(for: .completed))
     }
 
+    private func writeGhosttyConfig() -> Bool { Self.writeGhosttyConfig(settings) }
+
     /// Write the ghostty config lines (font/size/theme + the translucency pins) to the file
     /// `GhosttyApp.loadConfig` reads. Returns true when the content changed, so the caller can skip the reload.
-    private func writeGhosttyConfig() -> Bool {
+    /// `agtermApp.init` calls it before libghostty boots, which loads the file once.
+    static func writeGhosttyConfig(_ settings: AppSettings) -> Bool {
         let url = GhosttyApp.settingsConfigURL
         // emit the raw single/dual theme, no appearance resolution: a dual value is stable across flips,
         // so `appearanceChanged` reloads directly rather than diffing this text.
