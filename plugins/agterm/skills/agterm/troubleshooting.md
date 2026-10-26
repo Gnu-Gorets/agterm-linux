@@ -361,7 +361,8 @@ and only inside that program. Ghostty.app behaves the same. It is per-program, n
 that never enables mouse reporting keeps links working. Workaround: hold shift too (⌘⇧-hover, ⌘⇧-click).
 A program can claim shift via `XTSHIFTESCAPE`, so `mouse-shift-capture = never` in
 `~/.config/agterm/ghostty.conf` makes shift always win; `mouse-reporting = false` there turns reporting
-off for every program, trading in-program mouse support for always-on selection and links.
+off for every program, trading in-program mouse support for always-on selection. Links still need ⌘⇧
+there: link detection follows the program's mouse request, not that setting.
 
 ## Reporting: decide bug vs unsupported FIRST
 

@@ -200,8 +200,10 @@ can claim shift for itself with `XTSHIFTESCAPE`, in which case add `mouse-shift-
 `~/.config/agterm/ghostty.conf` so shift always wins.
 
 To turn mouse reporting off for every program instead, set `mouse-reporting = false` in the same file.
-Selection and links then always work, at the cost of mouse support inside programs that wanted it — mouse
-scrolling in `tmux`, clicking to position the cursor in `vim`.
+Selection then always works, at the cost of mouse support inside programs that wanted it — mouse
+scrolling in `tmux`, clicking to position the cursor in `vim`. Links do not come back: libghostty decides
+link detection from the program's mouse request, not this setting, so inside such a program a link still
+needs ⌘⇧.
 
 ## Claude Code's question or permission prompt stops responding after switching apps
 
