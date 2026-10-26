@@ -14,6 +14,8 @@ struct HtmlOverlayView: View {
     let isActive: Bool
     /// visible is whether the page is on screen, which decides drop registration apart from focus.
     let visible: Bool
+    /// toolTipsShown is `visible` minus what covers the strip without hiding the page: a window modal or an ask.
+    let toolTipsShown: Bool
     let foreground: Color
     let background: Color
 
@@ -86,7 +88,7 @@ struct HtmlOverlayView: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .layoutPriority(1)
-                .help(overlay.current?.page ?? sourceText)
+                .toolTip(overlay.current?.page ?? sourceText, isShown: toolTipsShown)
                 .accessibilityIdentifier("htmlOverlay.identity")
             if let title = overlay.current?.title {
                 Text("·")
@@ -95,7 +97,7 @@ struct HtmlOverlayView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .foregroundStyle(foreground.opacity(0.55))
-                    .help(title)
+                    .toolTip(title, isShown: toolTipsShown)
                     .accessibilityIdentifier("htmlOverlay.title")
             }
         }
@@ -144,7 +146,7 @@ struct HtmlOverlayView: View {
         }
         .buttonStyle(HtmlToolbarButtonStyle(tint: foreground))
         .disabled(!enabled)
-        .help(label)
+        .toolTip(label, isShown: toolTipsShown)
         .accessibilityLabel(label)
         .accessibilityIdentifier(identifier)
     }
