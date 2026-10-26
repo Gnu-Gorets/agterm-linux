@@ -446,7 +446,7 @@ final class GhosttyApp {
     }
 
     /// Whether the app is currently in the dark appearance. `NSApp` is an implicitly-unwrapped global still nil
-    /// during the very early `GhosttyApp.shared` init (it boots from `SettingsModel.init`, before AppKit wires
+    /// during the very early `GhosttyApp.shared` init (it boots from `restoredRuntime`, before AppKit wires
     /// `NSApp`), so chain through it safely; that early window resolves no theme (ghostty picks the side from
     /// the color scheme set at surface creation), so the light default there is harmless.
     static func currentIsDark() -> Bool {
