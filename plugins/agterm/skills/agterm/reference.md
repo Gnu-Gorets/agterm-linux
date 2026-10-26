@@ -817,8 +817,9 @@ error keeps those names for compatibility.
   (the `background` key, not an image). Takes no opacity: the color is drawn at the Settings window
   translucency (solid when translucency is off; blurred/translucent when on), so it honors your
   opacity/blur instead of forcing the pane opaque like the image/text watermark. macOS Reduce
-  Transparency temporarily presents it as opaque and unblurred without changing the saved opacity/blur;
-  the requested presentation returns when Reduce Transparency is disabled. Errors on a malformed color
+  Transparency temporarily presents it as opaque and unblurred without changing the saved opacity/blur,
+  unless Settings ▸ Appearance ▸ Ignore Reduce Transparency is on; the requested presentation returns
+  when Reduce Transparency is disabled. Errors on a malformed color
   (must be a `#rrggbb` hex value).
 - `session background clear [--target] [--window W]` — remove the session's background.
   An image/text watermark makes the pane render OPAQUE, overriding window translucency (an image is

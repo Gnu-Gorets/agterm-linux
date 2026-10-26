@@ -204,6 +204,7 @@ final class SettingsModel {
     /// from `settings.json` on the next save; the Settings picker maps `.compact` back to nil.
     func setToolbarMode(_ mode: ToolbarMode?) { settings.toolbarMode = mode?.rawValue; settings.compactToolbar = nil; persistAndApply() }
     func setNotificationBadgeEnabled(_ value: Bool?) { settings.notificationBadgeEnabled = value; persistAndApply() }
+    func setIgnoreReduceTransparency(_ value: Bool?) { settings.ignoreReduceTransparency = value; persistAndApply() }
     func setDockBounce(_ mode: DockBounce?) { settings.dockBounce = mode?.rawValue; persistAndApply() }
     /// Persist the system sound played when a notification is delivered (nil/empty = none). Not a ghostty
     /// key; the `NotificationManager` mirror is read on the next notification, like `dockBounce`.
@@ -766,7 +767,8 @@ final class SettingsModel {
 
     private func applyWindowTranslucency() {
         GhosttyApp.shared.setWindowTranslucency(opacity: settings.backgroundOpacity ?? 1,
-                                                blurRadius: settings.backgroundBlur ?? 0)
+                                                blurRadius: settings.backgroundBlur ?? 0,
+                                                ignoreReduceTransparency: settings.ignoreReduceTransparency == true)
     }
 
     private func applyNotificationsEnabled() {

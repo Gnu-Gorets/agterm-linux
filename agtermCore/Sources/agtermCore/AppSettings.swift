@@ -271,6 +271,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
     /// Background blur radius (private CGS window blur, 0...100), nil = none; visible only when
     /// `backgroundOpacity` < 1. Applied in the app target.
     public var backgroundBlur: Int?
+    /// Window-only override of macOS Reduce Transparency; nil respects it.
+    public var ignoreReduceTransparency: Bool?
     /// Whether to post macOS notification banners for terminal desktop notifications; nil = on. Gates only
     /// the OS banner — the sidebar unseen-count badge tracks notifications either way.
     public var notificationsEnabled: Bool?
@@ -399,7 +401,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public init(fontFamily: String? = nil, fontSize: Double? = nil, theme: String? = nil,
                 darkTheme: String? = nil, followSystemAppearance: Bool? = nil,
                 cursorStyle: String? = nil, cursorBlink: Bool? = nil,
-                backgroundOpacity: Double? = nil, backgroundBlur: Int? = nil, notificationsEnabled: Bool? = nil,
+                backgroundOpacity: Double? = nil, backgroundBlur: Int? = nil,
+                ignoreReduceTransparency: Bool? = nil, notificationsEnabled: Bool? = nil,
                 toolbarMode: String? = nil, compactToolbar: Bool? = nil, notificationBadgeEnabled: Bool? = nil,
                 activeStatusColorHex: String? = nil, blockedStatusColorHex: String? = nil,
                 completedStatusColorHex: String? = nil, activeStatusShape: String? = nil,
@@ -432,6 +435,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.cursorBlink = cursorBlink
         self.backgroundOpacity = backgroundOpacity
         self.backgroundBlur = backgroundBlur
+        self.ignoreReduceTransparency = ignoreReduceTransparency
         self.notificationsEnabled = notificationsEnabled
         self.toolbarMode = toolbarMode
         self.compactToolbar = compactToolbar
@@ -504,6 +508,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
     /// `compactToolbar` mapping. The single read point.
     public var effectiveToolbarMode: ToolbarMode {
         toolbarMode.flatMap(ToolbarMode.init(rawValue:)) ?? (compactToolbar == false ? .normal : .compact)
+    }
+
+    /// The window and the mute wash must agree on whether the backing is opaque.
+    public static func windowReducesTransparency(system: Bool, ignoring: Bool) -> Bool {
+        system && !ignoring
     }
 
     /// The resolved flagged-view layout: the explicit `flaggedViewLayout` when a KNOWN raw value, else `flat`.

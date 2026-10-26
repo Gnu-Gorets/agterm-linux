@@ -55,6 +55,7 @@ final class GhosttyApp {
     /// radius, opaque by default. NOT ghostty-resolved: `WindowAppearance.sync` reads, `SettingsModel` writes.
     private(set) var windowOpacity: Double = 1
     private(set) var windowBlurRadius: Int = 0
+    private(set) var ignoreReduceTransparency = false
     /// Title-bar row state: normal stacks the cwd subtitle, compact is one short row, hidden drops the row and
     /// the traffic lights for a full-bleed terminal; defaults `.compact` (a nil `settings.toolbarMode`). NOT
     /// ghostty-resolved: `SettingsModel` writes, the reader (`WindowContentView` / `WindowAppearance.sync`)
@@ -213,9 +214,16 @@ final class GhosttyApp {
 
     /// Set the window translucency the chrome applies. `SettingsModel` calls this and every setter below at
     /// launch and on each change; the window re-syncs on `.agtermAppearanceChanged`.
-    func setWindowTranslucency(opacity: Double, blurRadius: Int) {
+    func setWindowTranslucency(opacity: Double, blurRadius: Int, ignoreReduceTransparency: Bool) {
         windowOpacity = opacity
         windowBlurRadius = blurRadius
+        self.ignoreReduceTransparency = ignoreReduceTransparency
+    }
+
+    var windowReducesTransparency: Bool {
+        AppSettings.windowReducesTransparency(
+            system: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
+            ignoring: ignoreReduceTransparency)
     }
 
     func setToolbarMode(_ mode: ToolbarMode) {
