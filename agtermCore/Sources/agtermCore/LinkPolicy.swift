@@ -157,6 +157,17 @@ public enum LinkPolicy {
         return .reveal(URL(fileURLWithPath: normalizedPath, isDirectory: false))
     }
 
+    /// wantsBrowser reports whether a ⌘⇧ link click overrides the overlay setting and goes to the browser.
+    /// Under mouse capture ⌘⇧ is the only link click, so there it follows the setting.
+    public static func wantsBrowser(modifiers: KeyModifiers, mode: LinkOpenMode, origin: ClickOrigin,
+                                    mouseCaptured: Bool) -> Bool {
+        guard modifiers == [.command, .shift], mode != .browser, !mouseCaptured else { return false }
+        switch origin {
+        case .pane, .scratch: return true
+        case .hud, .programOverlay, .quick: return false
+        }
+    }
+
     /// Maps a raw link to its route: `disposition` decides open, reveal or ignore, then a web link the
     /// overlay can show (`overlayCanShow`), clicked in a pane or the scratch terminal, goes to that session's
     /// overlay at the mode's size when `mode` is an overlay one. Whether the overlay is free right now is the
