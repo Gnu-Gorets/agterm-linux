@@ -118,8 +118,8 @@ C-boundary concurrency before changing the bridge.
   use absolute targets for resources. Each stamp makes its staged artifacts count as current. They remain
   untracked and disappear with worktree removal.
 - Symlink an artifact set only while the main checkout's matching stamp equals what the worktree's
-  `setup.sh` would write for that set: `GHOSTTY_REV` and the digest of `scripts/ghostty-patches/*.patch` for ghostty, and
-  `ZMX_REV`, `ZMX_TARGET` and the
+  `setup.sh` would write for that set: `GHOSTTY_REV` and the digest of
+  `scripts/ghostty-patches/*.patch` for ghostty, and `ZMX_REV`, `ZMX_TARGET` and the
   digest of `scripts/zmx-patches/*.patch` and `scripts/zmx-patches/ghostty/*.patch` for zmx, so a target
   or a patch change invalidates a set whose revision still matches. When either differs, remove that
   set's artifact and stamp links before setup runs and let it build locally. `setup.sh` writes stamps
@@ -220,7 +220,8 @@ C-boundary concurrency before changing the bridge.
   increase; upstream fixed that and the case was re-verified by hand before the bump. Re-test the
   font-increase case when moving it, and check `minimum_zig_version` in `build.zig.zon` against
   `ZIG_FORMULA`. The 0.15 to 0.16 jump came with the `0ba6250` bump, not this one.
-- `.ghostty-build-stamp` records the revision and patch digest the staged artifacts came from and is what decides a rebuild.
+- `.ghostty-build-stamp` records the revision and patch digest the staged artifacts came from
+  and is what decides a rebuild.
   Presence alone would serve an xcframework built from a different rev silently, so a `GHOSTTY_REV`
   change costs everyone exactly one libghostty rebuild and nobody keeps a stale core by accident.
 - Setup stages the xcframework and `zig-out/share/{ghostty,terminfo}`. All are ignored build artifacts.
