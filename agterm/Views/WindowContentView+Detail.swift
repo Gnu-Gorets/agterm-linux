@@ -174,8 +174,9 @@ extension WindowContentView {
         // the quick terminal owns it while it covers the window, and its own hide re-grabs the cover.
         //
         // Keyed on `visibleCover`, not the slots: a HUD, a hidden overlay closing, or the other pane's overlay
-        // toggling changes nothing the user types into, and `retryReparentFocus` would yank focus out of an
-        // open ⌘F search field or an in-progress sidebar rename for ~0.36s.
+        // toggling (unless it keeps the session cover out of sight) changes nothing the user types into, and
+        // `retryReparentFocus` would yank focus out of an open ⌘F search field or an in-progress sidebar
+        // rename for ~0.36s.
         .onChange(of: session.visibleCover) { _, _ in
             guard deckInteractive, isActive, !quickTerminal.holdsKey else { return }
             HtmlOverlayRegistry.shared.refocus(session)
@@ -288,7 +289,7 @@ extension WindowContentView {
         // a HUD is passive: it neither takes first responder nor absorbs the clicks around it, so the panel
         // stays inert as a whole and the session underneath keeps both. A hidden program or page is inert the
         // same way while its host stays mounted, so it keeps running and comes back without a re-host.
-        let shown = !session.overlayHidden
+        let shown = session.sessionSlotShown
         let live = isActive && style.interactive && shown
         GeometryReader { geo in
             let detailFrame = CGRect(origin: .zero, size: geo.size)
@@ -541,7 +542,7 @@ struct OverlayPanelStyle: Equatable {
                                           cornerRadius: floating ? floatingCornerRadius : 0,
                                           borderOpacity: floating ? floatingBorderOpacity : 0,
                                           shadowRadius: floating ? floatingShadowRadius : 0,
-                                          backdrop: floating && !session.overlayHidden, interactive: true,
+                                          backdrop: floating && session.sessionSlotShown, interactive: true,
                                           position: .center)
             if let percent = session.overlaySizePercent, !session.overlayPoints.isEmpty {
                 style.pointSizing = PointSizing(sizePercent: percent, points: session.overlayPoints,
