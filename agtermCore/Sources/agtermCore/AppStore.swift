@@ -85,6 +85,14 @@ public final class AppStore {
     /// in `Snapshot`, flipped via `setSidebarMode(_:)` (bottom bar, View menu, palette, `sidebar.mode`).
     public var sidebarMode: SidebarMode = .tree
 
+    /// flaggedOrder is the flagged working set's saved order, which the flat and plain layouts render;
+    /// `Session.flagged` stays the membership. An id parked in a pending close keeps its slot.
+    public internal(set) var flaggedOrder: [UUID] = []
+
+    /// flaggedLayout mirrors the app-wide flagged layout per store, so navigation follows the order the view
+    /// shows. `WindowLibrary` sets it before restore; not persisted.
+    @ObservationIgnored public internal(set) var flaggedLayout: FlaggedViewLayout = .flat
+
     /// The workspaces marked for the sidebar focus filter — the working set the tree renders when
     /// `focusEnabled` is on (see `visibleWorkspaces`). Per-window state in `Snapshot`; orthogonal to
     /// `sidebarMode` (flagged mode ignores focus). Mutated via `setFocusedWorkspace(_:)`/
@@ -122,7 +130,7 @@ public final class AppStore {
 
     /// Most-recently-selected session ids, front = current; drives the Ctrl-Tab switcher (`items[1]` is the
     /// previous). `@ObservationIgnored`, read imperatively; persisted so the order survives a relaunch.
-    @ObservationIgnored public private(set) var sessionRecency = RecencyStack<UUID>()
+    @ObservationIgnored public internal(set) var sessionRecency = RecencyStack<UUID>()
 
     /// The latest undoable session/workspace close; the hidden items live in `pendingCloseRecords`, this
     /// observed summary is the host-free state the app target presents.
@@ -235,7 +243,7 @@ public final class AppStore {
     /// workspace that HAS a session — which a same-value selection alone would not do — by removing the
     /// workspace, by the focus filter hiding it, and by `restore(from:)`. A BACKGROUND create (`revealNewWorkspace: false`)
     /// never sets it, so a script's create cannot steer the GUI's next add.
-    private var freshWorkspaceID: UUID?
+    var freshWorkspaceID: UUID?
 
     /// Drops the fresh-workspace preference when that workspace is the one going away, so an Undo or Reopen
     /// re-inserting the same id cannot revive it. Every removal path calls this; a reorder must not.
@@ -405,7 +413,8 @@ public final class AppStore {
                            attentionIncludesActive: attentionIncludesActive,
                            attentionNavigationAcrossWindows: attentionNavigationAcrossWindows,
                            sidebarVisible: sidebarVisible, sidebarMode: sidebarMode.rawValue,
-                           sidebarFlaggedLayout: flaggedLayout?.rawValue, sidebarWidth: sidebarWidth,
+                           sidebarFlaggedLayout: flaggedLayout?.rawValue, flaggedOrder: flaggedOrderReadback,
+                           sidebarWidth: sidebarWidth,
                            workspaceFilter: focusEnabled,
                            quickVisible: quickVisible(), zoomedSurface: zoomedSurface(),
                            dashboardMembers: dashboardMembers(),
@@ -558,7 +567,7 @@ public final class AppStore {
     }
 
     /// Removes a session, tears down its surface, and — if it was active — reselects the most-recently-active
-    /// surviving session in scope (`closeReselectionTarget(after:)`), falling back to the positional neighbor.
+    /// surviving session in scope (`closeReselectionTarget(after:removing:)`), falling back to the positional neighbor.
     public func closeSession(_ sessionID: UUID, alreadyFinalized: UUID? = nil) {
         guard let location = location(ofSession: sessionID) else { return }
         let wasActive = selectedSessionID == sessionID
@@ -580,13 +589,14 @@ public final class AppStore {
         WatermarkStorage.removeAllRenderedText(sessionID: sessionID) // drop any rendered .text PNG; the session is gone
         sessionRecency.remove(sessionID)
         if wasActive {
-            selectedSessionID = closeReselectionTarget(after: location)
+            selectedSessionID = closeReselectionTarget(after: location, removing: sessionID)
             replaceSidebarSelection(with: selectedSessionID)
             disableFocusIfSelectionOutsideSet(selectedSessionID) // the reselected session may live outside the marked set
             recordRecency()
         } else {
             pruneSidebarSelection()
         }
+        dropFromFlaggedOrder([sessionID])
         save()
     }
 
@@ -632,6 +642,7 @@ public final class AppStore {
         } else {
             pruneSidebarSelection()
         }
+        dropFromFlaggedOrder(workspace.sessions.map(\.id))
         save()
     }
 
@@ -889,65 +900,6 @@ public final class AppStore {
             }
         }
         if changed { save() }
-    }
-
-    /// The flagged sessions across all workspaces in tree order — the projection the flagged view renders.
-    public var flaggedSessions: [Session] {
-        workspaces.flatMap(\.sessions).filter(\.flagged)
-    }
-
-    // MARK: - Persistence
-
-    /// Rebuilds the tree from a snapshot: fresh `Session`s (surfaces and shells spawn lazily on first
-    /// display) keyed by the persisted ids so the restored `selectedSessionID` still resolves, replacing the
-    /// current state wholesale. A persisted selection pointing at a session that no longer exists is cleared.
-    /// Deliberately does NOT call `save()` — it loads what was just read from disk; the closing
-    /// `reselectIfSelectionHidden` is the exception, since repairing a stranded selection is worth writing.
-    /// `launchRestore` marks an APP-BOOTSTRAP restore, the only thing that arms anything executable — a
-    /// persisted `session.restore` override and the captured `foregroundCommand`/`splitForegroundCommand`.
-    /// It defaults to false because reopening a closed window mid-process reloads its store through here,
-    /// and that RUNTIME caller must not execute anything.
-    public func restore(from snapshot: Snapshot, launchRestore: Bool = false) {
-        // to the end: the closing repair of a hidden selection is part of the reload too
-        restoringSelection = true
-        defer { restoringSelection = false }
-        freshWorkspaceID = nil // live create-time state, never restored from disk
-        // fold duplicate workspace ids into the first occurrence and keep only the first snapshot of a
-        // repeated session id, else the rest stay unreachable past the first match and get re-saved.
-        var seenSessionIDs: Set<UUID> = []
-        workspaces = snapshot.workspaces.reduce(into: [Workspace]()) { restored, workspaceSnapshot in
-            let sessions = workspaceSnapshot.sessions
-                .filter { seenSessionIDs.insert($0.id).inserted }
-                .map { session(from: $0, launchRestore: launchRestore) }
-            if let existing = restored.firstIndex(where: { $0.id == workspaceSnapshot.id }) {
-                restored[existing].sessions.append(contentsOf: sessions)
-                return
-            }
-            // absent/nil collapsed → expanded (back-compat with snapshots written before the field existed).
-            restored.append(Workspace(id: workspaceSnapshot.id, name: workspaceSnapshot.name, sessions: sessions,
-                                      isExpanded: !(workspaceSnapshot.collapsed ?? false)))
-        }
-        // clamp on restore (not just nil-default) so a corrupt or hand-edited snapshot can't drive an
-        // out-of-range frame width; the drag and `sidebar.width` clamp to the same bounds.
-        sidebarWidth = AppStore.clampSidebarWidth(snapshot.sidebarWidth ?? AppStore.sidebarWidthDefault)
-        sidebarVisible = snapshot.sidebarVisible ?? true
-        sidebarMode = snapshot.sidebarMode ?? .tree
-        restoreFocus(from: snapshot)
-        if let id = snapshot.selectedSessionID, session(withID: id) == nil {
-            selectedSessionID = nil
-        } else {
-            selectedSessionID = snapshot.selectedSessionID
-        }
-        replaceSidebarSelection(with: selectedSessionID)
-        // re-seed the Ctrl-Tab order from the persisted list (dropping ids not in the restored tree); the
-        // restored selection floats to the front, keeping the "previous session" slot truthful.
-        let restoredIDs = Set(workspaces.flatMap(\.sessions).map(\.id))
-        sessionRecency = RecencyStack(items: (snapshot.sessionRecency ?? []).filter { restoredIDs.contains($0) })
-        recordRecency()
-        // LAST, after the recency stack is re-seeded: the pick is MRU, so earlier finds an empty stack.
-        reselectIfSelectionHidden()
-        // a reload is not a pane selection either
-        paneFocusBaseline = selectedPaneIdentities()
     }
 
     func log(_ message: @autoclosure () -> String) {
