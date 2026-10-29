@@ -19,7 +19,8 @@ public final class Session: Identifiable {
     /// Live cwd from the latest OSC 7 / PWD report; the sidebar row refreshes. Persisted by `snapshot()` on
     /// quit + structural mutations only (OSC 7 fires constantly), so a crash loses cwd since the last save.
     public var currentCwd: String?
-    public let initialCwd: String
+    /// initialCwd is where the primary shell starts; a respawned parent restarts from its last cwd.
+    public internal(set) var initialCwd: String
 
     /// Terminal title from the latest OSC 0/1/2 set-title report — shell `PROMPT_COMMAND`, ghostty shell
     /// integration, or a remote host over SSH; the sidebar row refreshes on change. Ephemeral, no save.
@@ -58,15 +59,19 @@ public final class Session: Identifiable {
     /// written afterwards would let one snapshot go to disk carrying the ssh command.
     public let remoteHost: String?
 
+    /// What the session shows, fixed at construction for the same first-save reason as `remoteHost`.
+    public let content: SessionContent
+
     /// Whether this session may be written to disk at all. Every persistence producer gates on it: the
-    /// launch snapshot, the Recent Closed session record, and a closed workspace's record.
-    public var isPersistable: Bool { remoteHost == nil }
+    /// launch snapshot, the Recent Closed session record, and a closed workspace's record. A page lives
+    /// only as long as the app that shows it.
+    public var isPersistable: Bool { remoteHost == nil && content == .terminal }
 
     /// The pane identities this instance's zmx owns — none for a remote session, whose panes run ssh.
     /// Every reader of local daemon ownership goes through this, or a remote pane reports as a claimed
     /// local daemon that does not exist. Structural `paneIdentity` stays valid either way.
     public var locallyManagedPaneIdentities: [UUID] {
-        guard remoteHost == nil else { return [] }
+        guard remoteHost == nil, content == .terminal else { return [] }
         return [paneIdentity] + [splitPaneIdentity].compactMap { $0 }
     }
 
@@ -76,6 +81,10 @@ public final class Session: Identifiable {
     public var flagged: Bool = false
     /// The sidebar row's tint (`session.tint`); persisted, never copied by duplicate, local to this Mac.
     public var tint: SidebarTint?
+    /// parentID names the session this one is a companion of; set once at creation, never changed.
+    public internal(set) var parentID: UUID?
+    /// isExpanded is whether a parent row shows its companions.
+    public var isExpanded = true
 
     /// Local context, persisted for local sessions; clearing reveals any mirrored context.
     public var context: String?
@@ -86,6 +95,9 @@ public final class Session: Identifiable {
     /// Changes only when one live primary-slot surface replaces another; SwiftUI hosts fold it into their
     /// identity, so lazy nil→first creation stays at zero while split-survivor promotion remounts the view.
     @ObservationIgnored public private(set) var primarySurfaceHostRevision = 0
+    // observed, unlike the revision above: a respawn leaves the slot empty and nothing else remounts its host
+    public internal(set) var primaryRespawns = 0
+    @ObservationIgnored var lastRespawnAt: Date?
 
     /// The app-side surface (a `GhosttySurfaceView`), created lazily on first display and owned here so it
     /// survives sidebar/detail view churn.
@@ -318,7 +330,7 @@ public final class Session: Identifiable {
     /// Reserves the session ask slot and its placement, refusing replacement of a pending ask.
     @discardableResult
     public func openAsk(_ ask: PendingAsk, paneIdentity: UUID? = nil, remoteOwner: Int? = nil) -> Bool {
-        guard askPending == nil else { return false }
+        guard askPending == nil, content == .terminal else { return false }
         askPaneIdentity = paneIdentity
         askRemoteOwner = remoteOwner
         askPending = ask
@@ -519,7 +531,8 @@ public final class Session: Identifiable {
 
     public init(id: UUID = UUID(), initialCwd: String, customName: String? = nil,
                 paneIdentity: UUID = UUID(), splitPaneIdentity: UUID? = nil,
-                remoteHost: String? = nil) {
+                remoteHost: String? = nil, content: SessionContent = .terminal) {
+        self.content = content
         self.id = id
         self.paneIdentity = paneIdentity
         self.splitPaneIdentity = splitPaneIdentity
@@ -537,6 +550,7 @@ public final class Session: Identifiable {
     /// `b`); an empty path → `~`, the home shorthand, since no sensible component exists.
     public var displayName: String {
         if let trimmed = customName?.trimmedOrNil { return trimmed }
+        if content == .page, let identity = htmlOverlay?.identity.trimmedOrNil { return identity }
         if let title = focusedOscTitle?.trimmedOrNil { return title }
         let path = focusedCwd
         if path.isEmpty { return "~" }
@@ -667,7 +681,7 @@ public final class Session: Identifiable {
     /// since surfaces defer creation until they get a nonzero backing size. Not `deckHostsSurface`, which
     /// also yields a placeholder while zoom or the dashboard owns the slot.
     public func rendersPane(_ pane: OverlayPane) -> Bool {
-        isSplit || pane == focusedPane
+        content == .terminal && (isSplit || pane == focusedPane)
     }
 
     /// The panes the detail pane lays out RIGHT NOW, ordered left then right. Derived from the observed

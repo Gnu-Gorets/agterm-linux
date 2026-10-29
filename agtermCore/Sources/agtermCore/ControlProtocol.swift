@@ -30,6 +30,14 @@ public enum Command: String, Codable, Sendable {
     case sessionTint = "session.tint"
     case sessionSeen = "session.seen"
     case sessionRestore = "session.restore"
+    case sessionCollapse = "session.collapse"
+    case sessionCompanionNew = "session.companion.new"
+    case sessionCompanionPage = "session.companion.page"
+    case sessionCompanionDuplicate = "session.companion.duplicate"
+    /// A viewer asking for one attachment of a page companion: a single-use token for `session.overlay.page.serve`
+    /// plus what the page shows.
+    case sessionCompanionPageAttach = "session.companion.page.attach"
+    case sessionExpand = "session.expand"
     case sessionRestart = "session.restart"
     case sessionBackground = "session.background"
     case sessionSplit = "session.split"
@@ -662,6 +670,12 @@ public struct ControlResult: Codable, Sendable, Equatable {
     public var recentOpen: ControlRecentOpen?
     /// Whether `session.close --undoable` left the close undoable; absent for a plain close.
     public var undoable: Bool?
+    /// The new companion's parent id, the receipt a companion creation answers with.
+    public var parent: String?
+    /// Every session id `session.close` closed, a parent's companions included.
+    public var closed: [String]?
+    /// The page a `session.companion.page.attach` handed out, token included.
+    public var companionPage: PresentationPage?
 
     public init(id: String? = nil, tree: ControlTree? = nil, text: String? = nil,
                 windows: [ControlWindowNode]? = nil, exitCode: Int? = nil, count: Int? = nil,
@@ -677,7 +691,11 @@ public struct ControlResult: Codable, Sendable, Equatable {
                 width: Int? = nil, height: Int? = nil,
                 pageID: String? = nil, pageOutcome: ControlHtmlPageOutcome? = nil,
                 restart: ControlRestartReceipt? = nil, installed: AppIdentity? = nil,
-                recent: [ControlRecentItem]? = nil, recentOpen: ControlRecentOpen? = nil, undoable: Bool? = nil) {
+                recent: [ControlRecentItem]? = nil, recentOpen: ControlRecentOpen? = nil, undoable: Bool? = nil,
+                parent: String? = nil, closed: [String]? = nil, companionPage: PresentationPage? = nil) {
+        self.companionPage = companionPage
+        self.parent = parent
+        self.closed = closed
         self.undoable = undoable
         self.recent = recent
         self.recentOpen = recentOpen

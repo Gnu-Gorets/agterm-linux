@@ -19,7 +19,8 @@ struct Session: ParsableCommand {
                       Split.self, Swap.self, Lead.self, Scratch.self, Focus.self, Resize.self, Copy.self, Paste.self,
                       SelectAll.self,
                       Text.self, Status.self, Restore.self, Restart.self, FlagCommand.self, Context.self, Tint.self,
-                      Seen.self, Search.self, Background.self, Overlay.self, Hud.self, Wait.self]
+                      Seen.self, Search.self, Background.self, Overlay.self, Hud.self, Wait.self,
+                      Collapse.self, Expand.self]
     )
 
     struct New: RequestCommand {
@@ -34,11 +35,15 @@ struct Session: ParsableCommand {
         @Option(name: .long, help: "Place the new session right AFTER this anchor session (id/prefix/active); the anchor carries its own workspace, replacing --workspace.") var after: String?
         @Option(name: .long, help: "Place the new session right BEFORE this anchor session (id/prefix/active); mirror of --after.") var before: String?
         @Flag(name: .long, help: "Create the session in the background without selecting or focusing it (leaves the current selection untouched).") var noSelect = false
+        @Option(name: .long, help: "Create a companion of this session (id/prefix/active), placed under it in the sidebar; a companion target means its parent.") var parent: String?
         @OptionGroup var tint: TintCreateOptions
         @OptionGroup var options: ClientOptions
         var echoesResultID: Bool { true }
 
         func validate() throws {
+            if parent != nil, workspace != nil || workspaceName != nil || createWorkspace || after != nil || before != nil {
+                throw ValidationError("--parent takes no --workspace, --workspace-name, --create-workspace, --after or --before")
+            }
             if after != nil, before != nil {
                 throw ValidationError("use either --after or --before, not both")
             }
@@ -57,25 +62,49 @@ struct Session: ParsableCommand {
             }
         }
 
+        func run() throws {
+            guard parent != nil else { return try defaultRun() }
+            try runCompanionRequest(makeRequest(), options: options, echoID: true)
+        }
+
         func makeRequest() throws -> ControlRequest {
-            ControlRequest(cmd: .sessionNew, args: options.withWindow(tint.apply(to:
+            if let parent {
+                return ControlRequest(cmd: .sessionCompanionNew, target: parent, args: options.withWindow(tint.apply(to:
+                    ControlArgs(name: name, cwd: cwd, noSelect: noSelect ? true : nil, command: command,
+                                wait: wait ? true : nil))))
+            }
+            return ControlRequest(cmd: .sessionNew, args: options.withWindow(tint.apply(to:
                 ControlArgs(name: name, cwd: cwd, workspace: workspace, workspaceName: workspaceName,
                             createWorkspace: createWorkspace ? true : nil, noSelect: noSelect ? true : nil,
                             command: command, wait: wait ? true : nil, after: after, before: before))))
         }
     }
 
-    /// No options: the target session names both the destination workspace and the cwd, so a duplicate is
-    /// fully described by `--target` (the GUI half is the sidebar row's "Duplicate").
+    /// The target session names the destination workspace and the cwd, so a plain duplicate is fully described by
+    /// `--target` (the GUI half is the sidebar row's "Duplicate"); `--companion` is "Duplicate as Companion".
     struct Duplicate: RequestCommand {
         static let configuration = CommandConfiguration(
             abstract: "Duplicate a session: a fresh shell in its directory, placed right after it.")
+        @Flag(name: .long, help: "Create a companion copying the session's split layout and starting another copy of each pane's program.")
+        var companion = false
+        @Flag(name: .long, help: "With --companion: create it without selecting or focusing it.")
+        var noSelect = false
         @OptionGroup var target: TargetOptions
         @OptionGroup var options: ClientOptions
         var echoesResultID: Bool { true }
 
+        func validate() throws {
+            if noSelect, !companion { throw ValidationError("--no-select needs --companion") }
+        }
+
+        func run() throws {
+            guard companion else { return try defaultRun() }
+            try runCompanionRequest(makeRequest(), options: options, echoID: true)
+        }
+
         func makeRequest() throws -> ControlRequest {
-            ControlRequest(cmd: .sessionDuplicate, target: target.target, args: options.withWindow())
+            ControlRequest(cmd: companion ? .sessionCompanionDuplicate : .sessionDuplicate, target: target.target,
+                           args: options.withWindow(noSelect ? ControlArgs(noSelect: true) : nil))
         }
     }
 
@@ -536,7 +565,7 @@ struct Session: ParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Open, read, resize, or close an ephemeral overlay terminal on a session.",
             subcommands: [Open.self, Close.self, Hide.self, Show.self, Toggle.self, Resize.self, Reload.self, Navigate.self,
-                          Result.self, Submit.self, Copy.self, Text.self, RunJob.self, PageServe.self]
+                          Result.self, Submit.self, Copy.self, Text.self, RunJob.self, PageServe.self, PageAttach.self]
         )
 
         static let widthHelp: ArgumentHelp = "Panel content width in points, in place of --size-percent's width (at most 80% of the session)."
@@ -587,6 +616,11 @@ struct Session: ParsableCommand {
             var cwd: String?
             @Flag(name: .long, help: "Keep the overlay open after COMMAND exits (press any key to close).") var wait = false
             @Flag(name: .long, help: Open.blockHelp) var block = false
+            @Flag(name: .long, help: """
+                Open the --html/--url page as a page companion under the target session: a sidebar row of its own, \
+                full size, that closes with its page. Refuses --pane, --size-percent, --width and --height.
+                """)
+            var companion = false
             @Flag(name: .long, help: "Select (switch to) the target session after opening the overlay (default: open without switching).") var follow = false
             @Option(name: .long, help: "Render a floating, framed panel at PERCENT (1-100) of the pane instead of full-size.") var sizePercent: Int?
             @Option(name: .long, help: Overlay.widthHelp) var width: Int?
@@ -604,6 +638,10 @@ struct Session: ParsableCommand {
             // reject the mutually-exclusive combos + a malformed color at parse time (before any connection),
             // so it's a clean usage error and is unit-testable without a socket.
             func validate() throws {
+                if companion, html == nil && url == nil { throw ValidationError("--companion requires --html or --url") }
+                if companion, pane != nil || sizePercent != nil || width != nil || height != nil {
+                    throw ValidationError("--companion is full size: it takes no --pane, --size-percent, --width or --height")
+                }
                 if block && wait { throw ValidationError("--block cannot be combined with --wait") }
                 if [command, html, url].compactMap({ $0 }).count != 1 {
                     throw ValidationError("provide exactly one of COMMAND, --html or --url")
@@ -638,7 +676,7 @@ struct Session: ParsableCommand {
             }
 
             func makeRequest() throws -> ControlRequest {
-                ControlRequest(cmd: .sessionOverlayOpen, target: target.target,
+                ControlRequest(cmd: companion ? .sessionCompanionPage : .sessionOverlayOpen, target: target.target,
                                args: options.withWindow(ControlArgs(cwd: html == nil ? cwd : cwd.map(Overlay.absolutePath),
                                                                      command: command, wait: wait ? true : nil,
                                                                      sizePercent: sizePercent, follow: follow ? true : nil,
@@ -651,8 +689,13 @@ struct Session: ParsableCommand {
             }
 
             func run() throws {
+                if companion, !block { return try runCompanionRequest(makeRequest(), options: options, echoID: true) }
                 guard block else { try defaultRun(); return }
-                if html != nil { return try HtmlPageRunner(json: options.json, send: SocketClient(path: options.socketPath()).send).block(makeRequest()) }
+                if html != nil {
+                    let send = SocketClient(path: options.socketPath()).send
+                    return try HtmlPageRunner(json: options.json, send: companion ? companionSend(send, json: options.json) : send)
+                        .block(makeRequest())
+                }
                 let client = SocketClient(path: options.socketPath())
                 // open via the same `makeRequest()` as the non-block path: in block mode `validate()` guarantees
                 // `!wait`, so its `wait` is nil, and the floating `--size-percent` rides that single source

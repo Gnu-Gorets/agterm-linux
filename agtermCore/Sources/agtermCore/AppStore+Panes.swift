@@ -262,12 +262,19 @@ extension AppStore {
     /// addressable as the MAIN/left pane everywhere: `session.type`/`session.text --pane left` (and omitted)
     /// reach it, `{AGT_PANE}` reports `left`, and a later `session.split` opens a fresh RIGHT pane instead of
     /// displacing it. Called by the primary surface's `onExit`.
-    public func closePrimaryPane(_ sessionID: UUID, alreadyFinalized: UUID? = nil) {
-        guard let session = session(withID: sessionID) else { return }
+    /// A local parent with companions respawns when its last pane exits.
+    @discardableResult
+    public func closePrimaryPane(_ sessionID: UUID, alreadyFinalized: UUID? = nil, now: Date = Date()) -> PrimaryPaneExit {
+        guard let session = session(withID: sessionID) else { return .closed }
         guard let survivor = session.splitSurface else {
+            if respawnsOnLastPaneExit(session, now: now) {
+                respawnPrimaryPane(session, now: now)
+                return .respawned
+            }
             closeSession(sessionID, alreadyFinalized: alreadyFinalized)
-            return
+            return .closed
         }
+        defer { savePaneLayout(session) }
         if session.hudPaneIdentity == session.paneIdentity { closeHud(sessionID) }
         if session.askPaneIdentity == session.paneIdentity { session.cancelPendingAsk() }
         let priorPrimary = session.surface // the exiting pane, torn down below; scopes the search reset
@@ -340,7 +347,7 @@ extension AppStore {
             }
         }
         if wasShown { emitPaneVisibility(.paneSplit, session: session, shown: false) }
-        savePaneLayout(session)
+        return .promoted
     }
 
     /// The split pane's shell exited: collapses to the primary (`closeSplit`) ONLY when a genuine two-pane
@@ -349,9 +356,13 @@ extension AppStore {
     /// exit routes here — and closing rather than collapsing a gone split is what avoids a zombie session.
     /// The `surface == nil` half of the guard is defensive: `closePrimaryPane` always promotes the survivor
     /// INTO `surface`. Called by the split surface's `onExit`.
-    public func closeSplitPane(_ sessionID: UUID, alreadyFinalized: UUID? = nil) {
+    public func closeSplitPane(_ sessionID: UUID, alreadyFinalized: UUID? = nil, now: Date = Date()) {
         guard let session = session(withID: sessionID) else { return }
         guard session.surface != nil, session.splitSurface != nil else {
+            if respawnsOnLastPaneExit(session, now: now) {
+                respawnPrimaryPane(session, now: now)
+                return
+            }
             closeSession(sessionID, alreadyFinalized: alreadyFinalized)
             return
         }
@@ -401,6 +412,8 @@ extension AppStore {
     @discardableResult public func resizeOverlay(_ sessionID: UUID, sizePercent: Int?,
                                                  points: OverlayPointSize = OverlayPointSize()) -> Bool {
         guard let session = session(withID: sessionID), session.overlayActive else { return false }
+        // a page companion's page is the row, so it stays full size
+        guard session.content == .terminal || sizePercent == nil else { return false }
         guard let spec = session.hudSpec, session.hudActive else {
             session.overlaySizePercent = sizePercent.map { min(100, max(1, $0)) }
             session.overlayPoints = sizePercent == nil ? OverlayPointSize() : points
@@ -446,6 +459,11 @@ extension AppStore {
     /// never kept alive. Used on explicit close and when the program exits. No-op (false) with no overlay.
     @discardableResult public func closeOverlay(_ sessionID: UUID) -> Bool {
         guard let session = session(withID: sessionID), session.overlayActive else { return false }
+        // a page companion is its page: every way the page closes ends the row, which releases the page once
+        if session.content == .page, session.htmlOverlay != nil {
+            closeSession(sessionID)
+            return true
+        }
         let replica = session.overlayReplica
         session.overlayReplica = nil
         session.overlayActive = false

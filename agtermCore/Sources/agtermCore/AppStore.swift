@@ -325,6 +325,7 @@ public final class AppStore {
         // deriving this from the selection alone made `tree` name the workspace `workspace.go` just left.
         let activeWorkspaceID = currentWorkspaceID
         let nodes = workspaces.map { workspace in
+            let parents = Set(workspace.sessions.compactMap(\.parentID))
             let sessions = workspace.sessions.map { session in
                 // each closure inspects live processes, so call it once and split the answer in two.
                 let mainPane = paneForeground(session)
@@ -350,7 +351,8 @@ public final class AppStore {
                                               paneID: token?.isEmpty == false ? token : nil)
                 }
                 return ControlSessionNode(id: session.id.uuidString, name: session.displayName,
-                                          cwd: session.effectiveCwd, title: session.oscTitle,
+                                          cwd: (session.content == .page ? parent(of: session) : nil)?.effectiveCwd
+                                              ?? session.effectiveCwd, title: session.oscTitle,
                                           active: session.id == activeID,
                                           split: session.isSplit, hasSplit: session.hasSplit ? true : nil,
                                           backedByZmx: session.allPanesBackedByZmx,
@@ -402,7 +404,10 @@ public final class AppStore {
                                           htmlOverlays: htmlOverlayNodes(session, zoom: htmlZoom),
                                           hiddenOverlays: hiddenOverlaysNode(session),
                                           lastSelectedAt: session.lastSelectedAt?.timeIntervalSince1970,
-                                          tint: session.tint?.color.rawValue, tintOn: session.tint?.parts.map(\.rawValue))
+                                          tint: session.tint?.color.rawValue, tintOn: session.tint?.parts.map(\.rawValue),
+                                          parent: session.parentID?.uuidString,
+                                          collapsed: !session.isExpanded && parents.contains(session.id) ? true : nil,
+                                          content: session.content == .page ? "page" : nil)
             }
             return ControlWorkspaceNode(id: workspace.id.uuidString, name: workspace.name,
                                         active: workspace.id == activeWorkspaceID,
@@ -496,19 +501,22 @@ public final class AppStore {
     @discardableResult
     public func addSession(toWorkspace workspaceID: UUID, cwd: String, command: String? = nil,
                            name: String? = nil, wait: Bool = false, at index: Int? = nil, select: Bool = true,
-                           remoteHost: String? = nil, tint: SidebarTint? = nil) -> Session? {
+                           remoteHost: String? = nil, tint: SidebarTint? = nil, parentID: UUID? = nil,
+                           content: SessionContent = .terminal) -> Session? {
         guard let wsIndex = workspaces.firstIndex(where: { $0.id == workspaceID }) else { return nil }
         // both reach a custom command's expansion — cwd through initialCwd, name through customName — so
         // both are sanitized here. See TerminalText.
         // `remoteHost` arrives here rather than being assigned after, because this call saves.
         let session = Session(initialCwd: TerminalText.sanitized(cwd),
                               customName: name.map(TerminalText.sanitized)?.trimmedOrNil,
-                              remoteHost: remoteHost)
+                              remoteHost: remoteHost, content: content)
         session.initialCommand = command
         session.commandWait = wait
         session.tint = tint
-        if let index {
-            let destination = max(0, min(index, workspaces[wsIndex].sessions.count))
+        session.parentID = parentID
+        let parentIndex = parentID.flatMap { id in workspaces[wsIndex].sessions.firstIndex { $0.id == id } }
+        if let index = index ?? parentIndex.map({ Self.groupEnd(from: $0, in: workspaces[wsIndex].sessions) }) {
+            let destination = insertionIndex(for: session, near: index, in: workspaces[wsIndex].sessions)
             workspaces[wsIndex].sessions.insert(session, at: destination)
         } else {
             workspaces[wsIndex].sessions.append(session)
@@ -573,6 +581,16 @@ public final class AppStore {
     /// Removes a session, tears down its surface, and — if it was active — reselects the most-recently-active
     /// surviving session in scope (`closeReselectionTarget(after:removing:)`), falling back to the positional neighbor.
     public func closeSession(_ sessionID: UUID, alreadyFinalized: UUID? = nil) {
+        // a parent closes with its companions; one Recent Closed entry carries the whole group
+        let companions = companions(of: sessionID)
+        for companion in companions.reversed() {
+            closeSession(companion.id, alreadyFinalized: alreadyFinalized, recordsRecent: false)
+        }
+        closeSession(sessionID, alreadyFinalized: alreadyFinalized, recordsRecent: true, companions: companions)
+        finalizeParkedCompanions(of: [sessionID])
+    }
+
+    private func closeSession(_ sessionID: UUID, alreadyFinalized: UUID?, recordsRecent: Bool, companions: [Session] = []) {
         guard let location = location(ofSession: sessionID) else { return }
         let wasActive = selectedSessionID == sessionID
         let workspace = workspaces[location.workspaceIndex]
@@ -581,8 +599,11 @@ public final class AppStore {
         workspaces[location.workspaceIndex].sessions.remove(at: location.sessionIndex)
         emitSessionClosed(removed, workspace: workspace.id)
         dropLaunchPanes([removed])
-        recordRecentClosedSession(removed, workspaceID: workspace.id, workspaceName: workspace.name,
-                                  workspaceIndex: location.workspaceIndex, sessionIndex: location.sessionIndex)
+        if recordsRecent {
+            recordRecentClosedSession(removed, workspaceID: workspace.id, workspaceName: workspace.name,
+                                      workspaceIndex: location.workspaceIndex, sessionIndex: location.sessionIndex,
+                                      companions: companions)
+        }
         finalizePaneIdentities([removed], alreadyFinalized: alreadyFinalized)
         removed.surface?.teardown()
         removed.splitSurface?.teardown()
@@ -638,6 +659,7 @@ public final class AppStore {
         dropFocusMember(workspaceID) // a marked root is gone; the filter goes with the last member
         workspaces.remove(at: index)
         forgetFreshWorkspace(workspaceID)
+        finalizeParkedCompanions(of: workspace.sessions.map(\.id))
         if removingActive {
             selectedSessionID = workspaceRemovalTarget(at: index)
             replaceSidebarSelection(with: selectedSessionID)
@@ -648,70 +670,6 @@ public final class AppStore {
         }
         dropFromFlaggedOrder(workspace.sessions.map(\.id))
         save()
-    }
-
-    /// Moves a session to another workspace (or reorders within one), keeping the **same** `Session` instance
-    /// so its attached surface and live shell survive. `index` is the destination position **after** the
-    /// move's removal (clamped); nil appends. `selectedSessionID` is unaffected — the id is stable. No-ops on
-    /// an unknown session or target workspace, and a same-workspace move to the current slot leaves order
-    /// unchanged. Moving the **active** session out of the marked set suspends the focus filter while KEEPING
-    /// the set (the auto-reveal contract: the active session must stay inside the visible set); a non-active
-    /// session leaves the filter intact.
-    public func moveSession(_ sessionID: UUID, toWorkspace targetID: UUID, at index: Int? = nil) {
-        guard let source = location(ofSession: sessionID) else { return }
-        guard let targetIndex = workspaces.firstIndex(where: { $0.id == targetID }) else { return }
-        let before = workspaces.map { $0.sessions.map(\.id) }
-
-        let session = workspaces[source.workspaceIndex].sessions.remove(at: source.sessionIndex)
-        let destination = max(0, min(index ?? workspaces[targetIndex].sessions.count, workspaces[targetIndex].sessions.count))
-        workspaces[targetIndex].sessions.insert(session, at: destination)
-        if sessionID == selectedSessionID { disableFocusIfSelectionOutsideSet(sessionID) }
-        pruneSidebarSelection()
-        if before != workspaces.map({ $0.sessions.map(\.id) }) { scheduleTreeChanged() }
-        save()
-    }
-
-    /// Moves selected sessions in their current tree order. With `index == nil`, a multi-session move appends
-    /// cross-workspace sessions and leaves those already in the target in place; a one-session call matches
-    /// `moveSession` and appends even within that workspace. With an explicit `index` (a drag drop), every
-    /// dragged session is removed first, then the block inserted at that post-removal index. Returns the count.
-    @discardableResult
-    public func moveSessions(_ sessionIDs: [UUID], toWorkspace targetID: UUID, at index: Int? = nil) -> Int {
-        guard workspaces.contains(where: { $0.id == targetID }) else { return 0 }
-        let before = workspaces.map { $0.sessions.map(\.id) }
-        var movingIDs = orderedSessionIDs(matching: Set(sessionIDs))
-        // a one-element batch stays wire-equivalent to `moveSession`, so only multi-selection filters
-        if index == nil, movingIDs.count > 1 {
-            movingIDs = movingIDs.filter { workspace(forSession: $0)?.id != targetID }
-        }
-        guard !movingIDs.isEmpty else { return 0 }
-
-        var moving: [Session] = []
-        for id in movingIDs {
-            guard let location = location(ofSession: id) else { continue }
-            moving.append(workspaces[location.workspaceIndex].sessions.remove(at: location.sessionIndex))
-        }
-        guard let targetIndex = workspaces.firstIndex(where: { $0.id == targetID }), !moving.isEmpty else {
-            pruneSidebarSelection()
-            return 0
-        }
-        let destination = max(0, min(index ?? workspaces[targetIndex].sessions.count,
-                                     workspaces[targetIndex].sessions.count))
-        workspaces[targetIndex].sessions.insert(contentsOf: moving, at: destination)
-        if let selectedSessionID, movingIDs.contains(selectedSessionID) { disableFocusIfSelectionOutsideSet(selectedSessionID) }
-        pruneSidebarSelection()
-        if before != workspaces.map({ $0.sessions.map(\.id) }) { scheduleTreeChanged() }
-        save()
-        return moving.count
-    }
-
-    /// Reorders a session one step within its own workspace (`up`/`down`/`top`/`bottom`) via `moveSession`.
-    /// No-op (no write) on an unknown id or when the move would leave order unchanged (already at that end).
-    public func reorderSession(_ id: UUID, _ direction: ReorderDirection) {
-        guard let loc = location(ofSession: id) else { return }
-        let count = workspaces[loc.workspaceIndex].sessions.count
-        guard let dest = direction.destinationIndex(from: loc.sessionIndex, count: count) else { return }
-        moveSession(id, toWorkspace: workspaces[loc.workspaceIndex].id, at: dest)
     }
 
     /// Moves a workspace to `index` among its siblings, mirroring `moveSession`'s remove/clamp/insert/save
@@ -933,7 +891,7 @@ public final class AppStore {
         return nil
     }
 
-    private func orderedSessionIDs(matching ids: Set<UUID>) -> [UUID] {
+    func orderedSessionIDs(matching ids: Set<UUID>) -> [UUID] {
         workspaces.flatMap(\.sessions).map(\.id).filter { ids.contains($0) }
     }
 

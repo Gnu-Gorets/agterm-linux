@@ -167,7 +167,7 @@ renumbering. Do not reintroduce a count anywhere.
 - `tree`, `events.read`
 - `workspace.new`, `.rename`, `.delete`, `.select`, `.go`, `.move`, `.focus`, `.filter`, `.flag`, `.collapse`,
   `.expand`, `.tint`
-- `session.new`, `.duplicate`, `.close`, `.select`, `.rename`, `.reveal`, `.move`, `.type`, `.split`,
+- `session.new`, `.duplicate`, `.companion.new`, `.companion.page`, `.companion.duplicate`, `.companion.page.attach`, `.collapse`, `.expand`, `.close`, `.select`, `.rename`, `.reveal`, `.move`, `.type`, `.split`,
   `.split.close`, `.swap`, `.lead`,
   `.scratch`, `.focus`, `.resize`, `.go`, `.copy`, `.paste`, `.selectall`, `.text`, `.search`, `.status`,
   `.flag`, `.tint`, `.seen`, `.restore`, `.restart`, `.background`, `.overlay.open`, `.overlay.close`, `.overlay.resize`,
@@ -368,6 +368,67 @@ side, and reads `lastAppliedIsDark` when bare. Refuse it outside XCUITest; provi
 - `session.duplicate` atomically creates a plain login shell after the source in the same workspace from
   `focusedCwd`. Copy no name, command, pane, status, flag, font, or background state. The new tree node is
   the read-back. Source `tree.cwd` remains primary, so it can differ from the focused cwd copied.
+
+## Companions
+
+- Creation is its own wire command, `session.companion.new`, never a flag on `session.new`: an app predating
+  companions drops an unknown `ControlArgs` key and would run the plain command, while an unknown command
+  fails to decode and mutates nothing. The CLI maps exactly that decode error, the `invalid request:` text
+  naming the command, to `the running app is too old for companions`; every other error passes through.
+- The target is the parent, a companion meaning its parent. The dispatcher refuses workspace and placement
+  fields rather than dropping them, and reuses `creationTint`. The reply carries `result.parent`.
+  A remote parent's companion is created by its origin: `ControlServer.createRemoteCompanion` runs the origin's
+  `agtermctl` through `RemoteSession.controlCommand`, whose outer quoting every login shell reads alike, polls the
+  origin's `zmx tree` until the new id is attachable, then attaches it under the row through `attach(_:placement:)`.
+  Creation is never retried or done locally; a created but unattached companion is named in the error. The three
+  companion commands are in `waitsOnNetwork`, local ones included.
+- A remote parent's page companion is the origin's page. `session.companion.page.attach` hands out one view: a
+  per-claim token in `companionPageTokens`, claimed through `claimPageServe` into a `PageServeStream` in companion mode,
+  keyed by claim in `companionPageStreams`. A claim, an expired token, an unanswered reply or EOF ends only that view,
+  never `endRemotePage`; `HtmlOverlayReleases.onServedRelease` at the page's final release ends every view, so a
+  soft-closed page keeps serving through undo. URL pages get the same channel for lifetime only (no bridge), and a
+  loopback URL is refused at both ends. `zmx tree` lists a page companion with no panes when its parent is listed; the
+  Attach Remote picker hides those rows, and `zmx attach` places one only under the single row bound to its parent.
+  The viewer row binds the origin page session so New Companion on it makes a sibling there. `HtmlReplicaLink`
+  keeps the page's own reload and navigation on the viewer's copy; every other bridge request goes to the origin.
+  A channel ending while the viewer row is soft-closed finalizes that row alone (`finalizePendingClose(ofSession:)`),
+  so Undo never restores a view of a page that ended.
+- A Live parent respawned on its origin carries its viewers across. `handlePaneExit` reads the daemon's cached leader
+  before `closePrimaryPane` respawns, `ControlServer.ownerRespawned` waits for a different live leader under the same
+  name, then counts the respawn in `respawnGenerations` and publishes `pane.respawn`; the snapshot carries every count
+  with `originEpoch`, absent from an older origin. `RemoteRespawnBook` joins counts and held exits per LOCAL pane: a
+  snapshot seeds a baseline only once, a held exit reattaches through `PaneLead.reconnect` once the count passed it.
+  Every remote attach, a network reconnect or takeover included, starts an attempt in `replacePane` pinned to the latest
+  count, and only its role report moves the baseline, to that count. Three attaches ending before a report leave the exit
+  prompt; the remote tick prunes entries no open or soft-closed row owns. Never prune on the row-hidden callback: a
+  soft close emits it before registering its pending record, and the prune would drop state Undo restores.
+- `session.collapse`/`.expand` persist through `AppActions.setSessionExpanded`, then post
+  `.agtermSetSessionExpanded` (see [[sidebar]]). Read back `parent` and `collapsed` on session nodes.
+- `session.close` answers `result.closed` with every id it closed, from the group computed before the close,
+  deduplicated; a parent close also sets `affected`. A companion leaving its group is
+  `ControlServer.companionMoveError`; an ordinary no-op move stays ok.
+- `recent.open` names `parent session is not open or in Recent Closed` only when
+  `WindowLibrary.recentClosedItemLacksParent` says so; other restore failures keep their own error.
+- A page companion is created by its own wire command, `session.companion.page`, for the same older-app
+  reason as `session.companion.new`; it never touches the parent's own overlay slot.
+- `session.companion.duplicate` is its own wire command for the same older-app reason.
+  `ControlServer.duplicateCompanion` plans every pane through `ForegroundProcess.replayObservation` and host-free
+  `DuplicateReplay` from one fresh leader listing before creating anything; `AppStore.duplicateAsCompanion` then
+  stores each program as `initialCommand`/`splitInitialCommand`, so it runs as a `--command` pane does, ungated by
+  restore mode. Outside Live the command runs on the GUI PATH, so a program not started by absolute path is copied by
+  the path it was started from: the first entry of its own PATH (read from the same `KERN_PROCARGS2` blob as its
+  argv) resolving to the `proc_pidpath` image, else its first executable entry (a version manager's shim re-execs
+  under the bare name), or its directory, launched unresolved, since the image alone turns `vimdiff` into plain vim.
+  macOS withholds a platform binary's environment, so with no PATH read the system directories are searched and
+  the image is the fallback. Otherwise nothing executable refuses the pane; the restart checks see the path and image. An argument with a backslash is refused: libghostty's split and fish's Live
+  `eval` read it differently. Only a `foregroundShell` becomes a plain shell; a daemon-leader shell program is refused.
+- `ControlServer.pageCompanionRefusal` is the one pre-dispatch guard, covering the socket and a page's bridge.
+  It judges `surface.zoom`/`surface.cursor` only for an explicit target, since their `active` means the
+  window's zoom target, and never refuses a zoom hide, which stays idempotent.
+- `AppStore.closeOverlay` on a page session closes the session before slot teardown; the strip X and ⌘W go
+  through `AppActions.closeSession`, so they keep the close confirmation and the grace-period undo.
+- `Session.content` is a `let` set at init, so the first save already excludes the row
+  (`isPersistable`, `locallyManagedPaneIdentities`).
 
 ## Surface input, output, and search
 

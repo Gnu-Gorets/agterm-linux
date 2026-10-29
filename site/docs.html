@@ -905,6 +905,44 @@
                 that row. Dragged sessions keep running, shell and scrollback
                 intact.
               </li>
+              <li id="companions" style="font-size: 15.5px; line-height: 1.65; color: #cbc6bc; padding-left: 22px; position: relative">
+                <span
+                  style="
+                    position: absolute;
+                    left: 0;
+                    top: 2px;
+                    color: #6d82f3;
+                    font-family: &quot;JetBrains Mono&quot;, monospace;
+                  "
+                  >›</span
+                ><strong style="color: #e6e1d7">Companions</strong> keep related shells or programs next to a session: a log tail, a
+                watcher, a second shell for the same task. A companion is an ordinary session pinned to its parent, listed right
+                after it and indented under it in the tree; the parent's disclosure triangle folds them away, and a folded parent
+                shows a small marker when a hidden companion is blocked, completed, or has unread notifications.
+                <strong style="color: #e6e1d7">New Companion</strong> in the session row's context menu, the Session menu, or the
+                action palette opens a login shell in the parent's current directory; bind it with the
+                <code style="color: #e6e1d7">new_companion</code> action in <code style="color: #e6e1d7">keymap.conf</code>.
+                <strong style="color: #e6e1d7">Duplicate as Companion</strong> beside it copies the session's split layout into a new
+                companion and starts another copy of each pane's program in its directory (<code style="color: #e6e1d7">duplicate_companion</code>);
+                when a pane's program cannot be copied, nothing is created and a notification names the pane.
+                On a session attached from another Mac, both ask that Mac to create the companion under its own session and attach
+                it here; closing it here only detaches it. A page companion opened on such a session is that Mac's page, shown
+                here through its own channel, and it stays there when you close it here.
+                Companions reorder only among themselves, and moving the parent carries them. Closing a companion closes only it;
+                closing the parent closes the group, and one Reopen Closed Item brings it all back. While a parent has companions,
+                its shell exiting starts a fresh shell in the same directory instead of closing the session (one that exits again
+                within 2 seconds closes the group), and a Mac viewing that
+                session attaches to the new shell. Flat lists such as
+                the ⌃P palette, the Ctrl-Tab switcher and the Dock menu label a companion <code style="color: #e6e1d7">parent › child</code>; the tree, rename
+                and Copy Name keep the bare name. From a script:
+                <span style="font-family: &quot;JetBrains Mono&quot;, monospace; white-space: nowrap">agtermctl session new --parent active --command 'tail -f build.log' --name logs</span>,
+                with <span style="font-family: &quot;JetBrains Mono&quot;, monospace">--wait</span> to keep the output after it exits.
+                A <strong style="color: #e6e1d7">page companion</strong> shows an HTML page or URL instead of a shell, labelled with the file name
+                or origin:
+                <span style="font-family: &quot;JetBrains Mono&quot;, monospace; white-space: nowrap">agtermctl session overlay open --html report.html --companion</span>.
+                It closes when the page closes, and it is not saved across a relaunch; recreate it from an
+                <code style="color: #e6e1d7">app.launched</code> <a href="#hooks" style="color: #6d82f3">hook</a>.
+              </li>
               <li style="font-size: 15.5px; line-height: 1.65; color: #cbc6bc; padding-left: 22px; position: relative">
                 <span
                   style="
@@ -1765,7 +1803,7 @@
                 color: #cbc6bc;
               "
             >
-              new_window&nbsp;&nbsp;&nbsp;rename_window&nbsp;&nbsp;&nbsp;delete_window<br />new_workspace&nbsp;&nbsp;&nbsp;rename_workspace&nbsp;&nbsp;&nbsp;delete_workspace<br />new_session&nbsp;&nbsp;&nbsp;open_directory&nbsp;&nbsp;&nbsp;rename_session&nbsp;&nbsp;&nbsp;duplicate_session<br />close_session&nbsp;&nbsp;&nbsp;reopen_recent&nbsp;&nbsp;&nbsp;undo_close&nbsp;&nbsp;&nbsp;clear_status<br />increase_font_size&nbsp;&nbsp;&nbsp;decrease_font_size&nbsp;&nbsp;&nbsp;reset_font_size<br />toggle_split&nbsp;&nbsp;&nbsp;toggle_horizontal_split&nbsp;&nbsp;&nbsp;toggle_scratch&nbsp;&nbsp;&nbsp;toggle_search<br />toggle_sidebar&nbsp;&nbsp;&nbsp;toggle_flag&nbsp;&nbsp;&nbsp;toggle_flagged_view&nbsp;&nbsp;&nbsp;toggle_overlay<br />focus_left_pane&nbsp;&nbsp;&nbsp;focus_right_pane&nbsp;&nbsp;&nbsp;focus_workspace&nbsp;&nbsp;&nbsp;toggle_workspace_filter<br />toggle_workspace_collapse<br />previous_session&nbsp;&nbsp;&nbsp;next_session&nbsp;&nbsp;&nbsp;first_session&nbsp;&nbsp;&nbsp;last_session<br />previous_workspace&nbsp;&nbsp;&nbsp;next_workspace<br />previous_window&nbsp;&nbsp;&nbsp;next_window<br />previous_attention_session&nbsp;&nbsp;&nbsp;next_attention_session<br />quick_terminal&nbsp;&nbsp;&nbsp;session_palette&nbsp;&nbsp;&nbsp;command_palette<br />custom_command_palette&nbsp;&nbsp;&nbsp;show_attention<br />select_theme&nbsp;&nbsp;&nbsp;toggle_fullscreen&nbsp;&nbsp;&nbsp;toggle_terminal_zoom<br />dashboard&nbsp;&nbsp;&nbsp;attach_remote<br />edit_flagged_sessions&nbsp;&nbsp;&nbsp;edit_focused_workspaces
+              new_window&nbsp;&nbsp;&nbsp;rename_window&nbsp;&nbsp;&nbsp;delete_window<br />new_workspace&nbsp;&nbsp;&nbsp;rename_workspace&nbsp;&nbsp;&nbsp;delete_workspace<br />new_session&nbsp;&nbsp;&nbsp;open_directory&nbsp;&nbsp;&nbsp;rename_session&nbsp;&nbsp;&nbsp;duplicate_session<br />new_companion&nbsp;&nbsp;&nbsp;duplicate_companion<br />close_session&nbsp;&nbsp;&nbsp;reopen_recent&nbsp;&nbsp;&nbsp;undo_close&nbsp;&nbsp;&nbsp;clear_status<br />increase_font_size&nbsp;&nbsp;&nbsp;decrease_font_size&nbsp;&nbsp;&nbsp;reset_font_size<br />toggle_split&nbsp;&nbsp;&nbsp;toggle_horizontal_split&nbsp;&nbsp;&nbsp;toggle_scratch&nbsp;&nbsp;&nbsp;toggle_search<br />toggle_sidebar&nbsp;&nbsp;&nbsp;toggle_flag&nbsp;&nbsp;&nbsp;toggle_flagged_view&nbsp;&nbsp;&nbsp;toggle_overlay<br />focus_left_pane&nbsp;&nbsp;&nbsp;focus_right_pane&nbsp;&nbsp;&nbsp;focus_workspace&nbsp;&nbsp;&nbsp;toggle_workspace_filter<br />toggle_workspace_collapse<br />previous_session&nbsp;&nbsp;&nbsp;next_session&nbsp;&nbsp;&nbsp;first_session&nbsp;&nbsp;&nbsp;last_session<br />previous_workspace&nbsp;&nbsp;&nbsp;next_workspace<br />previous_window&nbsp;&nbsp;&nbsp;next_window<br />previous_attention_session&nbsp;&nbsp;&nbsp;next_attention_session<br />quick_terminal&nbsp;&nbsp;&nbsp;session_palette&nbsp;&nbsp;&nbsp;command_palette<br />custom_command_palette&nbsp;&nbsp;&nbsp;show_attention<br />select_theme&nbsp;&nbsp;&nbsp;toggle_fullscreen&nbsp;&nbsp;&nbsp;toggle_terminal_zoom<br />dashboard&nbsp;&nbsp;&nbsp;attach_remote<br />edit_flagged_sessions&nbsp;&nbsp;&nbsp;edit_focused_workspaces
             </div>
             <p style="font-size: 15px; line-height: 1.65; color: #949ba4; margin: 16px 0 0">
               <span style="font-family: &quot;JetBrains Mono&quot;, monospace; color: #cbc6bc">toggle_fullscreen</span> is the one
@@ -2413,7 +2451,9 @@ for (const ws of tree.workspaces) for (const s of ws.sessions) {
               ><br />agtermctl session new --cwd ~/src/agterm --no-select
               <span style="color: #6b727a">&nbsp;&nbsp;# create in the background without switching to it</span
               ><br />agtermctl session duplicate --target <span style="color: #f2b45c">9f3c</span>
-              <span style="color: #6b727a">&nbsp;&nbsp;# a fresh shell in that session's workspace and cwd, right after it</span><br />agtermctl session move --after
+              <span style="color: #6b727a">&nbsp;&nbsp;# a fresh shell in that session's workspace and cwd, right after it</span><br />agtermctl session new --parent active
+              --command <span style="color: #f2b45c">'tail -f build.log'</span> --name logs
+              <span style="color: #6b727a">&nbsp;&nbsp;# a companion session under the current one; session collapse folds it</span><br />agtermctl session move --after
               <span style="color: #f2b45c">9f3c</span> <span style="color: #6b727a">&nbsp;&nbsp;# place after an anchor (its workspace is used; relocates cross-workspace)</span
               ><br />agtermctl session move <span style="color: #f2b45c">"$ws"</span> --target 9f3c --target abcd
               <span style="color: #6b727a">&nbsp;&nbsp;# move a batch as one ordered block</span
