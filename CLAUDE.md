@@ -39,6 +39,11 @@ C-boundary concurrency before changing the bridge.
   Set only a short `/tmp` `AGTERM_STATE_DIR` so app and inherited CLI derive the same socket.
   Prepend the Debug app's `Contents/MacOS` to PATH for custom commands; login shells may restore the
   deployed CLI, so manual commands should use the Debug binary's full path.
+- `open -n` passes the caller's environment to the app, including inherited `CLAUDE*` markers and
+  live-terminal `AGTERM_*`/`GHOSTTY_*` variables; a `claude` started in that instance warns that transcript
+  saving is off.
+  Launch through `env -u NAME ...` naming every such variable, which drops `AGTERM_STATE_DIR` too, so pass
+  the isolated one back with `open -n --env AGTERM_STATE_DIR=...`; verify with `ps eww -p <pid>`.
 - A fresh isolated state dir reads as a first launch and opens the welcome alert.
   `mkdir -p "$AGTERM_STATE_DIR/windows"` before launching to skip it: `FirstRunWelcome.hasPriorState`
   looks for `settings.json`, `workspaces.json`, or `windows` before the app writes anything.
