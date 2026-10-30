@@ -19,27 +19,37 @@ extension AppController {
         let paletteContext = PaletteContext(canRemoveWorkspace: store.canRemoveWorkspace,
                                             hasFlaggedSessions: !store.flaggedSessions.isEmpty,
                                             sidebarShowsWorkspaceTree: store.sidebarMode == .tree,
+                                            sidebarShowsWorkspaceRows: store.rendersWorkspaceRows(flaggedLayout: store.flaggedLayout),
                                             sidebarShowsFlaggedOnly: store.sidebarMode == .flagged,
                                             activeSessionFlagged: activeSession?.flagged ?? false,
                                             hasMarkedWorkspaces: !store.focusedWorkspaceIDs.isEmpty,
                                             activeWorkspaceMarked: store.isCurrentWorkspaceFocusMember,
                                             activeWorkspaceCollapsed: store.isCurrentWorkspaceCollapsed,
                                             canStepWorkspaces: store.canStepWorkspaces,
+                                            canStepWindows: library.canStepWindows,
                                             activeSessionHasSplit: activeSession?.hasSplit ?? false,
                                             activeSplitAxis: activeSession?.splitAxis,
                                             hasPendingClose: store.pendingCloseSummary != nil,
                                             hasRecentClosed: !library.recentClosedItems.isEmpty,
                                             hasActiveSession: activeSession != nil,
+                                            attentionNavigationAcrossWindows: store.attentionNavigationAcrossWindows,
+                                            hasSessions: store.workspaces.contains { !$0.sessions.isEmpty },
                                             hasCurrentWorkspace: store.currentWorkspaceID != nil,
+                                            hasRemotes: !linuxRemotes(configDirectory: configDirectory()).isEmpty,
                                             terminalZoomActive: terminalZoom.target != nil,
                                             dashboardOpen: dashboard.isOpen,
-                                            pickerActive: pickController.pending != nil)
+                                            pickerActive: pickController.pending != nil,
+                                            activeSessionHasOverlay: !(activeSession?.hideableOverlaySlots(nil).isEmpty ?? true),
+                                            activeSessionIsPage: activeSession?.content == .page)
         var items: [LinuxPaletteItem] = PaletteCommand.allCases.filter { $0.isVisible(in: paletteContext) }.map { cmd in
             let row = LinuxPaletteRow.action(cmd, in: paletteContext, chord: cmd.builtinAction.flatMap(resolvedChord(for:)))
             return (row: row, run: run(for: cmd))
         }
         if !library.recentClosedItems.isEmpty {
             items.append((row: LinuxPaletteRow(title: "Clear Recent Items"), run: { self.clearRecentHistory() }))
+        }
+        if activeSession != nil {
+            items.append((row: LinuxPaletteRow(title: "Tint Session…"), run: { self.showSessionTintPalette() }))
         }
         // Preferences… (the Linux Settings surface; macOS uses the Settings scene / Cmd+,).
         // These Linux-only rows have no BuiltinAction, so no chord resolves and they render title-only.
@@ -99,6 +109,13 @@ extension AppController {
     /// mapping in agtermCore, and a second copy could silently drift from it.
     private func run(for cmd: PaletteCommand) -> () -> Void {
         switch cmd {
+        case .newCompanion: return { self.newCompanionFromGUI() }
+        case .duplicateCompanion: return { self.newCompanionFromGUI(duplicate: true) }
+        case .toggleOverlay: return { _ = self.setSessionOverlayVisibility(nil, window: nil, pane: nil, mode: .toggle) }
+        case .attachRemote: return { self.showRemoteAttach() }
+        case .editFlaggedSessions: return { self.showMembershipEditor(workspaces: false) }
+        case .editFocusedWorkspaces: return { self.showMembershipEditor(workspaces: true) }
+
         case .newSession: return { self.newSession() }
         case .previousWindow: return { _ = self.windowGo(direction: .previous) }
         case .nextWindow: return { _ = self.windowGo(direction: .next) }
@@ -113,8 +130,8 @@ extension AppController {
         case .clearStatus: return { self.clearActiveStatus() }
         case .previousSession: return { self.navigate(.previous) }
         case .nextSession: return { self.navigate(.next) }
-        case .previousAttentionSession: return { self.navigate(.previousAttention) }
-        case .nextAttentionSession: return { self.navigate(.nextAttention) }
+        case .previousAttentionSession: return { self.navigateAttention(.previousAttention) }
+        case .nextAttentionSession: return { self.navigateAttention(.nextAttention) }
         case .previousWorkspace: return { self.navigateWorkspace(.previous) }
         case .nextWorkspace: return { self.navigateWorkspace(.next) }
         case .firstSession: return { self.navigate(.first) }
@@ -175,14 +192,15 @@ extension AppController {
     private func sessionRows(_ sessions: [Session]) -> [LinuxPaletteItem] {
         sessions.map { s in
             let ws = store.workspace(forSession: s.id)?.name ?? ""
-            return (row: LinuxPaletteRow(title: "\(s.displayName)  —  \(ws)"), run: { self.selectSession(s.id) })
+            return (row: LinuxPaletteRow(title: "\(store.listLabel(for: s))  —  \(ws)", indicator: s.agentIndicator), run: { self.selectSession(s.id) })
         }
     }
 
     private func attentionRows() -> [LinuxPaletteItem] {
         library.attentionAcrossWindows.map { entry in
             let subtitle = library.attentionSubtitle(entry)
-            return (row: LinuxPaletteRow(title: "\(entry.session.displayName)  —  \(subtitle)"), run: {
+            let label = library.store(for: entry.window.id)?.listLabel(for: entry.session) ?? entry.session.displayName
+            return (row: LinuxPaletteRow(title: "\(label)  —  \(subtitle)", indicator: entry.session.agentIndicator), run: {
                 MainTimer.schedule(after: 0) { [weak self] in
                     self?.selectAttention(windowID: entry.window.id, sessionID: entry.session.id)
                 }
@@ -232,19 +250,40 @@ extension AppController {
         gtk_widget_add_controller(W(win), kc)
 
         if attention {
-            paletteAll = LinuxPaletteList(items: attentionRows(), preservesNaturalOrder: true)
+            paletteAll = LinuxPaletteList(items: attentionRows(), refresh: { [weak self] in self?.attentionRows() ?? [] }, preservesNaturalOrder: true)
         } else if recent {
             let sessions = store.navigableRecentSessions(limit: 10).compactMap(store.session(withID:))
-            paletteAll = LinuxPaletteList(items: sessionRows(sessions), preservesNaturalOrder: true)
+            paletteAll = LinuxPaletteList(items: sessionRows(sessions), refresh: { [weak self] in
+                guard let self else { return [] }
+                return self.sessionRows(self.store.navigableRecentSessions(limit: 10).compactMap(self.store.session(withID:)))
+            }, preservesNaturalOrder: true)
         } else {
-            paletteAll = LinuxPaletteList(items: sessions ? sessionRows(store.navigableSessions) : paletteActionList())
+            paletteAll = LinuxPaletteList(items: sessions ? sessionRows(store.navigableSessions) : paletteActionList(), refresh: { [weak self] in
+                guard let self else { return [] }
+                return sessions ? self.sessionRows(self.store.navigableSessions) : self.paletteActionList()
+            })
         }
         filterPalette("")
         gtk_window_present(WIN(win))
         _ = gtk_widget_grab_focus(W(entry))
     }
 
+    func refreshPaletteContents() {
+        guard paletteWindow != nil, let refresh = paletteAll.refresh else { return }
+        let items = refresh()
+        guard items.map(\.row) != paletteAll.items.map(\.row) else { return }
+        let selected = paletteList.flatMap { gtk_list_box_get_selected_row($0) }
+            .map { Int(gtk_list_box_row_get_index($0)) }
+        let title = selected.flatMap { paletteItems.indices.contains($0) ? paletteItems[$0].row.title : nil }
+        paletteAll.items = items
+        filterPalette(paletteAll.currentQuery)
+        if let title, let index = paletteItems.firstIndex(where: { $0.row.title == title }), let list = paletteList {
+            gtk_list_box_select_row(list, gtk_list_box_get_row_at_index(list, Int32(index)))
+        }
+    }
+
     func filterPalette(_ query: String) {
+        paletteAll.currentQuery = query
         guard let lb = paletteList else { return }
         gtk_list_box_remove_all(lb)
         // Shared, host-free ordering seam (lower-is-better, best first, alpha tie-break; the attention
@@ -264,6 +303,7 @@ extension AppController {
         var rendered: [LinuxPaletteItem] = []
         for item in ranked {
             guard let row = op(gtk_list_box_row_new()), let box = op(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8)) else { continue }
+            gtk_widget_set_sensitive(W(row), item.row.enabled ? 1 : 0)
             gtk_widget_set_margin_top(W(box), 6); gtk_widget_set_margin_bottom(W(box), 6)
             gtk_widget_set_margin_start(W(box), 10); gtk_widget_set_margin_end(W(box), 10)
             let label = op(gtk_label_new(item.row.title))
@@ -277,6 +317,10 @@ extension AppController {
             // would push the shortcut column out of the 480px palette instead of truncating.
             gtk_label_set_ellipsize(label, PANGO_ELLIPSIZE_MIDDLE)
             gtk_box_append(cast(box), W(label))
+            if let indicator = item.row.indicator,
+               let status = Self.makeStatusGlyphLabel(indicator, settings: linuxSettingsStore().load(), phase: sidebarRuntime.blinkPhase.phase) {
+                gtk_box_append(cast(box), W(status))
+            }
             // Trailing pill (currently only "custom") between the title and the shortcut column, so a
             // keymap command reads as name + badge + its own chord instead of a mangled title. CENTER
             // valign keeps it at its natural height — a box child defaults to FILL, which would stretch
@@ -310,10 +354,21 @@ extension AppController {
     }
 
     private func runPaletteIndex(_ idx: Int) {
-        guard idx >= 0, idx < paletteItems.count else { return }
+        guard idx >= 0, idx < paletteItems.count, paletteItems[idx].row.enabled else { return }
         let run = paletteItems[idx].run
-        closePalette()
-        run()
+        if paletteAll.keepsOpenOnRun {
+            let title = paletteItems[idx].row.title
+            run()
+            if let refresh = paletteAll.refresh { paletteAll.items = refresh() }
+            let query = paletteAll.currentQuery
+            filterPalette(query)
+            if let index = paletteItems.firstIndex(where: { $0.row.title == title }), let list = paletteList {
+                gtk_list_box_select_row(list, gtk_list_box_get_row_at_index(list, Int32(index)))
+            }
+        } else {
+            closePalette()
+            run()
+        }
     }
 
     func closePalette() {

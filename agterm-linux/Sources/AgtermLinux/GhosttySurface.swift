@@ -36,6 +36,7 @@ final class GhosttySurface: PaneRoleMutableSurface {
     /// The owning session's id (so the host can route close/title back to the model).
     let sessionID: UUID
     weak var controller: AppController?
+    var linkBrowserOverride = false
     /// Concrete host role; unlike a split boolean this distinguishes notification and focus behavior
     /// for main, split, overlay, scratch, and quick surfaces.
     private(set) var role: LinuxSurfaceRole
@@ -72,7 +73,7 @@ final class GhosttySurface: PaneRoleMutableSurface {
     /// actions independently, so keep all three and re-apply their precedence instead of letting one
     /// callback accidentally reset another.
     private var mouseVisible = true
-    private var mouseOverLink = false
+    var mouseOverLink = false
     private var mouseShapeName = "text"
     /// Surface-owned C configuration buffers. libghostty may consume these after surface creation.
     private var configurationStorage: GhosttySurfaceConfigurationStorage?
@@ -574,6 +575,7 @@ final class GhosttySurface: PaneRoleMutableSurface {
         guard let surface else { return }
         let point = GhosttySurfaceGeometry.pointerPosition(gtkX: x, gtkY: y)
         let mods = currentMods(gesture)
+        if pressed { rememberLinkModifiers(mods) }
         ghostty_surface_mouse_pos(surface, point.x, point.y, mods)
         let btn = gesture.map { gtk_gesture_single_get_current_button($0) } ?? 1
         let gbtn: ghostty_input_mouse_button_e = btn == 2 ? GHOSTTY_MOUSE_MIDDLE : (btn == 3 ? GHOSTTY_MOUSE_RIGHT : GHOSTTY_MOUSE_LEFT)
@@ -596,7 +598,7 @@ final class GhosttySurface: PaneRoleMutableSurface {
     /// the default otherwise.
     func setLinkHover(_ overLink: Bool) {
         mouseOverLink = overLink
-        applyMouseCursor()
+        refreshLinkCursor()
     }
 
     /// Set the pointer shape over this surface (GHOSTTY_ACTION_MOUSE_SHAPE). The enum→CSS-name
@@ -607,8 +609,8 @@ final class GhosttySurface: PaneRoleMutableSurface {
         applyMouseCursor()
     }
 
-    private func applyMouseCursor() {
-        let name = !mouseVisible ? "none" : (mouseOverLink ? "pointer" : mouseShapeName)
+    func applyMouseCursor() {
+        let name = LinuxHudLinkRouter.cursorOverride(for: self) ?? (!mouseVisible ? "none" : (mouseOverLink ? "pointer" : mouseShapeName))
         name.withCString { gtk_widget_set_cursor_from_name(W(glArea), $0) }
     }
 

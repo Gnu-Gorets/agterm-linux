@@ -9,8 +9,9 @@ extension AppController {
         let current = settings.effectiveFlaggedViewLayout
         let layout: FlaggedViewLayout = switch mode {
         case .flat: .flat
+        case .plain: .plain
         case .tree: .tree
-        case .toggle: current == .flat ? .tree : .flat
+        case .toggle: current == .tree ? .flat : .tree
         }
         if current != layout {
             settings.flaggedViewLayout = layout == .flat ? nil : layout.rawValue
@@ -19,7 +20,10 @@ extension AppController {
             } catch {
                 return err("could not save flagged view layout")
             }
-            for controller in gWindows.values { controller.syncSidebar(force: true) }
+            library.setFlaggedLayout(layout)
+            for controller in gWindows.values {
+                controller.syncSidebar(force: true)
+            }
         }
         return ControlResponse(ok: true, result: ControlResult(text: layout.rawValue))
     }

@@ -256,7 +256,7 @@ final class GhosttyApp: @unchecked Sendable {
             case GHOSTTY_ACTION_OPEN_URL:
                 let value = action.action.open_url
                 if let raw = GhosttyActionDecoder.utf8String(value.url, length: value.len) {
-                    Self.openTerminalURL(raw)
+                    if Self.wrapper(fromTarget: target)?.openLink(raw) != true { Self.openTerminalURL(raw) }
                 }
                 return true
             case GHOSTTY_ACTION_MOUSE_OVER_LINK:
