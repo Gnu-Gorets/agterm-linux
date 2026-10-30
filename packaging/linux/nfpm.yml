@@ -38,6 +38,7 @@ overrides:
   deb:
     depends:
       - bash
+      - python3
       - libc6 (>= 2.39)
       - libgtk-4-1 (>= 4.14)
       - libadwaita-1-0 (>= 1.5)
@@ -46,6 +47,7 @@ overrides:
   rpm:
     depends:
       - bash
+      - python3
       - glibc >= 2.39
       - gtk4 >= 4.14
       - libadwaita >= 1.5

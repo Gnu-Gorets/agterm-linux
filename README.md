@@ -269,6 +269,7 @@ Requirements:
 
 - Swift 6.3.2.
 - GTK4, libadwaita, WebKitGTK 6.0, libepoxy, pkg-config, git, curl, ca-certificates, and xz.
+- Python 3 at runtime for the bundled Codex status hooks; DEB and RPM installs include this dependency.
 - zsh, required by the shared `agtermCore` tests.
 - Zig 0.16.0 for the vendored libghostty and zmx builds.
 
