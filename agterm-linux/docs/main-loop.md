@@ -42,9 +42,11 @@ soft-close grace finalizer.
 This is for callbacks that fire off-main (libghostty's C callbacks, worker-queue jobs) and need to touch
 GTK or main-actor state.
 `GhosttyApp.scheduleTick` is the same pattern hand-rolled with a coalescing flag.
-`runOnMain` exists only in the Linux target, so host-free `agtermCore` has no hop seam: from code that is
-already on the main actor, `MainTimer.schedule(after: 0)` is the next-turn hop; a genuine nonisolated→main
-hop in core would need a hop seam added alongside `MainTimer` (none exists today, and nothing needs one).
+`runOnMain` exists only in the Linux target.
+Host-free `agtermCore` uses `MainActorHop.enqueue` for nonisolated observation callbacks such as pane focus.
+Its lock-protected scheduler defaults to Dispatch on macOS; `installGLibMainTimer()` installs the GLib hop
+before any store exists.
+From code already on the main actor, `MainTimer.schedule(after: 0)` supplies a next-turn hop.
 
 **Run something after a delay** — use `agtermCore`'s `MainTimer` seam:
 `MainTimer.schedule(after:_:)` returns a cancel closure, and `Debouncer` (which most call sites actually
@@ -97,9 +99,9 @@ and is cancelled when its own row detaches, before a sidebar rebuild, and in `wi
 **One deliberate exception**, so a grep of the rule does not look like an unreported violation: the
 `withObservationTracking` `onChange` in `agtermCore/Sources/agtermCore/AppStore+AutoFollow.swift` still uses
 `DispatchQueue.main.async`.
-That callback is nonisolated and can run off-main, so it is a THREAD HOP, and the `@MainActor` `MainTimer`
-seam cannot express one (you must already be on the main actor to call it) — see "Hop to the main thread now"
-above.
+That callback is nonisolated and can run off-main, so it is a thread hop.
+`MainActorHop` can express such a hop, but this inherited macOS observer remains unchanged because Linux
+does not register it.
 It is also unreachable under GTK: the observer is registered only on the off→on `setAutoFollow(timeout:)`
 edge, which the port never takes (`LinuxSettingsController.applyAutoFollowSettings` always passes
 `timeout: nil` and hands the runtime to `LinuxAutoFollowCoordinator`).
