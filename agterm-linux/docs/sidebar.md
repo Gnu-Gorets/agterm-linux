@@ -13,6 +13,9 @@ Nothing auto-loads this document — read it before editing `AppController.swift
 ## Incremental reconcile
 
 Companion rows share their parent's workspace and ordering group.
+Tree rows reserve the same measured disclosure gutter, including leaves, so parent and peer icons align.
+Companions add one indentation step beyond that gutter; flagged layouts omit it.
+Disclosure buttons use compact padding so adding companions does not change the row height.
 The disclosure button changes persisted expansion; selecting a hidden companion reveals it transiently.
 Folded parents retain an attention marker for their hidden children.
 Flagged layouts flatten companions and use the shared parent-qualified label, so collapsed parents cannot hide flagged children.

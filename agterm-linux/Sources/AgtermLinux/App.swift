@@ -356,6 +356,7 @@ let appCSS = """
     \(LinuxSidebarPolicy.sidebarHoverCSS)   /* passive rows lose `.activatable`, so hover keys on bare `:hover` — contract + pins live on the constant; see agterm-linux/docs/sidebar.md */
     /* trailing content inset inside the rounded selection row; a row margin would indent the highlight itself */
     .agterm-session-row-content { padding-right: 6px; }
+    .agterm-companion-disclosure { min-width: 0; min-height: 0; padding: 0; }
     \(LinuxSidebarPolicy.sidebarRenameCSS)
     """
 

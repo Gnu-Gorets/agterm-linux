@@ -16,6 +16,7 @@ final class SessionRowWidgets {
     let star: OpaquePointer
     let badge: OpaquePointer
     var disclosure: OpaquePointer?
+    var disclosureSlot: OpaquePointer?
     var foldedMarker: OpaquePointer?
     var applied: SidebarSnapshot.RowContent?
 

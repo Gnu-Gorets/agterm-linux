@@ -26,6 +26,7 @@ The visual regressions complement the accessibility and control assertions:
 | `ask-visual` | Opaque forms over contrasting real HTML pages; centered and bounded long messages; wrapped choices; editable answers; pane widths above ordinary terminals and session covers |
 | `overlay-visual` | Floating HTML and program overlays actually disappear and return after Hide/Show, for percentage and point dimensions; hidden processes retain their content |
 | `palette-lifecycle` | A palette opened by an action retains search and Escape handling after its predecessor is destroyed; resource metadata is excluded from theme choices |
+| `companion-layout` | Parent/peer alignment, nested companion indentation, stable row heights, working disclosure buttons, and unindented flagged layouts at normal and large sidebar fonts |
 | `upstream-v0391` | Companion/tint menus, forms, overlay controls, and real modifier clicks on HUD links across split panes |
 
 Capture artifacts and app stderr are written to `artifacts/linux-ui/` by default.

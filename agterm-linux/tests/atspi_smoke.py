@@ -7456,7 +7456,7 @@ def main():
             "custom-command-failures", "remote-presentation", "control-hooks",
             "surface-lifetimes", "surface-failures",
             "background-overlay-grid", "zoom-floating-overlay",
-            "sidebar-row-height",
+            "sidebar-row-height", "companion-layout",
             "sidebar-narrow-clipping",
             "sidebar-width-floor",
             "sidebar-click-rename", "sidebar-session-drag", "sidebar-workspace-drag",
@@ -7530,6 +7530,9 @@ def main():
         elif scenario == "upstream-v0391":
             from atspi_v0391 import verify_v0391
             verify_v0391(env, state)
+        elif scenario == "companion-layout":
+            from atspi_companion_layout import verify_companion_layout
+            verify_companion_layout(env, state)
         elif scenario == "remote-v0391":
             from atspi_v0391_remote import verify_remote_v0391
             verify_remote_v0391(env, state)
