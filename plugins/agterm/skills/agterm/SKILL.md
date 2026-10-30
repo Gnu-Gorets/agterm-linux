@@ -166,7 +166,8 @@ you open overlays / type into whatever the user has selected, not your own sessi
 - **Fresh shells** restores the saved windows, workspaces, sessions, directories, and split layout with new shells.
 - **Re-run commands** starts each captured foreground command again. It does not reconnect to the old process.
 - **Live sessions** runs every primary and split pane through zmx and reattaches to the same process. It requires
-  zsh or fish as the macOS login shell. Scratch, overlay, and quick terminals stay temporary.
+  zsh or fish as the password-database login shell on macOS and Linux, with matching bundled shell integration.
+  Scratch, overlay, and quick terminals stay temporary.
 
 Upgrading: with Live sessions already active, install the new version, quit agterm and open it again. Local
 primary and split panes reattach to the same processes and no reset is needed. `agtermctl version` adds an
@@ -959,7 +960,14 @@ Full detail, templates, and the exact `gh` commands are in **troubleshooting.md*
 
 ## Linux integration management
 
-Linux builds expose local installation inspection separately from the 60 runtime control commands.
+Linux builds expose local installation inspection separately from runtime control commands.
+Linux v0.39.1 supports the shared companion, tint, Recent, overlay visibility, point sizing, ask-form,
+and remote-page commands described above.
+Remote file-page assets and bridge calls remain on the origin through SSH and obey that page's directory grant.
+Closing an attached page companion closes only the local view.
+GTK uses Ctrl for the platform command modifier; Ctrl+Shift+R opens Attach Remote from `remotes.conf`.
+HUD Markdown links open with Ctrl-click and keep the HUD visible.
+Linux omits restorable window x/y coordinates and does not register compositor-wide shortcuts or lock input sources.
 These commands never connect to the socket and work while agterm is stopped:
 
 ```bash

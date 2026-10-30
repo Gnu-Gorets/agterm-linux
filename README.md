@@ -41,7 +41,7 @@ Code layout:
 
 ### Linux feature parity and platform differences
 
-The `linux-port` branch carries the upstream v0.35.1 terminal model and control protocol, including
+The `linux-port` branch carries the exact upstream v0.39.1 terminal model and control protocol, including
 split/scratch/overlay terminals, Quick terminal input and read-back, terminal zoom, fullscreen,
 recently closed sessions with grouped undo, light/dark themes, configurable toolbar and sidebar text,
 recent-session and attention popovers, agent status in the multi-session dashboard, stable pane status
@@ -65,6 +65,17 @@ The HTML view blocks file and URI-list drag or paste transfers; link drags adver
 are blocked too.
 Attached sessions mirror origin status, context, notifications, HUDs, asks, overlays, and split-layout
 changes through a presentation stream.
+Remote file pages stream their granted assets and bridge requests from the origin through SSH.
+Companions appear as nested, collapsible rows, including terminal duplicates and temporary page companions.
+Closing an attached page view leaves its origin page alive; a parent shell can respawn while its companions remain.
+Session and workspace tints, plain or grouped flagged lists, membership editors, and flagged ordering are
+available through GTK actions and the control socket.
+Overlay hide/show preserves the running program or page, and floating program and page overlays accept
+point dimensions with laid-out size read-back.
+HUDs support sticky placement, optional frames, and Ctrl-clicked Markdown links.
+Asks support text, multiline, radio, checkbox, and Other forms in native GTK surfaces.
+The Attach Remote action reads `remotes.conf` and observes edits while the palette is open.
+`session restart` can replay a readable foreground program, refusing unsupported observations before ending it.
 The Linux control socket and GTK UI share these session actions, including `session lead` on a covered
 pane and daemon-backed reads and typing while a local pane follows an attached viewer.
 The GTK frontend keeps the content toolbar focused on terminal controls.
@@ -75,7 +86,7 @@ Preferences exposes Quick Terminal sizing, cursor shape and blink, and Fresh she
 experimental Live sessions restore.
 Live mode uses the bundled pinned zmx runtime for primary and split panes; scratch, overlay, and Quick
 terminals remain temporary.
-It requires zsh as the password-database login shell and the bundled Ghostty zsh integration.
+It requires zsh or fish as the password-database login shell and the matching bundled Ghostty integration.
 The mode is latched at process startup, and a missing daemon after reboot falls back to recreating the pane
 from its last cleanly captured command.
 
@@ -119,6 +130,8 @@ GTK4 frontend intentionally leaves x/y geometry absent on both Wayland and X11 r
 coordinates it cannot restore.
 The macOS Finder, traffic-light, TCC, entitlement, notarization, Homebrew-cask, and AppKit-specific
 instructions later in this inherited document apply only to upstream agterm.
+macOS input-source locking and Ignore Reduce Transparency have no GTK equivalent;
+Linux leaves input-source selection and transparency policy to the desktop.
 
 Upstream `agterm` is a native macOS terminal for working with AI coding agents across many sessions at once; this fork carries that model to Linux. It is intentionally opinionated: rather than scattering shells across tabs, it organizes them into named workspaces, each holding the sessions for one project or context, so several agent-driven sessions can run side by side and you can move between them without losing track of which is which. The motivation is specific: running several coding agents at once means many long-lived sessions, each progressing on its own, and a tabbed terminal loses track of them quickly. agterm keeps them organized and makes it obvious which session needs you. None of this is limited to agents. It also works as a capable general-purpose terminal for everyday multi-project work.
 
@@ -268,6 +281,9 @@ cd agterm-linux && swift build
 dependency, shell integration, and compiled `xterm-ghostty` terminfo.
 It reuses vendored caches only when libghostty matches the current architecture, the Ghostty resources are
 complete, and the zmx revision matches; release staging rejects a partial cache.
+The libghostty cache stamp includes every applied patch.
+Linux applies upstream's mailbox teardown fix before its renderer patches; the compatibility patch drops
+two Kitty clipboard message cases absent from the Linux Ghostty pin while retaining the teardown drain.
 At runtime Linux advertises `TERM=xterm-ghostty` only when both shell integration and the sibling terminfo database
 resolve, and safely uses `TERM=xterm-256color` when they do not.
 
