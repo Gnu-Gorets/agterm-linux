@@ -8,6 +8,8 @@ if (( $# != 1 )); then
 fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=../linux/ghostty-build.sh
+source "$ROOT/linux/ghostty-build.sh"
 VENDOR="$1"
 [[ "$VENDOR" = /* ]] || VENDOR="$ROOT/$VENDOR"
 
@@ -17,6 +19,11 @@ for required in lib/libghostty.so include/ghostty.h include/ghostty/vt.h; do
     exit 1
   }
 done
+
+[[ -f "$VENDOR/REVISION" && "$(cat "$VENDOR/REVISION")" == "$GHOSTTY_STAMP" ]] || {
+  echo "vendored libghostty revision or patch set is stale: $VENDOR" >&2
+  exit 1
+}
 
 "$ROOT/scripts/verify-linux-architecture.sh" "$VENDOR/lib/libghostty.so"
 "$ROOT/scripts/verify-linux-resources.sh" "$VENDOR/share"
