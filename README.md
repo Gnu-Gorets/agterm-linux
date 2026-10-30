@@ -270,6 +270,7 @@ Requirements:
 - Swift 6.3.2.
 - GTK4, libadwaita, WebKitGTK 6.0, libepoxy, pkg-config, git, curl, ca-certificates, and xz.
 - Python 3 at runtime for the bundled Codex status hooks; DEB and RPM installs include this dependency.
+- SVG image loading at runtime for toolbar and sidebar icons (`librsvg2-common` on Ubuntu/Debian).
 - zsh, required by the shared `agtermCore` tests.
 - Zig 0.16.0 for the vendored libghostty and zmx builds.
 
@@ -320,6 +321,7 @@ Local helper scripts:
 - `scripts/flatpak-linux.sh` builds and installs the local Flatpak manifest.
 - `scripts/test-linux-ui.sh` runs the GTK accessibility smoke suite locally under Xvfb (the same
   scenarios CI runs; works on dbus-broker hosts — the script pre-starts the AT-SPI registry).
+  It also checks rendered forms and floating overlays; see [Linux visual validation](agterm-linux/docs/visual-validation.md).
 
 ### macOS
 
@@ -986,7 +988,7 @@ Restore always reconstructs the window/session structure. Three process-level li
    power loss captures nothing, and entries in `restore-denylist.conf` are skipped. **Live sessions** keeps
    local primary and split processes in zmx daemons and reattaches on the next launch. A reboot removes those
    daemons, so the saved command is recreated instead. Scratch, overlay, and Quick terminals never survive.
-   Live mode requires zsh as the password-database login shell, plus bundled zmx and zsh integration.
+   Live mode requires zsh or fish as the password-database login shell, plus bundled zmx and the matching shell integration.
    Per-pane `session restore` overrides remain sticky and readable through `tree`; they are stored as shell
    code, so they must not contain secrets.
 2. The saved working directory depends on the `GHOSTTY_ACTION_PWD` callback, which only fires when the shell has Ghostty shell-integration / OSC 7 active (auto-injected for zsh, bash, fish, and nu when the shell-integration resources are present). If the working directory is never reported, a session restores to the directory it was created in.

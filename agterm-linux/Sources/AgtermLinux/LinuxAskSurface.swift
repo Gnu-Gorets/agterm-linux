@@ -187,7 +187,7 @@ extension AppController {
         }
     }
 
-    private func askHost(for session: Session) -> OpaquePointer? {
+    func askHost(for session: Session) -> OpaquePointer? {
         if session.askTargetPane != nil, session.coverOverlayVisible { return deck }
         return switch session.askTargetPane {
         case .left: primaryPaneHosts[session.id]
@@ -280,21 +280,20 @@ extension AppController {
     }
 
     private func buildAskPanel(_ ask: PendingAsk) -> LinuxAskSurface? {
-        guard let root = op(gtk_box_new(GTK_ORIENTATION_VERTICAL, 10)),
+        // Terminal asks must not raise the deck's minimum height when a long message wraps.
+        guard let root = op(ask.style == .terminal ? gtk_overlay_new() : gtk_box_new(GTK_ORIENTATION_VERTICAL, 10)),
               let frame = op(gtk_frame_new(nil)),
               let content = op(gtk_box_new(GTK_ORIENTATION_VERTICAL, 12)) else { return nil }
         gtk_widget_add_css_class(W(frame), "agterm-interface-panel")
         gtk_widget_add_css_class(W(frame), "card")
-        gtk_widget_set_halign(W(frame), GTK_ALIGN_CENTER)
+        gtk_widget_add_css_class(W(frame), "agterm-ask-panel")
+        gtk_widget_set_halign(W(frame), ask.style == .gui ? GTK_ALIGN_FILL : GTK_ALIGN_CENTER)
         gtk_widget_set_valign(W(frame), GTK_ALIGN_CENTER)
+        gtk_widget_set_vexpand(W(frame), 1)
         gtk_widget_set_margin_top(W(frame), 16)
         gtk_widget_set_margin_bottom(W(frame), 16)
         gtk_widget_set_margin_start(W(frame), 16)
         gtk_widget_set_margin_end(W(frame), 16)
-        if let width = ask.width, ask.style == .terminal {
-            let anchorWidth = max(320, gtk_widget_get_width(W(deck)))
-            gtk_widget_set_size_request(W(frame), anchorWidth * Int32(width) / 100, -1)
-        }
         for margin in [gtk_widget_set_margin_top, gtk_widget_set_margin_bottom,
                        gtk_widget_set_margin_start, gtk_widget_set_margin_end] {
             margin(W(content), 16)
@@ -302,6 +301,8 @@ extension AppController {
         if let title = op(gtk_label_new(ask.title)) {
             gtk_label_set_xalign(title, 0)
             gtk_label_set_wrap(title, 1)
+            gtk_label_set_wrap_mode(title, PANGO_WRAP_WORD_CHAR)
+            gtk_label_set_max_width_chars(title, 48)
             gtk_widget_add_css_class(W(title), "heading")
             if ask.style == .terminal { gtk_widget_add_css_class(W(title), "monospace") }
             gtk_box_append(cast(content), W(title))
@@ -309,6 +310,8 @@ extension AppController {
         if let message = ask.message, !message.isEmpty, let label = op(gtk_label_new(message)) {
             gtk_label_set_xalign(label, 0)
             gtk_label_set_wrap(label, 1)
+            gtk_label_set_wrap_mode(label, PANGO_WRAP_WORD_CHAR)
+            gtk_label_set_max_width_chars(label, 48)
             if ask.style == .terminal { gtk_widget_add_css_class(W(label), "monospace") }
             gtk_box_append(cast(content), W(label))
         }
@@ -333,7 +336,7 @@ extension AppController {
         }
         gtk_box_append(cast(content), W(row))
         gtk_frame_set_child(cast(frame), W(content))
-        gtk_box_append(cast(root), W(frame))
+        if ask.style == .terminal { gtk_overlay_add_overlay(root, W(frame)) } else { gtk_box_append(cast(root), W(frame)) }
         gtk_widget_set_halign(W(root), GTK_ALIGN_FILL)
         gtk_widget_set_valign(W(root), GTK_ALIGN_FILL)
         gtk_widget_set_hexpand(W(root), 1)

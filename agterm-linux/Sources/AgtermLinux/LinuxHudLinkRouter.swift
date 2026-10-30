@@ -69,7 +69,12 @@ final class LinuxHudLinkRouter {
               let hud = controller.overlaySurfaces[id], gtk_widget_get_mapped(W(hud.glArea)) != 0,
               let hit = gtk_widget_pick(W(controller.windowPointer), Double(point.x), Double(point.y), GTK_PICK_DEFAULT) else { return nil }
         let panes = [controller.surfaces[id], controller.splitSurfaces[id], controller.scratchSurfaces[id]].compactMap { $0 }
-        guard panes.contains(where: { hit == W($0.glArea) || gtk_widget_is_ancestor(hit, W($0.glArea)) != 0 }) else { return nil }
+        // The passive card also paints across the split handle; Ctrl links own that strip too.
+        let overDivider = controller.sessionPanes[id].map { paned in
+            hit == W(paned) || (gtk_widget_get_parent(hit) == W(paned)
+                && hit != gtk_paned_get_start_child(paned) && hit != gtk_paned_get_end_child(paned))
+        } ?? false
+        guard overDivider || panes.contains(where: { hit == W($0.glArea) || gtk_widget_is_ancestor(hit, W($0.glArea)) != 0 }) else { return nil }
         var source = point, local = graphene_point_t()
         guard gtk_widget_compute_point(W(controller.windowPointer), W(hud.glArea), &source, &local) != 0,
               local.x >= 0, local.y >= 0, local.x < Float(gtk_widget_get_width(W(hud.glArea))),

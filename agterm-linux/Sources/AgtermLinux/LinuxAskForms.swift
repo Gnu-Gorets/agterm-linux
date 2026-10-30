@@ -100,10 +100,13 @@ extension AppController {
         gtk_scrolled_window_set_policy(scroller, GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC)
         gtk_scrolled_window_set_max_content_height(scroller, 320)
         gtk_scrolled_window_set_propagate_natural_height(scroller, 1)
+        gtk_scrolled_window_set_max_content_width(scroller, 480)
+        gtk_scrolled_window_set_propagate_natural_width(scroller, 1)
         let body = op(gtk_box_new(GTK_ORIENTATION_VERTICAL, 8))!
         switch form {
         case .input(let input):
             if input.mode == .multiline {
+                gtk_scrolled_window_set_has_frame(scroller, 1)
                 let editor = op(gtk_text_view_new())!
                 let buffer = OpaquePointer(gtk_text_view_get_buffer(cast(editor)))!
                 gtk_text_view_set_wrap_mode(cast(editor), GTK_WRAP_WORD_CHAR)
@@ -123,7 +126,13 @@ extension AppController {
             }
         case .choices(let list):
             for (index, choice) in list.choices.enumerated() {
-                let button = op(gtk_check_button_new_with_label(choice.label))!
+                let button = op(gtk_check_button_new())!
+                let label = op(gtk_label_new(choice.label))!
+                gtk_label_set_wrap(label, 1)
+                gtk_label_set_wrap_mode(label, PANGO_WRAP_WORD_CHAR)
+                gtk_label_set_max_width_chars(label, 48)
+                gtk_label_set_xalign(label, 0)
+                gtk_check_button_set_child(cast(button), W(label))
                 if !list.multiple, let first = widgets.choices.first { gtk_check_button_set_group(cast(button), cast(first)) }
                 gtk_widget_set_name(W(button), "ask-choice-\(index)")
                 widgets.choices.append(button)

@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 
 import gi
 
@@ -46,7 +47,7 @@ def collect(node, role=None, name=None, out=None):
         node_name = node.get_name() or ""
         node_role = node.get_role_name()
         role_matches = role is None or node_role == role or (
-            role == "button" and node_role == "push button"
+            role in ("button", "push button") and node_role in ("button", "push button")
         )
         if role_matches and (name is None or node_name == name):
             out.append(node)
@@ -7443,7 +7444,7 @@ def main():
     if scenario is None:
         failures = []
         for child_scenario in (
-            "normal", "upstream-controls", "upstream-v0391", "remote-v0391", "html-overlay", "live-restart", "live-fish-restart",
+            "normal", "upstream-controls", "upstream-v0391", "remote-v0391", "html-overlay", "overlay-visual", "live-restart", "live-fish-restart",
             "dashboard-modal", "context-menu",
             "window-key-dispatch",
             "split-exit", "split-primary-exit", "window-ownership", "preferences-pages",
@@ -7462,7 +7463,7 @@ def main():
             "sidebar-incremental",
             "sidebar-multiselect",
             "chrome-focus-buttons", "chrome-focus-sidebar", "chrome-focus-popovers",
-            "recent-clear", "control-picker", "control-ask", "auto-follow", "hidden-toolbar", "desktop-actions",
+            "recent-clear", "control-picker", "control-ask", "ask-visual", "palette-lifecycle", "auto-follow", "hidden-toolbar", "desktop-actions",
             "theme-many-sessions",
         ):
             child_env = dict(os.environ, AGTERM_ATSPI_SCENARIO=child_scenario)
@@ -7537,6 +7538,9 @@ def main():
             verify_html_overlay(env, state)
             from atspi_html_v0351 import verify_html_v0351
             verify_html_v0351(env, state)
+        elif scenario == "overlay-visual":
+            from atspi_overlay_visual import verify_overlay_visual
+            verify_overlay_visual(env, state)
         elif scenario in ("live-restart", "live-fish-restart"):
             from atspi_restart_v0351 import verify_restart_v0351
             if scenario == "live-fish-restart":
@@ -7544,6 +7548,12 @@ def main():
             verify_restart_v0351(env, state)
         elif scenario == "control-ask":
             verify_control_ask(env)
+        elif scenario == "ask-visual":
+            from atspi_ask_visual import verify_ask_visual
+            verify_ask_visual(env, state)
+        elif scenario == "palette-lifecycle":
+            from atspi_palette_lifecycle import verify_palette_lifecycle
+            verify_palette_lifecycle(env)
         elif scenario == "dashboard-modal":
             verify_dashboard_modal(env)
         elif scenario == "context-menu":
@@ -7645,6 +7655,7 @@ def main():
         print(f"PASS: {scenario}")
         return 0
     except (AssertionError, subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError, ValueError) as error:
+        traceback.print_exc()
         print(f"FAIL: {error}")
         return 1
     finally:

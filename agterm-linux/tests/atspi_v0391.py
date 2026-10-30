@@ -119,10 +119,13 @@ def verify_v0391(env, state):
         panel = wait_for(hud_panel, "HUD panel has no accessible bounds")
         time.sleep(0.5)  # Let the real HUD helper write its OSC-8 link into the terminal.
         height = window_extents(panel).height
-        for offset in [0, -height // 2 + 12, -height // 2 + 24, -height // 2 + 36]:
+        for offset in [0, 4, 8, 12, -height // 2 + 12, -height // 2 + 24, -height // 2 + 36]:
             mouse_click(hud_panel, process.pid, button="left", modifier="ctrl", dy=offset)
             if os.path.exists(capture):
                 break
+        if not os.path.exists(capture) and os.environ.get("AGTERM_UI_ARTIFACT_DIR"):
+            from x11_capture import capture as capture_pixels
+            capture_pixels(os.path.join(os.environ["AGTERM_UI_ARTIFACT_DIR"], "hud-link-failure.png"))
         wait_for(lambda: os.path.exists(capture), "Ctrl-click did not open the passive HUD's Markdown link")
         with open(capture, encoding="utf-8") as file:
             assert file.read() == "https://example.invalid/hud-link"

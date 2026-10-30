@@ -341,6 +341,7 @@ let appCSS = """
     .agterm-switcher-dim { background-color: alpha(#000000, 0.2); }
     .agterm-switcher-row { padding: 6px 12px; border-radius: 6px; }
     .agterm-ask-shaded { background-color: rgba(0, 0, 0, 0.2); }
+    .agterm-ask-panel { background-color: @dialog_bg_color; color: @dialog_fg_color; }
     .agterm-switcher-row.agterm-switcher-current { background-color: alpha(@popover_fg_color, 0.14); }  /* default theme; windowThemeCSS overrides */
     .agterm-hud-frameless { border: none; border-radius: 0; box-shadow: none; }
     .agterm-gl-error, .agterm-surface-error { color: #ffffff; background-color: alpha(#1e2228, 0.96); padding: 24px; border-radius: 10px; border: 1px solid alpha(#e5a50a, 0.5); }

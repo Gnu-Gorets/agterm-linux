@@ -28,5 +28,10 @@ extension AppController {
         gtk_widget_set_margin_end(root, right)
         gtk_widget_set_margin_top(root, top)
         gtk_widget_set_margin_bottom(root, bottom)
+        if let width = session.askPending?.width, let host = askHost(for: session),
+           let frame = gtk_widget_get_first_child(root) {
+            let span = max(0, gtk_widget_get_width(W(host)) - left - right)
+            gtk_widget_set_size_request(frame, max(0, span * Int32(width) / 100 - 32), -1)
+        }
     }
 }

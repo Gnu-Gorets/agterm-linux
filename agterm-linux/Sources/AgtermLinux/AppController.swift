@@ -880,7 +880,7 @@ final class AppController {
 
     /// Bundled ghostty theme names (the file names in the resolved themes dir).
     nonisolated static func bundledThemes() -> [String] {
-        var names = themesDir().map { ThemeCatalog.names(in: $0) } ?? []
+        var names = themesDir().map { ThemeCatalog.names(in: $0).filter { $0 != ".agterm-resource-manifest" } } ?? []
         if !names.contains(AppSettings.defaultTheme) {
             names.append(AppSettings.defaultTheme)
         }

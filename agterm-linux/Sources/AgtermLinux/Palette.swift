@@ -381,8 +381,9 @@ extension AppController {
         gtk_window_destroy(WIN(win))
     }
 
-    func paletteWasDestroyed() {
-        guard paletteWindow != nil else { return }
+    func paletteWasDestroyed(_ window: OpaquePointer?) {
+        // An action can open another palette before the old key callback releases its window.
+        guard paletteWindow == window else { return }
         paletteWindow = nil
         paletteList = nil
         paletteItems = []
@@ -441,9 +442,9 @@ private let onPaletteKey: @MainActor @convention(c) (OpaquePointer?, UInt32, UIn
     default: return 0
     }
 }
-private let onPaletteDestroyed: @MainActor @convention(c) (OpaquePointer?, gpointer?) -> Void = { _, data in
+private let onPaletteDestroyed: @MainActor @convention(c) (OpaquePointer?, gpointer?) -> Void = { window, data in
     guard let data else { return }
     MainActor.assumeIsolated {
-        Unmanaged<AppController>.fromOpaque(data).takeRetainedValue().paletteWasDestroyed()
+        Unmanaged<AppController>.fromOpaque(data).takeRetainedValue().paletteWasDestroyed(window)
     }
 }

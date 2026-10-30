@@ -808,7 +808,7 @@ extension AppController {
         for (id, frame) in floatingOverlayFrames {
             let visible = Self.floatingOverlayVisible(
                 sessionID: id, activeID: activeID,
-                overlayActive: store.session(withID: id)?.overlayActive == true,
+                overlayActive: store.session(withID: id).map { $0.overlayActive && ($0.hudActive || $0.sessionSlotShown) } == true,
                 zoomTarget: terminalZoom.target)
             gtk_widget_set_visible(W(frame), visible ? 1 : 0)
         }
