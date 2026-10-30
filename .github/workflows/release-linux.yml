@@ -85,7 +85,7 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends \
             libgtk-4-dev libadwaita-1-dev libwebkitgtk-6.0-dev libepoxy-dev pkg-config \
-            librsvg2-dev libgirepository1.0-dev gobject-introspection \
+            librsvg2-dev librsvg2-common libgirepository1.0-dev gobject-introspection \
             git curl jq ca-certificates xz-utils unzip zsh fish gcc file imagemagick ripgrep \
             rpm cpio desktop-file-utils patchelf ncurses-bin \
             at-spi2-core dbus-x11 gir1.2-atspi-2.0 openbox python3-gi xdotool xvfb xauth \

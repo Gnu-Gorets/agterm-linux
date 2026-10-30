@@ -44,6 +44,7 @@ overrides:
       - libadwaita-1-0 (>= 1.5)
       - libwebkitgtk-6.0-4
       - libepoxy0
+      - librsvg2-common
   rpm:
     depends:
       - bash

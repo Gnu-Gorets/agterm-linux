@@ -94,6 +94,7 @@ verify_payload "$WORK/tar/agterm-linux"
 [[ "$(dpkg-deb -f "$DEB" Version)" == "$PACKAGE_VERSION-1" ]]
 dpkg-deb -f "$DEB" Depends | grep -Fq 'libwebkitgtk-6.0-4'
 dpkg-deb -f "$DEB" Depends | grep -Fq 'python3'
+dpkg-deb -f "$DEB" Depends | grep -Fq 'librsvg2-common'
 dpkg-deb -x "$DEB" "$WORK/deb"
 verify_payload "$WORK/deb/opt/agterm-linux"
 [[ "$(readlink "$WORK/deb/usr/bin/agterm-linux")" == '/opt/agterm-linux/bin/agterm-linux' ]]
