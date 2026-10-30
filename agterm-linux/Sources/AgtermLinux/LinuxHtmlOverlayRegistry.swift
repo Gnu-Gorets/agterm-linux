@@ -138,7 +138,8 @@ final class LinuxHtmlOverlayRegistry {
     func serve(_ request: OpaquePointer?) {
         guard let request, let pointer = webkit_uri_scheme_request_get_uri(request),
               let uri = URLComponents(string: String(cString: pointer)),
-              let host = uri.host, let id = UUID(uuidString: host), let page = pages[id] else {
+              let host = uri.host, let id = UUID(uuidString: host), let page = pages[id],
+              webkit_uri_scheme_request_get_web_view(request).map({ UnsafeMutableRawPointer($0) }) == RAW(page.webView) else {
             if let request { agterm_uri_scheme_deny(request) }
             return
         }

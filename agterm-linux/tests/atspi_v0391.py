@@ -134,10 +134,23 @@ def verify_v0391(env, state):
         page_path = os.path.join(state, "companion.html")
         with open(page_path, "w", encoding="utf-8") as page:
             page.write("<!doctype html><title>Companion page</title><p>Page without a shell</p>")
-        page_row = request("session.companion.page", parent, {"html": page_path, "follow": True})["id"]
+        page_row = request("session.companion.page", parent, {"html": page_path, "cwd": state, "follow": True})["id"]
         wait_for(lambda: row(page_row).get("htmlOverlays", [{}])[0].get("state") == "loaded", "page companion did not load")
         assert row(page_row)["content"] == "page" and not row(page_row)["realized"] and all(not surface["visible"] for surface in row(page_row).get("surfaces", [])), row(page_row)
         request("session.select", parent)
+        other_page = row(page_row)["htmlOverlays"][0]["id"].lower()
+        with open(os.path.join(state, "private.js"), "w", encoding="utf-8") as file:
+            file.write('document.title="Cross-page grant leaked";')
+        probe = os.path.join(state, "grant-probe.html")
+        with open(probe, "w", encoding="utf-8") as file:
+            file.write('<!doctype html><title>Checking grant</title><script>let s=document.createElement("script");'
+                       's.onerror=()=>document.title="Cross-page grant denied";'
+                       's.src="agterm-file://' + other_page + '/private.js";document.head.append(s);</script>')
+        request("session.overlay.open", parent, {"html": probe, "javascript": True})
+        wait_for(lambda: row(parent)["htmlOverlays"][0].get("title") in ("Cross-page grant leaked", "Cross-page grant denied"),
+                 "cross-page grant probe did not finish")
+        assert row(parent)["htmlOverlays"][0]["title"] == "Cross-page grant denied", "a page read another page's resource grant"
+        request("session.overlay.close", parent)
 
         for mode, text in [("line", "Привет café"), ("multiline", "first\nsecond\tline")]:
             ask = request("ask.open", parent, {"title": "Form " + mode, "style": "gui", "input": mode, "value": "before"})["id"]
