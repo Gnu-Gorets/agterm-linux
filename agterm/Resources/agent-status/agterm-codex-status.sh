@@ -139,7 +139,10 @@ case "$action" in
     # events would leave the pane active and replace the foreground watcher. it is ephemeral, so its
     # transcript_path is null, which plutil types as "(any)". foreground ephemeral sessions lose
     # these updates too.
-    if [ -x /usr/bin/plutil ]; then
+    # Some plutil implementations reject JSON null. Probe separately so a failed parser does not
+    # consume the event before the Python/jq fallback can filter memory-thread hooks.
+    if [ -x /usr/bin/plutil ] && \
+      [ "$(printf '%s' '{"transcript_path":null}' | /usr/bin/plutil -type transcript_path - 2>/dev/null)" = "(any)" ]; then
       [ "$(/usr/bin/plutil -type transcript_path - 2>/dev/null)" = "(any)" ] && exit 0
     elif command -v python3 >/dev/null 2>&1; then
       python3 -c 'import json, sys; sys.exit(0 if json.load(sys.stdin).get("transcript_path", False) is None else 1)' 2>/dev/null && exit 0
