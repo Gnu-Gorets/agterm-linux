@@ -36,6 +36,31 @@ struct OverlayCommandsTests {
         #expect(withToolbar.args?.javascript == true)
     }
 
+    @Test func openAndResizeSendPointSizes() throws {
+        let open = try request(["session", "overlay", "open", "--html", "/tmp/r.html", "--size-percent", "60",
+                                "--width", "700", "--height", "240"])
+        #expect(open.args?.sizePercent == 60)
+        #expect(open.args?.width == 700)
+        #expect(open.args?.height == 240)
+        let resize = try request(["session", "overlay", "resize", "--height", "300", "--target", "s"])
+        #expect(resize.cmd == .sessionOverlayResize)
+        #expect(resize.target == "s")
+        #expect(resize.args?.height == 300)
+        #expect(resize.args?.width == nil)
+        #expect(resize.args?.sizePercent == nil)
+    }
+
+    @Test(arguments: [
+        ["session", "overlay", "open", "--html", "/tmp/r.html", "--height", "240"],
+        ["session", "overlay", "open", "cat", "--size-percent", "60", "--width", "0"],
+        ["session", "overlay", "open", "cat", "--pane", "right", "--height", "240"],
+        ["session", "overlay", "resize", "--full", "--height", "240"],
+        ["session", "overlay", "resize", "--width", "-1"],
+    ])
+    func pointSizesAreRefusedBeforeAnyConnection(argv: [String]) {
+        #expect(rejects(argv))
+    }
+
     @Test func aRelativePageResolvesAgainstTheCallersDirectory() throws {
         let req = try request(["session", "overlay", "open", "--html", "out/r.html", "--cwd", "out"])
         let cwd = FileManager.default.currentDirectoryPath
@@ -58,9 +83,31 @@ struct OverlayCommandsTests {
         #expect(rejects(["browser", "clear", "--window", "w1"]))
     }
 
+    @Test func urlOpenSendsBrowseOnlyWhenAsked() throws {
+        #expect(try request(["session", "overlay", "open", "--url", "http://localhost:5173/"]).args?.browse == nil)
+        let req = try request(["session", "overlay", "open", "--url", "http://localhost:5173/", "--browse", "--js",
+                               "--navigation", "--persistent"])
+        #expect(req.args?.browse == true)
+        #expect(req.args?.javascript == true)
+        #expect(req.args?.navigation == true)
+        #expect(req.args?.persistent == true)
+    }
+
     @Test func urlOpenSendsPersistent() throws {
         let req = try request(["session", "overlay", "open", "--url", "http://localhost:5173/", "--persistent"])
         #expect(req.args?.persistent == true)
+    }
+
+    @Test(arguments: ["http://127.0.0.1:8792/", "http://[::1]:8792/", "http://localhost:5173/"])
+    func urlOpenSendsChromelessForALoopbackHost(_ url: String) throws {
+        let req = try request(["session", "overlay", "open", "--url", url, "--chromeless", "--js", "--persistent"])
+        #expect(req.args?.url == url)
+        #expect(req.args?.chromeless == true)
+    }
+
+    @Test func aMalformedChromelessUrlIsLeftForTheServerToName() throws {
+        let req = try request(["session", "overlay", "open", "--url", "localhost:5173", "--chromeless"])
+        #expect(req.args?.url == "localhost:5173")
     }
 
     @Test func aProgramOpenLeavesItsCwdAsTyped() throws {
@@ -78,10 +125,15 @@ struct OverlayCommandsTests {
         ["session", "overlay", "open", "revdiff", "--navigation"],
         ["session", "overlay", "open", "revdiff", "--js"],
         ["session", "overlay", "open", "revdiff", "--chromeless"],
-        ["session", "overlay", "open", "--url", "http://localhost:5173/", "--chromeless"],
+        ["session", "overlay", "open", "--url", "http://example.com/", "--chromeless"],
+        ["session", "overlay", "open", "--url", "http://127.0.0.2:8792/", "--chromeless"],
+        ["session", "overlay", "open", "--url", "http://localhost:5173/", "--chromeless", "--browse"],
+        ["session", "overlay", "open", "--url", "http://localhost:5173/", "--chromeless", "--navigation"],
         ["session", "overlay", "open", "--html", "/tmp/r.html", "--chromeless", "--navigation"],
         ["session", "overlay", "open", "revdiff", "--persistent"],
         ["session", "overlay", "open", "--html", "/tmp/r.html", "--persistent"],
+        ["session", "overlay", "open", "revdiff", "--browse"],
+        ["session", "overlay", "open", "--html", "/tmp/r.html", "--browse"],
         ["session", "overlay", "open", "revdiff", "--url", "http://localhost:5173/"],
         ["session", "overlay", "open", "--html", "/tmp/r.html", "--url", "http://localhost:5173/"],
         ["session", "overlay", "open", "--url", "http://localhost:5173/", "--wait"],
@@ -222,5 +274,28 @@ struct OverlayCommandsTests {
         #expect(navigate.contains("finder (file pages only)"))
         let open = Session.Overlay.Open.helpMessage(columns: 200)
         #expect(open.contains("Show in Finder or Copy Link"))
+    }
+
+    @Test(arguments: [("hide", Command.sessionOverlayHide), ("show", .sessionOverlayShow), ("toggle", .sessionOverlayToggle)])
+    func visibilityCommandsSendTheirCommandPaneAndTarget(_ verb: String, _ cmd: Command) throws {
+        let whole = try request(["session", "overlay", verb, "--target", "s"])
+        #expect(whole.cmd == cmd)
+        #expect(whole.target == "s")
+        #expect(whole.args?.pane == nil)
+
+        let pane = try request(["session", "overlay", verb, "--pane", "right", "--window", "w"])
+        #expect(pane.args?.pane == "right")
+        #expect(pane.args?.window == "w")
+        #expect(rejects(["session", "overlay", verb, "--pane", "scratch"]))
+    }
+
+    @Test func visibilityHelpStatesTheSessionScopeAndTheToggleRule() {
+        let helps = [Session.Overlay.Hide.helpMessage(columns: 400), Session.Overlay.Show.helpMessage(columns: 400),
+                     Session.Overlay.Toggle.helpMessage(columns: 400)]
+        for help in helps {
+            #expect(help.contains("every overlay of the session"))
+            #expect(help.contains("--pane"))
+        }
+        #expect(helps[2].contains("if any is shown, otherwise show them all"))
     }
 }

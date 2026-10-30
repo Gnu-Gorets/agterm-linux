@@ -43,6 +43,39 @@ final class ZmxLiveUITests: ControlAPITestCase {
                        "the create-only payload must run exactly once")
     }
 
+    func testACommandSessionClosesWhenItsCommandExitsAndHoldsWithWait() throws {
+        _ = try activeSessionID()
+        let closing = try sendCommand(String(decoding: try JSONSerialization.data(withJSONObject: [
+            "cmd": "session.new", "args": ["command": "sleep 1"],
+        ]), as: UTF8.self))
+        let closingID = try XCTUnwrap((closing["result"] as? [String: Any])?["id"] as? String)
+        XCTAssertTrue(poll(until: (try? self.sessionNodeIfPresent(id: closingID)) == nil, timeout: 20),
+                      "a Live --command session should close when its command exits, as it does outside Live")
+
+        let holding = try sendCommand(String(decoding: try JSONSerialization.data(withJSONObject: [
+            "cmd": "session.new", "args": ["command": "echo held-output; sleep 1", "wait": true],
+        ]), as: UTF8.self))
+        let holdingID = try XCTUnwrap((holding["result"] as? [String: Any])?["id"] as? String)
+        XCTAssertTrue(poll(until: self.paneText(holdingID).contains("held-output"), timeout: 20))
+        RunLoop.current.run(until: Date().addingTimeInterval(4))
+        XCTAssertNotNil(try sessionNodeIfPresent(id: holdingID), "--wait should hold the exited command's output")
+    }
+
+    func testALiveParentWhoseShellExitsRespawnsAndTakesInput() throws {
+        let parent = try activeSessionID()
+        let created = try sendCommand(#"{"cmd":"session.companion.new","target":"\#(parent)","args":{"noSelect":true}}"#)
+        XCTAssertEqual(created["ok"] as? Bool, true, "\(created)")
+        let marker = stateDir.appendingPathComponent("live-respawn.marker")
+
+        XCTAssertEqual(try sendCommand(typeRequest(text: "exit\n", target: parent, select: false))["ok"] as? Bool, true)
+        RunLoop.current.run(until: Date().addingTimeInterval(3))
+
+        XCTAssertNotNil(try sessionNodeIfPresent(id: parent), "a Live parent with companions survives its shell's exit")
+        XCTAssertEqual(try typeUntilMarker("echo alive > '\(marker.path)'\n", target: parent, file: marker, select: false), "alive")
+        XCTAssertTrue(poll(until: self.isBacked(parent, expectedPanes: ["left"]), timeout: 20),
+                      "the respawned Live pane is daemon-backed again")
+    }
+
     func testRestartReplacesTheShellEndsItsProgramAndKeepsThePane() throws {
         let sessionID = try activeSessionID()
         XCTAssertTrue(poll(until: self.isBacked(sessionID, expectedPanes: ["left"]), timeout: 20))
@@ -88,6 +121,31 @@ final class ZmxLiveUITests: ControlAPITestCase {
         XCTAssertEqual(refused["error"] as? String, "unknown pane id: \(unknown)")
     }
 
+    func testRestartWithoutACommandRunsTheLastRestartedProgramAgain() throws {
+        let sessionID = try activeSessionID()
+        XCTAssertTrue(poll(until: self.isBacked(sessionID, expectedPanes: ["left"]), timeout: 20))
+        let paneID = try XCTUnwrap(paneID(sessionID, kind: "left"))
+        let marker = stateDir.appendingPathComponent("replay runs.txt")
+        let work = stateDir.appendingPathComponent("work dir", isDirectory: true)
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        let script = "pwd -P >> '\(marker.path)'; sleep 600; :"
+        _ = try restart(sessionID, paneID: paneID, command: "cd '\(work.path)' && sh -c \"\(script)\"")
+        XCTAssertTrue(poll(until: (try? String(contentsOf: marker, encoding: .utf8))?.hasSuffix("/work dir\n") == true, timeout: 20))
+        let ran = try String(contentsOf: marker, encoding: .utf8)
+
+        let request = try JSONSerialization.data(withJSONObject: [
+            "cmd": "session.restart", "target": sessionID, "args": ["paneID": paneID],
+        ])
+        let response = try sendCommand(String(decoding: request, as: UTF8.self))
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "\(response)")
+        let receipt = try XCTUnwrap((response["result"] as? [String: Any])?["restart"] as? [String: Any])
+        XCTAssertEqual(receipt["replayedArgv"] as? [String], ["sh", "-c", script])
+        XCTAssertTrue(poll(until: (try? String(contentsOf: marker, encoding: .utf8)) == ran + ran, timeout: 20),
+                      "the replay should run the restarted program where it was running, quoting intact")
+        XCTAssertEqual(self.paneID(sessionID, kind: "left"), paneID)
+    }
+
     private func restart(_ sessionID: String, paneID: String, command: String) throws -> (oldPid: Int, newPid: Int) {
         let request = try JSONSerialization.data(withJSONObject: [
             "cmd": "session.restart", "target": sessionID, "args": ["command": command, "paneID": paneID],
@@ -98,6 +156,11 @@ final class ZmxLiveUITests: ControlAPITestCase {
         let receipt = try XCTUnwrap(result["restart"] as? [String: Any])
         XCTAssertEqual(receipt["paneID"] as? String, paneID)
         return (try XCTUnwrap(receipt["oldPid"] as? Int), try XCTUnwrap(receipt["newPid"] as? Int))
+    }
+
+    private func paneText(_ sessionID: String) -> String {
+        let response = try? sendCommand(#"{"cmd":"session.text","target":"\#(sessionID)","args":{"pane":"left"}}"#)
+        return ((response?["result"] as? [String: Any])?["text"] as? String) ?? ""
     }
 
     private func paneID(_ sessionID: String, kind: String) -> String? {

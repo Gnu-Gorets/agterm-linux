@@ -20,6 +20,20 @@ final class SidebarCellView: NSTableCellView {
     /// Agent-status glyph fed from the session's `agentIndicator`; hidden on `.idle` (workspace rows always idle).
     let statusIcon = StatusIconView()
 
+    /// companionMarker shows on a folded parent whose hidden companions need attention, beside the parent's own
+    /// status glyph rather than replacing it; session cells only.
+    var companionMarker: NSImageView?
+    var companionMarkerWidthConstraint: NSLayoutConstraint?
+
+    func setCompanionMarker(_ companions: [String]) {
+        guard let companionMarker, let companionMarkerWidthConstraint else { return }
+        companionMarker.isHidden = companions.isEmpty
+        companionMarkerWidthConstraint.constant = companions.isEmpty ? 0 : 14
+        let label = companions.isEmpty ? nil : "companions need attention: " + companions.joined(separator: ", ")
+        companionMarker.setAccessibilityLabel(label)
+        companionMarker.toolTip = label
+    }
+
     /// Inline "+" button between the name and the status icon, workspace cells only (nil for session cells).
     /// Set by the cell builder; `handleSingleClick` reads it to avoid toggling expansion on a click on it.
     var addButton: NSButton?
@@ -29,6 +43,11 @@ final class SidebarCellView: NSTableCellView {
     var addButtonWidthConstraint: NSLayoutConstraint?
 
     private static let addButtonWidth: CGFloat = 16
+
+    /// The row's tint, applied by `setColors` so a selection change keeps it; nil restores the theme colors.
+    var tint: SidebarTint? {
+        didSet { imageView?.setAccessibilityValue(tint.map { "\($0.color.rawValue) tint" }) }
+    }
     private var hoverTrackingArea: NSTrackingArea?
 
     /// Reveals or collapses the inline "+": the Finder/Xcode hover convention, so an idle row shows no button
@@ -83,19 +102,18 @@ final class SidebarCellView: NSTableCellView {
         setAddButtonVisible(false)
     }
 
-    /// Colors row text/icon from the terminal theme: a selected row takes the selection foreground (over the
-    /// selection-background pill the row draws), or white over the soft wash when the theme exposes no
-    /// selection color; an unselected row takes the theme foreground, icons dimmed. Driven from the real
-    /// selection state, not `backgroundStyle` (AppKit flips that only while the table is first responder) —
-    /// `SidebarRowView` re-asserts it on attach and on every selection flip, the coordinator on theme changes.
+    /// setColors tints row text and icons from the theme for the row's real selection state, except the parts
+    /// a row `tint` colors, which keep it selected or not. Never drive it from `backgroundStyle`, which AppKit
+    /// flips only while the table is first responder.
     func setColors(selected: Bool) {
         let app = GhosttyApp.shared
         let color = selected
-            ? (app.terminalSelectionForegroundColor ?? .white)
+            ? (app.terminalSelectionForegroundColor ?? app.terminalForegroundColor ?? .white)
             : (app.terminalForegroundColor ?? .labelColor)
-        textField?.textColor = color
+        let tintColor = tint.map { NSColor.tint($0.color) }
+        textField?.textColor = tint?.shows(.name) == true ? tintColor : color
         let iconAlpha: CGFloat = selected ? 0.85 : 0.6
-        imageView?.contentTintColor = color.withAlphaComponent(iconAlpha)
+        imageView?.contentTintColor = tint?.shows(.icon) == true ? tintColor : color.withAlphaComponent(iconAlpha)
         addButton?.contentTintColor = color.withAlphaComponent(iconAlpha)
     }
 }
@@ -243,7 +261,6 @@ final class StatusIconView: NSImageView {
 /// moment it attaches. Otherwise pill and text color desync — and on the many themes where
 /// `foreground == selection-background` (the inverted-selection idiom), a stale tint renders the text invisible.
 final class SidebarRowView: NSTableRowView {
-    /// White-wash fallback opacity for themes with no selection color: brighter key, dimmer background.
     private static let keyAlpha: CGFloat = 0.13
     private static let inactiveAlpha: CGFloat = 0.07
 
@@ -280,7 +297,8 @@ final class SidebarRowView: NSTableRowView {
         if let selection = GhosttyApp.shared.terminalSelectionBackgroundColor {
             selection.withAlphaComponent(isEmphasized ? 1 : 0.55).setFill()
         } else {
-            NSColor(white: 1, alpha: isEmphasized ? Self.keyAlpha : Self.inactiveAlpha).setFill()
+            (GhosttyApp.shared.terminalForegroundColor ?? .white)
+                .withAlphaComponent(isEmphasized ? Self.keyAlpha : Self.inactiveAlpha).setFill()
         }
         NSBezierPath(roundedRect: bounds.insetBy(dx: 8, dy: 1.5), xRadius: 7, yRadius: 7).fill()
     }

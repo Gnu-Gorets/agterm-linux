@@ -11,7 +11,7 @@ enum ZmxLaunch {
         let initialInput: String?
     }
 
-    private struct Runtime {
+    struct Runtime {
         let bundleURL: URL
         let environment: [String: String]
         let passwordDatabaseShell: String?
@@ -106,7 +106,7 @@ enum ZmxLaunch {
         guard case .wrapped(let configuration) = disposition else { return nil }
         let captured = session.takePendingForegroundCommand(pane: pane)
         let replay = suppressed ? nil : captured
-        let creationCommand: String? = if replay == nil, !suppressed {
+        let paneCommand: String? = if replay == nil, !suppressed {
             switch pane {
             case .left: session.initialCommand
             case .right: session.splitInitialCommand
@@ -115,7 +115,7 @@ enum ZmxLaunch {
         } else { nil }
         return SurfaceSeed(
             command: ZmxSupport.attachCommand(
-                configuration, replaying: replay, creationCommand: creationCommand, denylist: denylist
+                configuration, replaying: replay, paneCommand: paneCommand, denylist: denylist
             ),
             initialInput: nil
         )
@@ -127,8 +127,8 @@ enum ZmxLaunch {
         return value.isEmpty ? nil : value
     }
 
-    private static func configurationResult(runtime: Runtime, paneIdentity: UUID,
-                                            baseEnvironment: [String: String], lead: ZmxLeadAttachment? = nil)
+    static func configurationResult(runtime: Runtime, paneIdentity: UUID,
+                                    baseEnvironment: [String: String], lead: ZmxLeadAttachment? = nil)
         -> Result<ZmxSupport.Configuration, ZmxSupport.Rejection> {
         let bundledResources = runtime.bundleURL.appendingPathComponent("Contents/Resources/ghostty").path
         let resources = runtime.environment["GHOSTTY_RESOURCES_DIR"].flatMap { $0.isEmpty ? nil : $0 }

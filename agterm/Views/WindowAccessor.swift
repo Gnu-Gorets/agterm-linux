@@ -123,7 +123,7 @@ struct WindowAccessor: NSViewRepresentable {
                          NSWindow.didResignKeyNotification, NSWindow.didResignMainNotification,
                          NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
                 // the @Sendable observer block can't touch main-actor state directly; hop through the main queue.
-                let token = NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [windowID] notification in
+                let token = NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self, windowID] notification in
                     let becameFrontmost = frontmostNames.contains(notification.name)
                     DispatchQueue.main.async { [weak self] in
                         guard let self, let window = self.window else { return }
@@ -197,7 +197,7 @@ struct WindowAccessor: NSViewRepresentable {
             titlebarObservers.append(closeToken)
             // a settings theme change updates GhosttyApp.terminalBackgroundColor; re-apply so the title bar
             // and transparent sidebar pick up the new window color live, not on the next re-key.
-            let appearanceToken = NotificationCenter.default.addObserver(forName: .agtermAppearanceChanged, object: nil, queue: .main) { _ in
+            let appearanceToken = NotificationCenter.default.addObserver(forName: .agtermAppearanceChanged, object: nil, queue: .main) { [weak self] _ in
                 DispatchQueue.main.async { [weak self] in
                     guard let self, let window = self.window else { return }
                     self.applyTitlebarBlend(window)
@@ -342,7 +342,8 @@ struct WindowAccessor: NSViewRepresentable {
             WindowAppearance.sync(window: window, background: background,
                                   chrome: .init(opacity: GhosttyApp.shared.windowOpacity,
                                                 blurRadius: GhosttyApp.shared.windowBlurRadius,
-                                                toolbarMode: GhosttyApp.shared.toolbarMode))
+                                                toolbarMode: GhosttyApp.shared.toolbarMode,
+                                                reduceTransparency: GhosttyApp.shared.windowReducesTransparency))
         }
     }
 }
@@ -392,7 +393,8 @@ private final class WindowCloseDelegateProxy: NSObject, NSWindowDelegate {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "Close \u{201C}\(name)\u{201D}?"
-        alert.informativeText = "This ends \(count) running session\(count == 1 ? "" : "s"). The window can be reopened from File ▸ Open Window."
+        alert.informativeText = QuitPrompt.windowCloseMessage(sessions: count,
+                                                              mode: GhosttyApp.shared.restoreLaunchDecision.active)
         alert.addButton(withTitle: "Close")
         alert.addButton(withTitle: "Cancel")
         alert.beginSheetModal(for: sender) { [weak self, weak sender] response in

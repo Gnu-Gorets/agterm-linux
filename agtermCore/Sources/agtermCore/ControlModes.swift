@@ -91,12 +91,14 @@ public enum ControlSidebarViewMode: Equatable, Sendable {
 /// Parsed layout for `sidebar.flagged-layout`.
 public enum ControlFlaggedLayoutMode: Equatable, Sendable {
     case flat
+    case plain
     case tree
     case toggle
 
     public static func parse(_ mode: String?) -> ControlFlaggedLayoutMode? {
         switch mode ?? "toggle" {
         case "flat": return .flat
+        case "plain": return .plain
         case "tree": return .tree
         case "toggle": return .toggle
         default: return nil
@@ -299,5 +301,22 @@ public struct ControlSessionRestoreUpdate: Equatable, Sendable {
         self.pin = pin
         self.pane = pane
         self.paneID = paneID
+    }
+}
+
+/// ControlTintUpdate is a parsed `session.tint`/`workspace.tint` request: a color with optional parts, or a
+/// clear.
+public enum ControlTintUpdate: Equatable, Sendable {
+    case set(TintColor, parts: Set<TintPart>?)
+    case clear
+
+    /// resolved is the tint this update leaves on a row that has `current`: a set without parts keeps the
+    /// row's own parts, starting at the icon.
+    public func resolved(over current: SidebarTint?) -> SidebarTint? {
+        switch self {
+        case .clear: nil
+        case let .set(color, parts?): SidebarTint(color: color, parts: parts)
+        case let .set(color, nil): SidebarTint.recolor(current, to: color)
+        }
     }
 }

@@ -55,8 +55,9 @@ extension ControlServer {
         let want: FlaggedViewLayout
         switch mode {
         case .flat: want = .flat
+        case .plain: want = .plain
         case .tree: want = .tree
-        case .toggle: want = current == .flat ? .tree : .flat
+        case .toggle: want = current == .tree ? .flat : .tree
         }
         settingsModel.setFlaggedViewLayout(want)
         return ControlResponse(ok: true, result: ControlResult(text: want.rawValue))
@@ -138,6 +139,12 @@ extension ControlServer {
         return ControlResponse(ok: true)
     }
 
+    /// Writes through the `SettingsModel` setter the Settings picker uses; the text is the effective mode.
+    func linkOpenMode(_ mode: LinkOpenMode?) -> ControlResponse {
+        if let mode { settingsModel.setLinkOpenMode(mode) }
+        return ControlResponse(ok: true, result: ControlResult(text: settingsModel.settings.effectiveLinkOpenMode.rawValue))
+    }
+
     func reloadHooks() -> ControlResponse {
         settingsModel.reloadHooks()
         return ControlResponse(ok: true, result: ControlResult(count: settingsModel.hooksDiagnostics.count))
@@ -154,7 +161,8 @@ extension ControlServer {
     /// open, which is what makes it usable as a preflight from a keymap-launched script — those inherit the
     /// app's launchd environment and so carry no `TERM_PROGRAM_VERSION`.
     func appIdentity() -> ControlResponse {
-        ControlResponse(ok: true, result: ControlResult(app: identity))
+        ControlResponse(ok: true, result: ControlResult(app: identity,
+                                                        installed: AppIdentity.installed(bundleURL: bundleURL)))
     }
 
     /// Every menu-bar item carrying a key equivalent, in the same kitty syntax the keymap uses so a caller can

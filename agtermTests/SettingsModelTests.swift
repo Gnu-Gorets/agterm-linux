@@ -56,6 +56,21 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertEqual(HtmlOverlayRegistry.shared.zoom, 1.5)
     }
 
+    func testSetTerminalInputSourcePersistsAndOffRemovesTheKey() {
+        model.setTerminalInputSource("test.source.not-enabled")
+        XCTAssertEqual(SettingsStore(directory: stateDir).load().terminalInputSource, "test.source.not-enabled")
+        model.setTerminalInputSource(nil)
+        XCTAssertNil(SettingsStore(directory: stateDir).load().terminalInputSource)
+    }
+
+    func testSetLinkOpenModePersistsAndTheDefaultRemovesTheKey() {
+        model.setLinkOpenMode(.overlay)
+        XCTAssertEqual(model.settings.effectiveLinkOpenMode, .overlay)
+        XCTAssertEqual(SettingsStore(directory: stateDir).load().linkOpenMode, "overlay")
+        model.setLinkOpenMode(.browser)
+        XCTAssertNil(SettingsStore(directory: stateDir).load().linkOpenMode)
+    }
+
     func testSetFlaggedViewLayoutPersistsMirrorsAndBroadcasts() {
         let posted = expectation(forNotification: .agtermAppearanceChanged, object: nil)
 
@@ -64,6 +79,17 @@ final class SettingsModelTests: XCTestCase {
         wait(for: [posted], timeout: 1)
         XCTAssertEqual(GhosttyApp.shared.flaggedViewLayout, .tree)
         XCTAssertEqual(SettingsStore(directory: stateDir).load().flaggedViewLayout, "tree")
+    }
+
+    func testSetFlaggedViewLayoutReachesTheLibraryAndEveryOpenStore() throws {
+        let first = try XCTUnwrap(library.windows.first.flatMap { library.store(for: $0.id) })
+        let second = try XCTUnwrap(library.store(for: library.newWindow(name: "second").id))
+
+        model.setFlaggedViewLayout(.plain)
+
+        XCTAssertEqual(library.flaggedLayout, .plain)
+        XCTAssertEqual(first.flaggedLayout, .plain)
+        XCTAssertEqual(second.flaggedLayout, .plain)
     }
 
     func testSetFlaggedViewLayoutBackToFlatClearsTheStoredField() {

@@ -85,6 +85,7 @@ session drag are out of scope.
   The reason is an attribute, not a param, despite `AERegistry.h` calling it a parameter: loginwindow
   writes it with `AEPutAttributePtr`. Never switch that read to `paramDescriptor`.
   The GUI-only prompt is keep-in-sync exempt and manually verified.
+- The window-close sheet takes its text from `QuitPrompt.windowCloseMessage` under the same mode rule.
 - A confirmed Live sessions reset (`LiveResetCoordinator.pending`) skips the quit alert, since its own
   dialog or `zmx.reset --force` was the confirmation. `AppDelegate.exitFlush` fixes the order: capture,
   finalize pending closes, then the CHECKED save; only a fully saved snapshot arms the marker and the
@@ -211,6 +212,12 @@ session drag are out of scope.
   A connected client waits up to 30 seconds for its turn before falling back to a bare attach,
   so a long enough queue of creations still yields an `app` pane.
 - Fresh shells and Re-run never stop a live host.
+- The host's files live under `/tmp`, where macOS deletes a regular file after three days untouched
+  (`/usr/libexec/tmp_cleaner`; sockets stay). The host touches its lock, log and pidfile at start and
+  hourly, on a clock that counts sleep, and publishes the pidfile again when it is missing or does not
+  hold the host's pid.
+  A deleted lock or log cannot be brought back, and a host started by an older build does none of this
+  until it is replaced.
 
 ## Attachment and cache
 

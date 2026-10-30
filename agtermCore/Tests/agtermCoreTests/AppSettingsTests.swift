@@ -111,6 +111,24 @@ struct AppSettingsTests {
         }
     }
 
+    @Test func ignoreReduceTransparencyDefaultsNilAndOmitsFromJSON() throws {
+        #expect(AppSettings().ignoreReduceTransparency == nil)
+        let json = String(decoding: try JSONEncoder().encode(AppSettings()), as: UTF8.self)
+        #expect(!json.contains("ignoreReduceTransparency"))
+    }
+
+    @Test func ignoreReduceTransparencyRoundTripsAndIsNotAConfigLine() throws {
+        let original = AppSettings(backgroundOpacity: 0.63, ignoreReduceTransparency: true)
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(original))
+        #expect(decoded.ignoreReduceTransparency == true)
+        #expect(original.ghosttyConfigLines() == AppSettings(backgroundOpacity: 0.63).ghosttyConfigLines())
+    }
+
+    @Test(arguments: [(false, false, false), (false, true, false), (true, false, true), (true, true, false)])
+    func windowReducesTransparencyOnlyWhenSystemIsOnAndNotIgnored(system: Bool, ignoring: Bool, expected: Bool) {
+        #expect(AppSettings.windowReducesTransparency(system: system, ignoring: ignoring) == expected)
+    }
+
     @Test func mouseScrollMultiplierAlwaysEmittedAtDefaultThree() {
         #expect(AppSettings().ghosttyConfigLines().contains("mouse-scroll-multiplier = 3"))
     }
@@ -506,6 +524,31 @@ struct AppSettingsTests {
         #expect(legacy.effectiveFlaggedViewLayout == .flat)
     }
 
+    @Test func terminalInputSourceDefaultsOffRoundTripsAndIsNotAGhosttyKey() throws {
+        #expect(AppSettings().terminalInputSource == nil)
+        let settings = AppSettings(terminalInputSource: "com.apple.keylayout.US")
+        #expect(settings.ghosttyConfigLines() == AppSettings().ghosttyConfigLines())
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(settings))
+        #expect(decoded.terminalInputSource == "com.apple.keylayout.US")
+        let legacy = try JSONDecoder().decode(AppSettings.self, from: Data(#"{ "fontSize": 16 }"#.utf8))
+        #expect(legacy.terminalInputSource == nil)
+    }
+
+    @Test func linkOpenModeDefaultsToBrowserResolvesTolerantlyAndIsNotAGhosttyKey() throws {
+        #expect(AppSettings().effectiveLinkOpenMode == .browser)
+        #expect(AppSettings(linkOpenMode: "overlay").ghosttyConfigLines() == AppSettings().ghosttyConfigLines())
+        for mode in LinkOpenMode.allCases {
+            let settings = AppSettings(linkOpenMode: mode.rawValue)
+            let decoded = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(settings))
+            #expect(decoded.linkOpenMode == mode.rawValue)
+            #expect(decoded.effectiveLinkOpenMode == mode)
+        }
+        #expect(AppSettings(linkOpenMode: "tab").effectiveLinkOpenMode == .browser)
+        let legacy = try JSONDecoder().decode(AppSettings.self, from: Data(#"{ "fontSize": 16 }"#.utf8))
+        #expect(legacy.linkOpenMode == nil)
+        #expect(legacy.effectiveLinkOpenMode == .browser)
+    }
+
     @Test func htmlOverlayZoomDefaultsToActualSizeRoundTripsAndIsNotAGhosttyKey() throws {
         #expect(AppSettings().effectiveHtmlOverlayZoom == 1)
         #expect(AppSettings(htmlOverlayZoom: 1.5).ghosttyConfigLines() == AppSettings().ghosttyConfigLines())
@@ -661,11 +704,36 @@ struct AppSettingsTests {
         #expect(original.ghosttyConfigLines() == ["mouse-scroll-multiplier = 3", "right-click-action = paste"])
     }
 
+    @Test func attentionIncludesActiveDefaultsNilAndOmitsFromJSON() throws {
+        #expect(AppSettings().attentionIncludesActive == nil)
+        let json = String(decoding: try JSONEncoder().encode(AppSettings()), as: UTF8.self)
+        #expect(!json.contains("attentionIncludesActive"))
+        let legacy = try JSONDecoder().decode(AppSettings.self, from: Data(#"{"theme":"Nord"}"#.utf8))
+        #expect(legacy.attentionIncludesActive == nil)
+    }
+
+    @Test func attentionIncludesActiveRoundTripsAndIsNotAConfigLine() throws {
+        let original = AppSettings(attentionIncludesActive: true)
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(original))
+        #expect(decoded.attentionIncludesActive == true)
+        #expect(original.ghosttyConfigLines() == AppSettings().ghosttyConfigLines())
+    }
+
+    @Test func attentionNavigationAcrossWindowsDefaultsNilAndRoundTrips() throws {
+        #expect(AppSettings().attentionNavigationAcrossWindows == nil)
+        let json = String(decoding: try JSONEncoder().encode(AppSettings()), as: UTF8.self)
+        #expect(!json.contains("attentionNavigationAcrossWindows"))
+        let original = AppSettings(attentionNavigationAcrossWindows: true)
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(original))
+        #expect(decoded.attentionNavigationAcrossWindows == true)
+        #expect(original.ghosttyConfigLines() == AppSettings().ghosttyConfigLines())
+    }
+
     @Test func hiddenInterfaceElementsDefaultsNilAndShowsEverythingNotHiddenByDefault() {
         let settings = AppSettings()
         #expect(settings.hiddenInterfaceElements == nil)
         #expect(settings.shownInterfaceElements == nil)
-        #expect(settings.resolvedHiddenInterfaceElements == [.customCommands, .workspaceName])
+        #expect(settings.resolvedHiddenInterfaceElements == [.customCommands, .workspaceName, .overlayToggle])
         for element in InterfaceElement.allCases {
             #expect(settings.isInterfaceElementHidden(element) == element.hiddenByDefault)
         }
@@ -688,6 +756,22 @@ struct AppSettingsTests {
         #expect(hidden.isInterfaceElementHidden(.remoteHost))
         #expect(!hidden.isInterfaceElementHidden(.sessionName))
         #expect(!AppSettings(hiddenInterfaceElements: ["sessionName"]).isInterfaceElementHidden(.remoteHost))
+    }
+
+    @Test func everyControlElementHasADistinctSymbolAndTextElementsHaveNone() {
+        let textOnly: Set<InterfaceElement> = [.workspaceName, .sessionName, .windowName, .sessionContext]
+        for element in InterfaceElement.allCases {
+            #expect((element.symbolName == nil) == textOnly.contains(element), "\(element)")
+        }
+        let symbols = InterfaceElement.allCases.compactMap(\.symbolName)
+        #expect(Set(symbols).count == symbols.count)
+    }
+
+    @Test func settingsOrderListsTextOnlyElementsFirst() {
+        let titleBar = InterfaceElement.settingsOrder(in: .titleBar)
+        #expect(Array(titleBar.prefix(4)) == [.workspaceName, .sessionName, .windowName, .sessionContext])
+        #expect(Array(titleBar.dropFirst(4)) == InterfaceElement.allCases.filter { $0.section == .titleBar && $0.symbolName != nil })
+        #expect(InterfaceElement.settingsOrder(in: .sidebar) == InterfaceElement.allCases.filter { $0.section == .sidebar })
     }
 
     @Test func workspaceNameIsAnOptInTitleBarInterfaceElement() throws {
@@ -736,18 +820,18 @@ struct AppSettingsTests {
     @Test func customCommandsIsAHiddenByDefaultTitleBarInterfaceElement() throws {
         #expect(InterfaceElement.customCommands.section == .titleBar)
         #expect(InterfaceElement.customCommands.displayName == "Custom commands")
-        #expect(InterfaceElement.allCases.filter(\.hiddenByDefault) == [.workspaceName, .customCommands])
+        #expect(InterfaceElement.allCases.filter(\.hiddenByDefault) == [.workspaceName, .overlayToggle, .customCommands])
         let shown = AppSettings(shownInterfaceElements: ["customCommands"])
         #expect(!shown.isInterfaceElementHidden(.customCommands))
         #expect(!shown.isInterfaceElementHidden(.dashboard))
-        #expect(shown.resolvedHiddenInterfaceElements == [.workspaceName])
+        #expect(shown.resolvedHiddenInterfaceElements == [.workspaceName, .overlayToggle])
         let decoded = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(shown))
         #expect(decoded == shown)
         // the shown list alone governs a hidden-by-default element; an unknown name there is dropped too.
         let hidden = AppSettings(hiddenInterfaceElements: ["customCommands", "dashboard"], shownInterfaceElements: ["teleporter"])
         #expect(hidden.isInterfaceElementHidden(.customCommands))
         #expect(hidden.isInterfaceElementHidden(.dashboard))
-        #expect(hidden.resolvedHiddenInterfaceElements == [.workspaceName, .customCommands, .dashboard])
+        #expect(hidden.resolvedHiddenInterfaceElements == [.workspaceName, .overlayToggle, .customCommands, .dashboard])
     }
 
     @Test func statusResetDefaultsToFirstKeyAndResolvesKnownRawValues() throws {
@@ -769,7 +853,7 @@ struct AppSettingsTests {
             AppSettings.self,
             from: Data(#"{ "hiddenInterfaceElements": ["scratch", "teleporter"], "fontSize": 16 }"#.utf8))
         #expect(decoded.fontSize == 16)
-        #expect(decoded.resolvedHiddenInterfaceElements == [.workspaceName, .scratch, .customCommands])
+        #expect(decoded.resolvedHiddenInterfaceElements == [.workspaceName, .scratch, .overlayToggle, .customCommands])
         #expect(decoded.isInterfaceElementHidden(.scratch))
     }
 
@@ -802,5 +886,13 @@ struct AppSettingsTests {
         let dividers = InterfaceElement.titlebarGroupDividers(countA: countA, countB: countB, countC: countC)
         #expect(dividers.afterA == afterA)
         #expect(dividers.afterB == afterB)
+    }
+
+    @Test func overlayToggleIsAHiddenByDefaultTitleBarElement() {
+        #expect(InterfaceElement.overlayToggle.section == .titleBar)
+        #expect(InterfaceElement.overlayToggle.hiddenByDefault)
+        #expect(InterfaceElement.overlayToggle.displayName == "Hide overlays")
+        #expect(AppSettings().isInterfaceElementHidden(.overlayToggle))
+        #expect(!AppSettings(shownInterfaceElements: ["overlayToggle"]).isInterfaceElementHidden(.overlayToggle))
     }
 }

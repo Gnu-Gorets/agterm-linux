@@ -26,6 +26,43 @@ struct ZmxSupportTests {
         #expect(ZmxSupport.attachCommand(configuration, replaying: nil, denylist: []) == CommandRestore.shellQuotedLine(prefix))
     }
 
+    @Test func paneCommandEndsThePaneWhileCreationCommandReturnsToTheShell() {
+        let configuration = ZmxSupport.Configuration(executablePath: "/bundle/zmx", environment: ["SHELL": "/bin/zsh", "ZDOTDIR": "/bundle/zsh"],
+                                                     daemonName: "agterm-pane", socketDirectory: "/tmp/zmx", paneID: "pane", sessionHostExecutablePath: "/bundle/host")
+        let prefix = ["/bundle/host", "client", "agterm-pane", "--", "/bundle/zmx", "attach", "agterm-pane"]
+        let line = "lazygit --path 'two words'"
+        let ending = ZmxReplayScript.renderEnding(commandLine: line)
+        let returning = ZmxReplayScript.render(commandLine: line, integrationDirectory: "/bundle/zsh", inheritedZdotdir: nil, shell: "/bin/zsh")
+
+        #expect(ZmxSupport.attachCommand(configuration, replaying: nil, paneCommand: line, denylist: []) ==
+                CommandRestore.shellQuotedLine(prefix + ["/bin/zsh", "-lic", ending]))
+        #expect(ZmxSupport.attachCommand(configuration, replaying: nil, creationCommand: line, denylist: []) ==
+                CommandRestore.shellQuotedLine(prefix + ["/bin/zsh", "-lic", returning]))
+    }
+
+    @Test func capturedReplayWinsOverThePaneCommand() {
+        let configuration = ZmxSupport.Configuration(executablePath: "/bundle/zmx", environment: ["SHELL": "/bin/zsh", "ZDOTDIR": "/bundle/zsh"],
+                                                     daemonName: "agterm-pane", socketDirectory: "/tmp/zmx", paneID: "pane", sessionHostExecutablePath: "/bundle/host")
+        let prefix = ["/bundle/host", "client", "agterm-pane", "--", "/bundle/zmx", "attach", "agterm-pane"]
+        let replay = ZmxReplayScript.render(argv: ["htop"], integrationDirectory: "/bundle/zsh", inheritedZdotdir: nil, shell: "/bin/zsh")
+
+        #expect(ZmxSupport.attachCommand(configuration, replaying: ["htop"], paneCommand: "lazygit", denylist: []) ==
+                CommandRestore.shellQuotedLine(prefix + ["/bin/zsh", "-lic", replay]))
+        #expect(ZmxSupport.attachCommand(configuration, replaying: ["tmux"], paneCommand: "lazygit", denylist: ["tmux"]) ==
+                CommandRestore.shellQuotedLine(prefix))
+    }
+
+    @Test func fishPaneCommandEndsThePane() {
+        let configuration = ZmxSupport.Configuration(executablePath: "/bundle/zmx", environment: [
+            "SHELL": "/opt/homebrew/bin/fish", "GHOSTTY_SHELL_INTEGRATION_XDG_DIR": "/bundle/shell-integration",
+        ], daemonName: "agterm-pane", socketDirectory: "/tmp/zmx", paneID: "pane", sessionHostExecutablePath: nil)
+        let command = ZmxSupport.attachCommand(configuration, replaying: nil, paneCommand: "lazygit", denylist: [])
+
+        #expect(command.hasSuffix(CommandRestore.shellQuotedLine([
+            "/opt/homebrew/bin/fish", "-lic", ZmxReplayScript.renderFishEnding(commandLine: "lazygit"),
+        ])))
+    }
+
     @Test(arguments: [nil, "relative/helper", "/no/such/session-host"])
     func unavailableHelperKeepsBareAttach(_ helper: String?) throws {
         let resources = try makeResources(withLoader: true)
@@ -103,6 +140,88 @@ struct ZmxSupportTests {
         #expect(claiming["ZMX_MANAGED_CLAIM"] == "1")
     }
 
+    @Test func configurationUsesPasswordDatabaseFishAndFullPaneIdentity() throws {
+        let resources = try makeFishResources(withMarker: true)
+        defer { try? FileManager.default.removeItem(at: resources) }
+        let paneID = UUID(uuidString: "ABCDEF01-2345-6789-ABCD-EF0123456789")!
+        let root = resources.path + "/shell-integration"
+        let result = ZmxSupport.configuration(for: .init(
+            zmxExecutablePath: "/bin/echo",
+            passwordDatabaseShell: "/usr/local/bin/fish",
+            resourcesDirectory: resources.path,
+            stateDirectory: "/tmp/agterm-state",
+            paneIdentity: paneID,
+            baseEnvironment: ["AGTERM_ENABLED": "1", "AGTERM_PANE_ID": "old", "XDG_DATA_DIRS": "/pane/share"],
+            inheritedZdotdir: "/Users/test/.config/zsh"
+        ))
+        let configuration = try #require(result.value)
+
+        #expect(configuration.daemonName == "agterm-abcdef0123456789abcdef0123456789")
+        #expect(configuration.paneID == paneID.uuidString)
+        #expect(configuration.environment["AGTERM_ENABLED"] == "1")
+        #expect(configuration.environment["AGTERM_PANE_ID"] == paneID.uuidString)
+        #expect(configuration.environment["SHELL"] == "/usr/local/bin/fish")
+        #expect(configuration.environment["GHOSTTY_SHELL_INTEGRATION_XDG_DIR"] == root)
+        #expect(configuration.environment["XDG_DATA_DIRS"] == "/pane/share")
+        #expect(configuration.environment["ZDOTDIR"] == nil)
+        #expect(configuration.environment["GHOSTTY_ZSH_ZDOTDIR"] == nil)
+        #expect(configuration.environment["ZMX_DIR"] == configuration.socketDirectory)
+        #expect(configuration.environment["ZMX_NO_DETACH_KEY"] == "1")
+    }
+
+    @Test func fishSurfaceEnvironmentLeavesAnInheritedXDGDataDirectoriesAlone() throws {
+        let resources = try makeFishResources(withMarker: true)
+        defer { try? FileManager.default.removeItem(at: resources) }
+        let configuration = try #require(ZmxSupport.configuration(for: makeInputs(resources: resources, shell: "/bin/fish")).value)
+
+        #expect(configuration.environment["XDG_DATA_DIRS"] == nil)
+        #expect(configuration.environment["GHOSTTY_SHELL_INTEGRATION_XDG_DIR"] == resources.path + "/shell-integration")
+    }
+
+    @Test(arguments: [false, true])
+    func fishAttachMergesTheIntegrationRootIntoTheLaunchEnvironment(withSessionHost: Bool) throws {
+        let resources = try makeFishResources(withMarker: true)
+        defer { try? FileManager.default.removeItem(at: resources) }
+        let root = resources.path + "/shell-integration"
+        let recorder = resources.appending(path: "record-xdg")
+        try "#!/bin/sh\nprintf '%s' \"$XDG_DATA_DIRS\" > \"$RESULT_FILE\"\n".write(to: recorder, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: recorder.path)
+        let cases: [(inherited: String?, pane: String?, expected: String)] = [
+            ("/custom/share", nil, root + ":/custom/share"),
+            (nil, nil, root + ":/usr/local/share:/usr/share"),
+            ("", nil, root + ":/usr/local/share:/usr/share"),
+            ("/custom/share", "/pane/share", root + ":/pane/share"),
+            (root, nil, root),
+            (root + ":/first:" + root + "::/second:" + root, nil, root + ":/first:/second"),
+            ("/with space:/with'quote:/with\\backslash:/glob/*:", nil,
+             root + ":/with space:/with'quote:/with\\backslash:/glob/*"),
+        ]
+
+        for (inherited, pane, expected) in cases {
+            let configuration = try #require(ZmxSupport.configuration(for: .init(
+                zmxExecutablePath: recorder.path, passwordDatabaseShell: "/bin/fish",
+                resourcesDirectory: resources.path, stateDirectory: "/tmp/agterm-state", paneIdentity: UUID(),
+                baseEnvironment: pane.map { ["XDG_DATA_DIRS": $0] } ?? [:], inheritedZdotdir: nil,
+                sessionHostExecutablePath: withSessionHost ? recorder.path : nil
+            )).value)
+            let result = resources.appending(path: "result-\(UUID().uuidString)")
+            var environment = ProcessInfo.processInfo.environment
+            environment["XDG_DATA_DIRS"] = inherited
+            environment.merge(configuration.environment) { _, surface in surface }
+            environment["RESULT_FILE"] = result.path
+            let line = ZmxSupport.attachCommand(configuration, replaying: nil, denylist: [])
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/bash")
+            process.arguments = ["--noprofile", "--norc", "-c", "exec -l " + line]
+            process.environment = environment
+            try process.run()
+            process.waitUntilExit()
+
+            #expect(process.terminationStatus == 0)
+            #expect(try String(contentsOf: result, encoding: .utf8) == expected)
+        }
+    }
+
     @Test func environmentShellCannotOverrideUnsupportedPasswordDatabaseShell() throws {
         let resources = try makeResources(withLoader: true)
         defer { try? FileManager.default.removeItem(at: resources) }
@@ -133,6 +252,21 @@ struct ZmxSupportTests {
         defer { try? FileManager.default.removeItem(at: resources) }
 
         #expect(ZmxSupport.configuration(for: makeInputs(resources: resources)).failure == .missingZshIntegration)
+    }
+
+    @Test func missingFishResourcesAndLoaderAreRejected() throws {
+        let missingResources = ZmxSupport.Inputs(
+            zmxExecutablePath: "/bin/echo", passwordDatabaseShell: "/bin/fish", resourcesDirectory: nil,
+            stateDirectory: "/tmp/agterm-state", paneIdentity: UUID(), baseEnvironment: [:], inheritedZdotdir: nil
+        )
+        let resources = try makeFishResources(withMarker: false)
+        defer { try? FileManager.default.removeItem(at: resources) }
+
+        #expect(ZmxSupport.configuration(for: missingResources).failure == .missingFishIntegration)
+        #expect(ZmxSupport.configuration(for: .init(
+            zmxExecutablePath: "/bin/echo", passwordDatabaseShell: "/bin/fish", resourcesDirectory: resources.path,
+            stateDirectory: "/tmp/agterm-state", paneIdentity: UUID(), baseEnvironment: [:], inheritedZdotdir: nil
+        )).failure == .missingFishIntegration)
     }
 
     @Test func missingExecutableIsRejected() throws {
@@ -246,11 +380,41 @@ struct ZmxSupportTests {
                 configuration.command)
     }
 
+    @Test func fishAttachCarriesEveryPayloadFormWithAndWithoutTheSessionHost() {
+        for host in [nil, "/bin/cat"] {
+            let configuration = fishReplayConfiguration(sessionHostExecutablePath: host)
+            let captured = ["printf", "%s", "two words", "single'quote"]
+            let capturedScript = ZmxReplayScript.renderFish(
+                argv: captured, integrationRoot: "/bundle resources/fish", shell: "/bin/fish"
+            )
+            let durable = "printf durable; echo 'two words'"
+            let durableScript = ZmxReplayScript.renderFish(
+                commandLine: durable, integrationRoot: "/bundle resources/fish", shell: "/bin/fish"
+            )
+            func attach(_ payload: [String]) -> String {
+                var arguments = configuration.attachArguments + payload
+                if let host { arguments = [host, "client", configuration.daemonName, "--"] + arguments }
+                return CommandRestore.shellQuotedLine(["/usr/bin/env", "/bin/sh", "-c",
+                                                       ZmxSupport.fishXDGDataDirectoriesScript, "sh",
+                                                       "/bundle resources/fish"] + arguments)
+            }
+
+            #expect(ZmxSupport.attachCommand(configuration, replaying: captured, creationCommand: durable, denylist: []) ==
+                    attach(["/bin/fish", "-lic", capturedScript]))
+            #expect(ZmxSupport.attachCommand(configuration, replaying: nil, creationCommand: durable, denylist: []) ==
+                    attach(["/bin/fish", "-lic", durableScript]))
+            #expect(ZmxSupport.attachCommand(configuration, replaying: ["tmux"], creationCommand: durable, denylist: ["tmux"]) ==
+                    attach([]))
+            #expect(ZmxSupport.attachCommand(configuration, replaying: nil, creationCommand: nil, denylist: []) == attach([]))
+        }
+    }
+
     @Test(arguments: [
         (ZmxSupport.Rejection.executablePathNotAbsolute, "the zmx executable path is not absolute"),
         (ZmxSupport.Rejection.executableUnavailable, "the zmx executable is unavailable"),
-        (ZmxSupport.Rejection.unsupportedLoginShell, "the password-database login shell is not zsh"),
+        (ZmxSupport.Rejection.unsupportedLoginShell, "the password-database login shell is not zsh or fish"),
         (ZmxSupport.Rejection.missingZshIntegration, "the bundled zsh integration is unavailable"),
+        (ZmxSupport.Rejection.missingFishIntegration, "the bundled fish integration is unavailable"),
     ])
     func rejectionMessagesAreTheUserFacingSettingsReasons(
         rejection: ZmxSupport.Rejection, expected: String
@@ -278,12 +442,36 @@ struct ZmxSupportTests {
         )
     }
 
+    private func fishReplayConfiguration(sessionHostExecutablePath: String?) -> ZmxSupport.Configuration {
+        .init(
+            executablePath: "/bin/zmx",
+            environment: [
+                "SHELL": "/bin/fish",
+                "GHOSTTY_SHELL_INTEGRATION_XDG_DIR": "/bundle resources/fish",
+            ],
+            daemonName: "agterm-pane", socketDirectory: "/tmp/zmx", paneID: "pane",
+            sessionHostExecutablePath: sessionHostExecutablePath
+        )
+    }
+
     private func makeResources(withLoader: Bool) throws -> URL {
         let root = FileManager.default.temporaryDirectory.appending(path: "agterm-zmx-resources-\(UUID().uuidString)")
         let integration = root.appending(path: "shell-integration/zsh")
         try FileManager.default.createDirectory(at: integration, withIntermediateDirectories: true)
         if withLoader {
             try Data().write(to: integration.appending(path: ".zshenv"))
+        }
+        return root
+    }
+
+    private func makeFishResources(withMarker: Bool) throws -> URL {
+        let root = FileManager.default.temporaryDirectory.appending(path: "agterm-zmx-fish-resources-\(UUID().uuidString)")
+        let integration = root.appending(path: "shell-integration")
+        try FileManager.default.createDirectory(at: integration, withIntermediateDirectories: true)
+        if withMarker {
+            let marker = integration.appending(path: "fish/vendor_conf.d/ghostty-shell-integration.fish")
+            try FileManager.default.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data().write(to: marker)
         }
         return root
     }

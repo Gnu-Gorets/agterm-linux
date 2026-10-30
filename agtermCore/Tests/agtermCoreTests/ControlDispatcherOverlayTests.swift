@@ -49,6 +49,27 @@ struct ControlDispatcherOverlayTests {
         #expect(actions.calls == [.claimOverlayJob(job)])
     }
 
+    @Test(arguments: [(String?.none, "session.overlay.page.serve requires a page token"),
+                      ("  ", "session.overlay.page.serve requires a page token"), ("not-a-uuid", "invalid page token")])
+    func pageServeRejectsAMissingOrMalformedTokenBeforeCallingActions(_ target: String?, _ error: String) async {
+        let actions = MockControlActions()
+        let dispatcher = ControlDispatcher(actions: actions)
+
+        let response = await dispatcher.dispatch(ControlRequest(cmd: .sessionOverlayPageServe, target: target))
+
+        #expect(response == ControlResponse(ok: false, error: error))
+        #expect(actions.calls.isEmpty)
+    }
+
+    @Test func pageServeReachesTheHostsClaimWhichDefaultsToUnsupported() async {
+        let actions = MockControlActions()
+        let dispatcher = ControlDispatcher(actions: actions)
+
+        let response = await dispatcher.dispatch(ControlRequest(cmd: .sessionOverlayPageServe, target: UUID().uuidString))
+
+        #expect(response == ControlResponse(ok: false, error: "session.overlay.page.serve is not supported on this platform"))
+    }
+
     @Test func sessionOverlayOpenRoutesOptionsAndEchoesActionResponse() async {
         let actions = MockControlActions()
         let dispatcher = ControlDispatcher(actions: actions)
@@ -203,10 +224,72 @@ struct ControlDispatcherOverlayTests {
         let tooSmall = await dispatcher.dispatch(ControlRequest(
             cmd: .sessionOverlayResize, target: "session", args: ControlArgs(sizePercent: 0)))
 
-        #expect(missing == ControlResponse(ok: false, error: "session.overlay.resize requires --size-percent or --full"))
+        #expect(missing == ControlResponse(ok: false, error: "session.overlay.resize requires --size-percent, --width/--height or --full"))
         #expect(both == ControlResponse(ok: false, error: "session.overlay.resize: --full is mutually exclusive with --size-percent"))
         #expect(tooBig == ControlResponse(ok: false, error: "session.overlay.resize: --size-percent must be 1...100"))
         #expect(tooSmall == ControlResponse(ok: false, error: "session.overlay.resize: --size-percent must be 1...100"))
+        #expect(actions.calls.isEmpty)
+    }
+
+    @Test func sessionOverlayResizeRoutesPointsWithAndWithoutAPercent() async {
+        let actions = MockControlActions()
+        let dispatcher = ControlDispatcher(actions: actions)
+
+        _ = await dispatcher.dispatch(ControlRequest(
+            cmd: .sessionOverlayResize, target: "session", args: ControlArgs(height: 240)))
+        _ = await dispatcher.dispatch(ControlRequest(
+            cmd: .sessionOverlayResize, target: "session", args: ControlArgs(sizePercent: 60, window: "win", width: 700)))
+
+        #expect(actions.calls == [
+            .overlayPointResize(target: "session", window: nil, sizePercent: nil, points: OverlayPointSize(height: 240)),
+            .overlayPointResize(target: "session", window: "win", sizePercent: 60, points: OverlayPointSize(width: 700)),
+        ])
+    }
+
+    @Test(arguments: [
+        (ControlArgs(full: true, height: 240), OverlayPointError.fullConflict),
+        (ControlArgs(height: 0), OverlayPointError.notPositive),
+        (ControlArgs(sizePercent: 60, width: -5), OverlayPointError.notPositive),
+        (ControlArgs(pane: "right", height: 240), PaneOverlayError.resizeUnsupported),
+    ])
+    func sessionOverlayResizeRefusesBadPoints(args: ControlArgs, error: String) async {
+        let actions = MockControlActions()
+        let dispatcher = ControlDispatcher(actions: actions)
+
+        let response = await dispatcher.dispatch(ControlRequest(cmd: .sessionOverlayResize, target: "session", args: args))
+
+        #expect(response == ControlResponse(ok: false, error: error))
+        #expect(actions.calls.isEmpty)
+    }
+
+    @Test func sessionOverlayOpenRoutesPointsBesideThePercent() async {
+        let actions = MockControlActions()
+        let dispatcher = ControlDispatcher(actions: actions)
+
+        _ = await dispatcher.dispatch(ControlRequest(
+            cmd: .sessionOverlayOpen, target: "session",
+            args: ControlArgs(command: "cat", sizePercent: 60, width: 500, height: 240)))
+
+        guard case .overlayOpen(_, _, let options) = actions.calls.first else {
+            Issue.record("expected an overlay open, got \(actions.calls)")
+            return
+        }
+        #expect(options.sizePercent == 60)
+        #expect(options.points == OverlayPointSize(width: 500, height: 240))
+    }
+
+    @Test(arguments: [
+        (ControlArgs(command: "cat", height: 240), OverlayPointError.needsPercent),
+        (ControlArgs(command: "cat", sizePercent: 60, height: 0), OverlayPointError.notPositive),
+        (ControlArgs(command: "cat", pane: "right", width: 300), PaneOverlayError.pointsConflict),
+    ])
+    func sessionOverlayOpenRefusesBadPoints(args: ControlArgs, error: String) async {
+        let actions = MockControlActions()
+        let dispatcher = ControlDispatcher(actions: actions)
+
+        let response = await dispatcher.dispatch(ControlRequest(cmd: .sessionOverlayOpen, target: "session", args: args))
+
+        #expect(response == ControlResponse(ok: false, error: error))
         #expect(actions.calls.isEmpty)
     }
 
@@ -425,10 +508,15 @@ struct ControlDispatcherOverlayTests {
         (ControlArgs(command: "cat", navigation: true), OverlayHtmlError.navigationWithoutPage),
         (ControlArgs(command: "cat", javascript: true), OverlayHtmlError.javascriptWithoutPage),
         (ControlArgs(command: "cat", chromeless: true), OverlayHtmlError.chromelessRequiresFile),
-        (ControlArgs(url: "http://localhost:5173/", chromeless: true), OverlayHtmlError.chromelessRequiresFile),
+        (ControlArgs(url: "http://example.com/", chromeless: true), OverlayHtmlError.chromelessRequiresLoopback),
+        (ControlArgs(url: "http://127.0.0.2:8792/", chromeless: true), OverlayHtmlError.chromelessRequiresLoopback),
+        (ControlArgs(navigation: true, url: "http://localhost:5173/", chromeless: true), OverlayHtmlError.chromelessWithNavigation),
         (ControlArgs(html: "/tmp/r.html", navigation: true, chromeless: true), OverlayHtmlError.chromelessWithNavigation),
         (ControlArgs(command: "cat", persistent: true), OverlayHtmlError.persistentRequiresURL),
         (ControlArgs(html: "/tmp/r.html", persistent: true), OverlayHtmlError.persistentRequiresURL),
+        (ControlArgs(command: "cat", browse: true), OverlayHtmlError.browseRequiresURL),
+        (ControlArgs(html: "/tmp/r.html", browse: true), OverlayHtmlError.browseRequiresURL),
+        (ControlArgs(url: "http://localhost:5173/", chromeless: true, browse: true), OverlayHtmlError.chromelessWithBrowse),
         (ControlArgs(html: "/tmp/r.html", url: "http://localhost:5173/"), OverlayHtmlError.htmlAndURL),
         (ControlArgs(command: "cat", url: "http://localhost:5173/"), OverlayHtmlError.commandAndURL),
         (ControlArgs(wait: true, url: "http://localhost:5173/"), OverlayHtmlError.waitWithURL),
@@ -462,6 +550,24 @@ struct ControlDispatcherOverlayTests {
                                                           backgroundColor: "#102030", follow: true, pane: .right,
                                                           page: .file(path: "/tmp/a/r.html", grantRoot: "/tmp"),
                                                           navigation: true, javascript: true))
+        ])
+    }
+
+    @Test(arguments: [Bool?.none, false, true])
+    func urlOpenRoutesItsNavigationScope(_ browse: Bool?) async throws {
+        let actions = MockControlActions()
+        let dispatcher = ControlDispatcher(actions: actions)
+
+        _ = await dispatcher.dispatch(ControlRequest(
+            cmd: .sessionOverlayOpen, target: "session", args: ControlArgs(url: "http://localhost:5173/", browse: browse)
+        ))
+
+        #expect(actions.calls == [
+            .overlayOpen(target: "session", window: nil,
+                         ControlSessionOverlayOpenOptions(command: "", cwd: nil, wait: false, sizePercent: nil,
+                                                          backgroundColor: nil,
+                                                          page: .url(try #require(URL(string: "http://localhost:5173/"))),
+                                                          browse: browse == true))
         ])
     }
 
@@ -517,6 +623,25 @@ struct ControlDispatcherOverlayTests {
                          ControlSessionOverlayOpenOptions(command: "", cwd: nil, wait: false, sizePercent: nil,
                                                           backgroundColor: nil, page: .file(path: "/tmp/r.html", grantRoot: nil),
                                                           javascript: true, chromeless: chromeless == true))
+        ])
+    }
+
+    @Test(arguments: ["http://127.0.0.1:8792/", "http://[::1]:8792/", "http://localhost:5173/app"])
+    func urlOpenRoutesAChromelessLoopbackPage(_ url: String) async throws {
+        let actions = MockControlActions()
+        let dispatcher = ControlDispatcher(actions: actions)
+
+        let response = await dispatcher.dispatch(ControlRequest(
+            cmd: .sessionOverlayOpen, target: "session",
+            args: ControlArgs(url: url, javascript: true, chromeless: true, persistent: true)
+        ))
+
+        #expect(response?.ok == true)
+        #expect(actions.calls == [
+            .overlayOpen(target: "session", window: nil,
+                         ControlSessionOverlayOpenOptions(command: "", cwd: nil, wait: false, sizePercent: nil,
+                                                          backgroundColor: nil, page: .url(try #require(URL(string: url))),
+                                                          javascript: true, chromeless: true, persistent: true))
         ])
     }
 
@@ -577,6 +702,42 @@ struct ControlDispatcherOverlayTests {
         (.notHtml, OverlayHtmlError.notHtml),
     ])
     func commandFailuresMapToTheirMessages(_ failure: HtmlOverlayCommandFailure, _ message: String) {
+        #expect(failure.message == message)
+    }
+
+    @Test(arguments: [(Command.sessionOverlayHide, OverlayVisibilityMode.hide),
+                      (.sessionOverlayShow, .show), (.sessionOverlayToggle, .toggle)])
+    func visibilityCommandsRouteModePaneTargetAndWindow(_ cmd: Command, _ mode: OverlayVisibilityMode) async {
+        let actions = MockControlActions()
+        let dispatcher = ControlDispatcher(actions: actions)
+
+        let whole = await dispatcher.dispatch(ControlRequest(cmd: cmd, target: "s", args: ControlArgs(window: "w")))
+        _ = await dispatcher.dispatch(ControlRequest(cmd: cmd, target: "s", args: ControlArgs(pane: "split")))
+
+        #expect(whole?.ok == true)
+        #expect(actions.calls == [
+            .overlayVisibility(target: "s", window: "w", pane: nil, mode: mode),
+            .overlayVisibility(target: "s", window: nil, pane: .right, mode: mode),
+        ])
+    }
+
+    @Test(arguments: [Command.sessionOverlayHide, .sessionOverlayShow, .sessionOverlayToggle])
+    func visibilityCommandsRejectAnInvalidPaneBeforeTheHost(_ cmd: Command) async {
+        let actions = MockControlActions()
+        let dispatcher = ControlDispatcher(actions: actions)
+
+        let response = await dispatcher.dispatch(ControlRequest(cmd: cmd, target: "s", args: ControlArgs(pane: "scratch")))
+
+        #expect(response == ControlResponse(ok: false, error: PaneOverlayError.invalidPane))
+        #expect(actions.calls.isEmpty)
+    }
+
+    @Test(arguments: [
+        (OverlayVisibilityFailure.unknownSession, "no such session"),
+        (.noOverlay, OverlayVisibilityError.noOverlay),
+        (.remote, OverlayResultError.shownElsewhere),
+    ])
+    func visibilityFailuresMapToTheirMessages(_ failure: OverlayVisibilityFailure, _ message: String) {
         #expect(failure.message == message)
     }
 }

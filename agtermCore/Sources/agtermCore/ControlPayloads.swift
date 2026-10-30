@@ -130,10 +130,21 @@ public struct ControlRemoteSession: Codable, Sendable, Equatable {
     /// Divider direction, present only for a session that has a split.
     public let splitAxis: String?
     public let panes: [ControlRemotePane]
+    /// status is omitted for idle sessions and older origins.
+    public let status: String?
+    public let statusColor: String?
+    public let statusShape: String?
+    /// parent is the far side's parent session of a companion, omitted for a top-level session.
+    public let parent: String?
+    /// content is `page` for a page companion, which has no panes and attaches only under its parent's row.
+    public let content: String?
 
     public init(id: String, name: String, windowID: String, windowName: String, workspaceID: String,
                 workspaceName: String, context: String? = nil, cwd: String, splitAxis: String?,
-                panes: [ControlRemotePane]) {
+                panes: [ControlRemotePane], status: String? = nil, statusColor: String? = nil,
+                statusShape: String? = nil, parent: String? = nil, content: String? = nil) {
+        self.parent = parent
+        self.content = content
         self.id = id
         self.name = name
         self.windowID = windowID
@@ -144,6 +155,9 @@ public struct ControlRemoteSession: Codable, Sendable, Equatable {
         self.cwd = cwd
         self.splitAxis = splitAxis
         self.panes = panes
+        self.status = status
+        self.statusColor = statusColor
+        self.statusShape = statusShape
     }
 }
 

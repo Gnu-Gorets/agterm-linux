@@ -35,6 +35,33 @@ final class GhosttyApp {
     private(set) var terminalForegroundColor: NSColor?
     /// terminalPalette is the 16 ANSI colors of the resolved config as `#rrggbb`, by slot; empty when unread.
     private(set) var terminalPalette: [String] = []
+    /// The config's `split-divider-color`, nil when unset.
+    private(set) var configuredSplitDividerColor: NSColor?
+
+    /// The color `SplitRatioAccessor` paints the split divider with: the configured key, else the theme.
+    var splitDividerColor: NSColor {
+        Self.splitDividerColor(configured: configuredSplitDividerColor, background: terminalBackgroundColor,
+                               foreground: terminalForegroundColor)
+    }
+
+    /// The configured color, else the background moved a tenth toward the foreground: the opaque form of
+    /// the `chromeText.opacity(0.1)` the titlebar hairline and sidebar divider use. Opaque because AppKit's
+    /// own divider still draws beneath the strip and a translucent one would mix with it. Mixed in sRGB, as
+    /// that compositing is; `blended(withFraction:of:)` mixes in calibrated RGB and lands lighter. With no
+    /// background read yet it is AppKit's own divider color.
+    static func splitDividerColor(configured: NSColor?, background: NSColor?, foreground: NSColor?) -> NSColor {
+        if let configured { return configured }
+        guard let bg = background?.usingColorSpace(.sRGB),
+              let fg = (foreground ?? .labelColor).usingColorSpace(.sRGB) else { return .separatorColor }
+        func mix(_ from: CGFloat, _ toward: CGFloat) -> CGFloat { from + (toward - from) * 0.1 }
+        return NSColor(srgbRed: mix(bg.redComponent, fg.redComponent), green: mix(bg.greenComponent, fg.greenComponent),
+                       blue: mix(bg.blueComponent, fg.blueComponent), alpha: 1)
+    }
+
+    /// Reads `split-divider-color` from a resolved config.
+    static func configuredSplitDividerColor(from config: ghostty_config_t) -> NSColor? {
+        color(from: config, key: "split-divider-color")
+    }
     /// Whether the active theme reads as dark, by perceived luminance of the WASHED sidebar background (theme
     /// background plus sidebar-tint wash) — the color the disclosure triangle sits on, so a strong tint pushing
     /// a near-threshold theme past the midpoint still classifies right. Pins AppKit-drawn chrome to the theme,
@@ -46,7 +73,7 @@ final class GhosttyApp {
                                       blue: Double(bg.blueComponent), shiftAmount: shiftAmount)
     }
     /// The theme's `selection-background`; the selected sidebar row's pill uses it to match the terminal's own
-    /// selection. Nil when the theme doesn't set it (the row falls back to a soft white wash).
+    /// selection. Nil when the theme doesn't set it.
     private(set) var terminalSelectionBackgroundColor: NSColor?
     /// The selected sidebar row's text: theme `selection-foreground`, else a black/white contrast of the
     /// selection-background when only that is set. Nil if neither is set.
@@ -55,6 +82,7 @@ final class GhosttyApp {
     /// radius, opaque by default. NOT ghostty-resolved: `WindowAppearance.sync` reads, `SettingsModel` writes.
     private(set) var windowOpacity: Double = 1
     private(set) var windowBlurRadius: Int = 0
+    private(set) var ignoreReduceTransparency = false
     /// Title-bar row state: normal stacks the cwd subtitle, compact is one short row, hidden drops the row and
     /// the traffic lights for a full-bleed terminal; defaults `.compact` (a nil `settings.toolbarMode`). NOT
     /// ghostty-resolved: `SettingsModel` writes, the reader (`WindowContentView` / `WindowAppearance.sync`)
@@ -166,8 +194,9 @@ final class GhosttyApp {
         rt.confirm_read_clipboard_cb = { ud, confirm, state, request in
             GhosttyApp.shared.callbacks.confirmReadClipboard(ud: ud, confirm: confirm, state: state, request: request)
         }
-        rt.write_clipboard_cb = { ud, _, content, len, confirm in
-            GhosttyApp.shared.callbacks.writeClipboard(ud: ud, content: content, len: UInt(len), confirm: confirm)
+        rt.write_clipboard_cb = { ud, location, content, len, confirm in
+            GhosttyApp.shared.callbacks.writeClipboard(
+                ud: ud, location: location, content: content, len: UInt(len), confirm: confirm)
         }
         rt.close_surface_cb = { ud, _ in GhosttyApp.shared.callbacks.closeSurface(ud: ud) }
 
@@ -212,9 +241,16 @@ final class GhosttyApp {
 
     /// Set the window translucency the chrome applies. `SettingsModel` calls this and every setter below at
     /// launch and on each change; the window re-syncs on `.agtermAppearanceChanged`.
-    func setWindowTranslucency(opacity: Double, blurRadius: Int) {
+    func setWindowTranslucency(opacity: Double, blurRadius: Int, ignoreReduceTransparency: Bool) {
         windowOpacity = opacity
         windowBlurRadius = blurRadius
+        self.ignoreReduceTransparency = ignoreReduceTransparency
+    }
+
+    var windowReducesTransparency: Bool {
+        AppSettings.windowReducesTransparency(
+            system: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
+            ignoring: ignoreReduceTransparency)
     }
 
     func setToolbarMode(_ mode: ToolbarMode) {
@@ -420,6 +456,7 @@ final class GhosttyApp {
         terminalBackgroundColor = Self.color(from: config, key: "background")
         terminalForegroundColor = Self.color(from: config, key: "foreground")
         terminalPalette = Self.palette(from: config)
+        configuredSplitDividerColor = Self.configuredSplitDividerColor(from: config)
         refreshSelectionColors(isDark: isDark)
     }
 
@@ -437,7 +474,7 @@ final class GhosttyApp {
     }
 
     /// Whether the app is currently in the dark appearance. `NSApp` is an implicitly-unwrapped global still nil
-    /// during the very early `GhosttyApp.shared` init (it boots from `SettingsModel.init`, before AppKit wires
+    /// during the very early `GhosttyApp.shared` init (it boots from `restoredRuntime`, before AppKit wires
     /// `NSApp`), so chain through it safely; that early window resolves no theme (ghostty picks the side from
     /// the color scheme set at surface creation), so the light default there is harmless.
     static func currentIsDark() -> Bool {
@@ -445,14 +482,9 @@ final class GhosttyApp {
         return appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     }
 
-    /// `ghostty_config_get` doesn't expose the optional `selection-background`/`selection-foreground` keys, so
-    /// resolve them by re-reading the sources `loadConfig` loads, in the same order, plus the active theme
-    /// file. An explicit `selection-*` line wins over the theme's; either may be nil. A `light:…,dark:…` theme
-    /// resolves via `isDark`; the global config counts only when `inheritGlobalConfig` is on, as in `loadConfig`.
-    ///
-    /// Known limitation: only top-level files are scanned — the `config-file` includes
-    /// `ghostty_config_load_recursive_files` expands are NOT followed, so a `selection-*` behind one is missed
-    /// and the sidebar pill falls back.
+    /// resolveSelectionColors re-reads `loadConfig`'s sources and the active theme file, because
+    /// `ghostty_config_get` cannot return the optional `selection-*` keys. `config-file` includes are not
+    /// followed, so a `selection-*` behind one is missed.
     private static func resolveSelectionColors(ghosttyConfigPath: String, inheritGlobalConfig: Bool,
                                                isDark: Bool) -> (NSColor?, NSColor?) {
         var sources: [String] = []
@@ -465,44 +497,29 @@ final class GhosttyApp {
         sources.append(ghosttyConfigPath)
         sources.append(settingsConfigURL.path)
 
-        var themeName: String?
-        var selBg: NSColor?
-        var selFg: NSColor?
-        for path in sources {
-            for (key, value) in keyValues(ofFileAt: path) {
-                switch key {
-                case "theme": themeName = value
-                case "selection-background": selBg = parseHexColor(value)
-                case "selection-foreground": selFg = parseHexColor(value)
-                default: break
-                }
-            }
+        let config = sources.flatMap(keyValues(ofFileAt:))
+        let themeName = GhosttyConfigText.lastSetting(of: "theme", in: config) { $0 }.over(.unset) ?? ""
+        // the settings conf carries the raw dual `theme = light:,dark:` (ghostty picks the terminal side
+        // itself), so pick the appearance side.
+        let side = ThemeName.resolved(from: themeName, isDark: isDark)
+        let candidates = ThemeName.candidatePaths(
+            for: ThemeName.expandingHome(side, home: NSHomeDirectory()),
+            userThemesDirectory: ThemeName.userThemesDirectory(
+                environment: ProcessInfo.processInfo.environment, home: NSHomeDirectory()),
+            bundledThemesDirectory: Bundle.main.url(forResource: "ghostty", withExtension: nil)?
+                .appendingPathComponent("themes", isDirectory: true).path)
+        let theme = candidates.first { FileManager.default.fileExists(atPath: $0) }.map(keyValues(ofFileAt:)) ?? []
+        func color(_ key: String) -> NSColor? {
+            GhosttyConfigText.lastSetting(of: key, in: config, parse: parseHexColor)
+                .over(GhosttyConfigText.lastSetting(of: key, in: theme, parse: parseHexColor))
         }
-        // the theme file fills any selection color not set explicitly above; the settings conf carries the raw
-        // dual `theme = light:,dark:` (ghostty picks the terminal side itself), so pick the appearance side.
-        if selBg == nil || selFg == nil, let themeName, !themeName.isEmpty,
-           let themesDir = Bundle.main.url(forResource: "ghostty", withExtension: nil)?
-               .appendingPathComponent("themes", isDirectory: true) {
-            let effectiveName = ThemeName.resolved(from: themeName, isDark: isDark)
-            for (key, value) in keyValues(ofFileAt: themesDir.appendingPathComponent(effectiveName).path) {
-                if key == "selection-background", selBg == nil { selBg = parseHexColor(value) }
-                if key == "selection-foreground", selFg == nil { selFg = parseHexColor(value) }
-            }
-        }
-        return (selBg, selFg)
+        return (color("selection-background"), color("selection-foreground"))
     }
 
-    /// Parse a ghostty-style config file into its `key = value` pairs in file order, skipping blank and `#`
-    /// comment lines. Missing/unreadable files yield no pairs.
-    private static func keyValues(ofFileAt path: String) -> [(String, String)] {
+    /// keyValues reads a config file's pairs; a missing or unreadable file yields none.
+    private static func keyValues(ofFileAt path: String) -> [(key: String, value: String)] {
         guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return [] }
-        return text.split(separator: "\n").compactMap { raw in
-            let line = raw.trimmingCharacters(in: .whitespaces)
-            guard !line.isEmpty, !line.hasPrefix("#"), let eq = line.firstIndex(of: "=") else { return nil }
-            let key = line[..<eq].trimmingCharacters(in: .whitespaces)
-            let value = line[line.index(after: eq)...].trimmingCharacters(in: .whitespaces)
-            return (key, value)
-        }
+        return GhosttyConfigText.keyValues(in: text)
     }
 
     /// Parse a `#rrggbb` or `#rgb` hex color (with or without the leading `#`) to an opaque sRGB `NSColor`,
@@ -639,13 +656,13 @@ final class GhosttyApp {
             settingsConf.withCString { ghostty_config_load_file(cfg, $0) }
         }
 
-        // a per-surface overlay, loaded LAST so it wins over everything above; only `configWithOverlay` passes
-        // it, the app/global build leaves it nil.
+        ghostty_config_load_recursive_files(cfg)
+        // a per-surface overlay, loaded LAST so it wins over everything above, the `config-file` includes the
+        // line before expands too: one of those restating a key would otherwise outrank it. Only
+        // `configWithOverlay` passes it, the app/global build leaves it nil.
         if let extraOverlayPath, FileManager.default.fileExists(atPath: extraOverlayPath) {
             extraOverlayPath.withCString { ghostty_config_load_file(cfg, $0) }
         }
-
-        ghostty_config_load_recursive_files(cfg)
         forceUnsupportedShellFeaturesOff(cfg)
         clearStaticTitle(cfg)
         ghostty_config_finalize(cfg)

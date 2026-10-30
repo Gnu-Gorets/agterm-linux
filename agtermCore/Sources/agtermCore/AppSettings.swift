@@ -11,12 +11,33 @@ public enum ToolbarMode: String, Codable, Sendable, CaseIterable {
     case hidden
 }
 
-/// How the sidebar's flagged view arranges its sessions: `flat` is one list labelled `session : workspace`,
-/// `tree` nests them under their workspace rows. App-wide, not per window. Raw-stored, resolved by
-/// `effectiveFlaggedViewLayout`.
+/// FlaggedViewLayout arranges the sidebar's flagged view: `flat` is one list labelled `session : workspace`,
+/// `plain` the same list labelled by session name alone, `tree` nests them under their workspace rows.
+/// App-wide, not per window. Raw-stored, resolved by `effectiveFlaggedViewLayout`.
 public enum FlaggedViewLayout: String, Codable, Sendable, CaseIterable {
     case flat
+    case plain
     case tree
+}
+
+/// Where a clicked web link from terminal output opens: the system `browser`, or a session web overlay at
+/// full size (`overlay`), 95%, 75% or 50%. App-wide. Raw-stored, resolved by `effectiveLinkOpenMode`.
+public enum LinkOpenMode: String, Codable, Sendable, CaseIterable {
+    case browser
+    case overlay
+    case overlay95
+    case overlay75
+    case overlay50
+
+    /// overlaySizePercent is the overlay's `--size-percent`; nil for full size and for `browser`.
+    public var overlaySizePercent: Int? {
+        switch self {
+        case .browser, .overlay: nil
+        case .overlay95: 95
+        case .overlay75: 75
+        case .overlay50: 50
+        }
+    }
 }
 
 /// How a delivered notification bounces the Dock icon (`requestUserAttention`): `off`, `once` (one
@@ -44,6 +65,7 @@ public enum InterfaceElement: String, Codable, Sendable, CaseIterable {
     case recentSessions
     case scratch
     case split
+    case overlayToggle
     case dashboard
     case quickTerminal
     case customCommands
@@ -66,7 +88,7 @@ public enum InterfaceElement: String, Codable, Sendable, CaseIterable {
     }
 
     /// Whether the element starts hidden, so its toggle reads off until the user opts in.
-    public var hiddenByDefault: Bool { self == .customCommands || self == .workspaceName }
+    public var hiddenByDefault: Bool { self == .customCommands || self == .workspaceName || self == .overlayToggle }
 
     /// The human-facing toggle label shown in the Interface settings tab.
     public var displayName: String {
@@ -80,6 +102,7 @@ public enum InterfaceElement: String, Codable, Sendable, CaseIterable {
         case .recentSessions: return "Recent sessions"
         case .scratch: return "Scratch terminal"
         case .split: return "Split view"
+        case .overlayToggle: return "Hide overlays"
         case .dashboard: return "Dashboard"
         case .quickTerminal: return "Quick terminal"
         case .customCommands: return "Custom commands"
@@ -88,6 +111,34 @@ public enum InterfaceElement: String, Codable, Sendable, CaseIterable {
         case .flaggedView: return "Flagged view"
         case .focusFilter: return "Workspace filter"
         case .workspaceAddSession: return "Workspace add-session"
+        }
+    }
+
+    /// The section's elements as Settings lists them: the text-only ones first, so the glyph rows stay together.
+    public static func settingsOrder(in section: Section) -> [InterfaceElement] {
+        let all = allCases.filter { $0.section == section }
+        return all.filter { $0.symbolName == nil } + all.filter { $0.symbolName != nil }
+    }
+
+    /// The SF Symbol the element's control shows at rest, shared by that control and its Settings toggle;
+    /// nil for the text-only elements. A control with state-dependent glyphs uses it for its neutral state.
+    public var symbolName: String? {
+        switch self {
+        case .sidebarToggle: return "sidebar.left"
+        case .workspaceName, .sessionName, .windowName, .sessionContext: return nil
+        case .remoteHost: return "cloud"
+        case .recentSessions: return "clock.arrow.circlepath"
+        case .scratch: return "rectangle"
+        case .split: return "rectangle.split.2x1"
+        case .overlayToggle: return "rectangle.on.rectangle"
+        case .dashboard: return "rectangle.split.2x2"
+        case .quickTerminal: return "terminal"
+        case .customCommands: return "ellipsis.circle"
+        case .newWorkspace: return "rectangle.stack.badge.plus"
+        case .newSession: return "plus.rectangle"
+        case .flaggedView: return "flag"
+        case .focusFilter: return "square.grid.2x2"
+        case .workspaceAddSession: return "plus"
         }
     }
 
@@ -220,6 +271,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
     /// Background blur radius (private CGS window blur, 0...100), nil = none; visible only when
     /// `backgroundOpacity` < 1. Applied in the app target.
     public var backgroundBlur: Int?
+    /// Window-only override of macOS Reduce Transparency; nil respects it.
+    public var ignoreReduceTransparency: Bool?
     /// Whether to post macOS notification banners for terminal desktop notifications; nil = on. Gates only
     /// the OS banner — the sidebar unseen-count badge tracks notifications either way.
     public var notificationsEnabled: Bool?
@@ -309,6 +362,12 @@ public struct AppSettings: Codable, Equatable, Sendable {
     /// Whether auto-follow stays put on a running (`active`) session instead of pulling to a blocked one;
     /// nil/false = off. Only meaningful when `autoFollowAttention` is set.
     public var autoFollowStayOnActive: Bool?
+    /// Whether attention navigation also stops on `active` sessions, not only blocked and completed ones;
+    /// nil = off. Pushed into every window's `AppStore.attentionIncludesActive`.
+    public var attentionIncludesActive: Bool?
+    /// Whether attention navigation walks every open window, in window order, instead of the active one
+    /// only; nil = off. GUI navigation only, `session.go` stays window-scoped. Pushed into every window's `AppStore.attentionNavigationAcrossWindows`.
+    public var attentionNavigationAcrossWindows: Bool?
     /// The sidebar row-text point size, nil for `defaultSidebarFontSize`; the row height scales with it
     /// (`sidebarRowHeight(fontSize:)`). Independent of `interfaceFontSize`.
     public var sidebarFontSize: Double?
@@ -330,6 +389,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
     /// Raw `FlaggedViewLayout` for the sidebar's flagged view; nil = flat. Resolved by
     /// `effectiveFlaggedViewLayout`.
     public var flaggedViewLayout: String?
+    /// Raw `LinkOpenMode`; nil = browser. Resolved by `effectiveLinkOpenMode`.
+    public var linkOpenMode: String?
+    /// terminalInputSource is the keyboard input source id held while a terminal has the keyboard; nil = off.
+    /// `InputSourceLock` owns when it is selected and restored.
+    public var terminalInputSource: String?
     /// htmlOverlayZoom is the page zoom every HTML overlay shows at, nil for actual size; read it through
     /// `effectiveHtmlOverlayZoom`.
     public var htmlOverlayZoom: Double?
@@ -340,7 +404,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public init(fontFamily: String? = nil, fontSize: Double? = nil, theme: String? = nil,
                 darkTheme: String? = nil, followSystemAppearance: Bool? = nil,
                 cursorStyle: String? = nil, cursorBlink: Bool? = nil,
-                backgroundOpacity: Double? = nil, backgroundBlur: Int? = nil, notificationsEnabled: Bool? = nil,
+                backgroundOpacity: Double? = nil, backgroundBlur: Int? = nil,
+                ignoreReduceTransparency: Bool? = nil, notificationsEnabled: Bool? = nil,
                 toolbarMode: String? = nil, compactToolbar: Bool? = nil, notificationBadgeEnabled: Bool? = nil,
                 activeStatusColorHex: String? = nil, blockedStatusColorHex: String? = nil,
                 completedStatusColorHex: String? = nil, activeStatusShape: String? = nil,
@@ -357,10 +422,12 @@ public struct AppSettings: Codable, Equatable, Sendable {
                 newSessionPlacement: String? = nil,
                 confirmCloseSession: Bool? = nil, closeGraceUndoEnabled: Bool? = nil,
                 autoFollowAttention: String? = nil,
-                autoFollowStayOnActive: Bool? = nil, sidebarFontSize: Double? = nil,
+                autoFollowStayOnActive: Bool? = nil, attentionIncludesActive: Bool? = nil,
+                attentionNavigationAcrossWindows: Bool? = nil, sidebarFontSize: Double? = nil,
                 interfaceFontSize: Double? = nil, quickTerminalSizePercent: Int? = nil,
                 hiddenInterfaceElements: [String]? = nil, shownInterfaceElements: [String]? = nil,
                 autoHideSidebarInactiveWindows: Bool? = nil, flaggedViewLayout: String? = nil,
+                linkOpenMode: String? = nil, terminalInputSource: String? = nil,
                 htmlOverlayZoom: Double? = nil, welcomeShown: Bool? = nil) {
         self.fontFamily = fontFamily
         self.fontSize = fontSize
@@ -371,6 +438,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.cursorBlink = cursorBlink
         self.backgroundOpacity = backgroundOpacity
         self.backgroundBlur = backgroundBlur
+        self.ignoreReduceTransparency = ignoreReduceTransparency
         self.notificationsEnabled = notificationsEnabled
         self.toolbarMode = toolbarMode
         self.compactToolbar = compactToolbar
@@ -402,6 +470,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.closeGraceUndoEnabled = closeGraceUndoEnabled
         self.autoFollowAttention = autoFollowAttention
         self.autoFollowStayOnActive = autoFollowStayOnActive
+        self.attentionIncludesActive = attentionIncludesActive
+        self.attentionNavigationAcrossWindows = attentionNavigationAcrossWindows
         self.sidebarFontSize = sidebarFontSize
         self.interfaceFontSize = interfaceFontSize
         self.quickTerminalSizePercent = quickTerminalSizePercent
@@ -409,6 +479,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.shownInterfaceElements = shownInterfaceElements
         self.autoHideSidebarInactiveWindows = autoHideSidebarInactiveWindows
         self.flaggedViewLayout = flaggedViewLayout
+        self.linkOpenMode = linkOpenMode
+        self.terminalInputSource = terminalInputSource
         self.htmlOverlayZoom = htmlOverlayZoom
         self.welcomeShown = welcomeShown
     }
@@ -442,9 +514,19 @@ public struct AppSettings: Codable, Equatable, Sendable {
         toolbarMode.flatMap(ToolbarMode.init(rawValue:)) ?? (compactToolbar == false ? .normal : .compact)
     }
 
+    /// The window and the mute wash must agree on whether the backing is opaque.
+    public static func windowReducesTransparency(system: Bool, ignoring: Bool) -> Bool {
+        system && !ignoring
+    }
+
     /// The resolved flagged-view layout: the explicit `flaggedViewLayout` when a KNOWN raw value, else `flat`.
     public var effectiveFlaggedViewLayout: FlaggedViewLayout {
         flaggedViewLayout.flatMap(FlaggedViewLayout.init(rawValue:)) ?? .flat
+    }
+
+    /// The resolved link-open mode: the explicit `linkOpenMode` when a KNOWN raw value, else `browser`.
+    public var effectiveLinkOpenMode: LinkOpenMode {
+        linkOpenMode.flatMap(LinkOpenMode.init(rawValue:)) ?? .browser
     }
 
     /// effectiveHtmlOverlayZoom is `htmlOverlayZoom` bounded to `HtmlZoom`'s range, the only read of the setting.
