@@ -5,7 +5,7 @@ from pathlib import Path
 import subprocess
 import time
 
-from atspi_smoke import (activate, launch, named, raw_control_json, right_click,
+from atspi_smoke import (ABSOLUTE_DYS, activate, launch, named, poll, raw_control_json, right_click,
                          stop, type_x11_text, wait_for, window_list, window_tree)
 
 
@@ -38,7 +38,10 @@ def verify_ibus_lifecycle(env):
             time.sleep(0.2)
             maps = Path(f"/proc/{process.pid}/maps").read_text()
             assert "libim-ibus.so" in maps, "the real GTK IBus module was not loaded"
-            right_click(lambda: named(app, name, role="label"), process.pid)
+            for offset in ABSOLUTE_DYS:
+                right_click(lambda: named(app, name, role="label"), process.pid, dy=offset)
+                if poll(lambda: named(app, "Delete Workspace", role="button"), timeout=1):
+                    break
             activate(wait_for(lambda: named(app, "Delete Workspace", role="button"), "workspace menu did not open"))
             activate(wait_for(lambda: named(app, "Delete", role="button"), "delete confirmation did not open"))
             time.sleep(0.3)  # Drain the IBus idle queued when the dialog restores terminal focus.
