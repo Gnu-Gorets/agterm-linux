@@ -27,6 +27,8 @@ The visual regressions complement the accessibility and control assertions:
 | `overlay-visual` | Floating HTML and program overlays actually disappear and return after Hide/Show, for percentage and point dimensions; hidden processes retain their content |
 | `palette-lifecycle` | A palette opened by an action retains search and Escape handling after its predecessor is destroyed; resource metadata is excluded from theme choices |
 | `companion-layout` | Parent/peer alignment, nested companion indentation, stable row heights, working disclosure buttons, and unindented flagged layouts at normal and large sidebar fonts |
+| `ibus-lifecycle` | A private real IBus daemon, four focused-workspace deletions through the confirmation dialog, and keyboard input after the removed clients are gone; requires IBus's GTK4 module |
+| `companion-identity` | Real programs duplicated through both the GUI and socket use the copy's session/pane IDs in their environment and explicit arguments |
 | `upstream-v0391` | Companion/tint menus, forms, overlay controls, and real modifier clicks on HUD links across split panes |
 
 Capture artifacts and app stderr are written to `artifacts/linux-ui/` by default.

@@ -26,7 +26,8 @@ final class GhosttySurface: PaneRoleMutableSurface {
     /// The key controller + a GtkIMContext for composed input (dead-keys / compose / CJK): key events are
     /// filtered through the IM, which commits the composed text via the `commit` signal.
     private var keyController: OpaquePointer?
-    private var imContext: OpaquePointer?
+    private let inputMethod = LinuxInputMethodClient()
+    private var imContext: OpaquePointer? { inputMethod.context }
     private var creationErrorLabel: OpaquePointer?
     weak var spawnPacer: SpawnPacer?
     var spawnKey: UUID?
@@ -149,6 +150,7 @@ final class GhosttySurface: PaneRoleMutableSurface {
         // controller firing "leave" during widget teardown dereferenced a freed GhosttySurface (a
         // use-after-free SIGSEGV in `wrap`). The widget lifetime now bounds the object lifetime.
         let me = Unmanaged.passRetained(self).toOpaque()
+        inputMethod.bind(to: glArea)
         connect(glArea, "destroy", unsafeBitCast(surfaceDestroy as @convention(c) (OpaquePointer?, gpointer?) -> Void, to: GCallback.self), me)
         connect(glArea, "realize", unsafeBitCast(surfaceRealize as @convention(c) (OpaquePointer?, gpointer?) -> Void, to: GCallback.self), me)
         installVisibilityTracking()
@@ -161,9 +163,7 @@ final class GhosttySurface: PaneRoleMutableSurface {
         connect(keyCtl, "key-released", unsafeBitCast(surfaceKeyReleased as @convention(c) (OpaquePointer?, UInt32, UInt32, UInt32, gpointer?) -> Void, to: GCallback.self), me)
         gtk_widget_add_controller(W(glArea), keyCtl)
 
-        let im = OpaquePointer(gtk_im_multicontext_new())
-        imContext = im
-        gtk_im_context_set_client_widget(cast(im), W(glArea))
+        let im = imContext
         connect(im, "commit", unsafeBitCast(surfaceIMCommit as @convention(c) (OpaquePointer?, UnsafePointer<CChar>?, gpointer?) -> Void, to: GCallback.self), me)
         connect(im, "preedit-changed", unsafeBitCast(surfacePreeditChanged as @convention(c) (OpaquePointer?, gpointer?) -> Void, to: GCallback.self), me)
 

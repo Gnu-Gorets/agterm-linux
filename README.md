@@ -322,6 +322,7 @@ Local helper scripts:
 - `scripts/test-linux-ui.sh` runs the GTK accessibility smoke suite locally under Xvfb (the same
   scenarios CI runs; works on dbus-broker hosts — the script pre-starts the AT-SPI registry).
   It also checks rendered forms and floating overlays; see [Linux visual validation](agterm-linux/docs/visual-validation.md).
+  The input-method regression requires IBus and its GTK4 module (`ibus ibus-gtk4` on Ubuntu/Debian).
 
 ### macOS
 

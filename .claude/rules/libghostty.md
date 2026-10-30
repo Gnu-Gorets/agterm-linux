@@ -21,7 +21,8 @@ paths:
   surface and invalidates its GL context. Keep one stable `GtkOverlay` child per session, map pages for
   Dashboard without accepting input, and mirror each source through `GtkWidgetPaintable` + `GtkPicture`
   beneath an opaque input-owning Dashboard host.
-- That GL-context invalidation is PERMANENT: `GhosttySurface` connects `realize` but no `unrealize` and
+- That GL-context invalidation is PERMANENT: `GhosttySurface`'s input-method unrealize handler only clears
+  the IM client; it does not repair rendering, and
   `realize()`'s `createSurface()` no-ops on an existing surface, so a re-add realizes a NEW context while
   libghostty keeps drawing into the destroyed one, and `refresh()` cannot repair it. `realize()` logs
   `GLArea re-realized over a live surface` for exactly that, since no AT-SPI assertion can see a blank pane.
