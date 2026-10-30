@@ -381,6 +381,7 @@ omitted when expanded).
   companions. Read back as the tree node's `parent` and `collapsed`; details in reference.md.
   `session duplicate --companion` copies a session's split layout into a new companion and starts another copy of
   each pane's program (Duplicate as Companion); nothing is created when a pane's program cannot be copied.
+  Session/pane IDs and zmx daemon names in the copied arguments are rebound to the new session and panes.
   `session overlay open --html FILE --companion` (or `--url URL --companion`) adds a page companion: a row
   under the target session that shows the page and runs no shell. It closes when the page does and is never
   saved, so an `on app.launched` hook recreates it after a relaunch. Read back as the node's `content: "page"`.

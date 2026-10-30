@@ -538,7 +538,8 @@ buys nothing. A caller with no tree uses `version`.
   target copying its split axis and ratio, and start another copy of each pane's foreground program in that
   program's working directory; a pane where a shell holds the foreground gets a plain login shell in its
   directory. Each program becomes the pane's creation command, as `session new --command` sets one, so the pane
-  closes when it exits. Every pane is checked before anything is created; a refused pane is named
+  closes when it exits. Session/pane IDs and zmx daemon names embedded in program arguments are rebound to
+  the copy's identities. Every pane is checked before anything is created; a refused pane is named
   (`left pane: vim is on the restore denylist; nothing was created`): a denylisted program, an unreadable
   foreground or working directory, unreplayable arguments or one containing a backslash, a program started by a
   name that its own PATH or directory no longer holds, a pane under a visible
