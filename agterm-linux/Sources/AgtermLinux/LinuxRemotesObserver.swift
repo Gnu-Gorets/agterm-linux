@@ -49,7 +49,7 @@ final class LinuxRemotesObserver {
             guard monitors[path] == nil else { continue }
             let file = g_file_new_for_path(path.path)
             defer { g_object_unref(RAW(file)) }
-            guard let pointer = g_file_monitor(file, G_FILE_MONITOR_WATCH_MOVES, nil, nil) else { continue }
+            guard let pointer = g_file_monitor(file, agterm_file_monitor_watch_moves(), nil, nil) else { continue }
             let monitor = OpaquePointer(pointer)
             monitors[path] = monitor
             connect(monitor, "changed", unsafeBitCast(onRemotesFileChanged, to: GCallback.self))
