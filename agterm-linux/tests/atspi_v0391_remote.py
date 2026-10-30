@@ -25,6 +25,9 @@ def verify_remote_v0391(env, state):
                    'export AGTERM_CONTROL_SOCKET="$AGTERM_TEST_ORIGIN_SOCKET"\n'
                    'exec /bin/sh -c "$remote"\n')
     os.chmod(ssh, 0o755)
+    if ssh_config := env.get("AGTERM_TEST_SSH_CONFIG"):
+        with open(ssh, "w", encoding="utf-8") as file:
+            file.write("#!/bin/sh\nexec /usr/bin/ssh -F " + shlex.quote(ssh_config) + ' "$@"\n')
     os.symlink(CTL, os.path.join(tools, "agtermctl"))
     origin_env = dict(env, AGTERM_STATE_DIR=origin_state, AGTERM_CONTROL_SOCKET=os.path.join(origin_state, "agterm.sock"),
                       AGTERM_APP_ID=env["AGTERM_APP_ID"] + ".origin", LD_PRELOAD=fixture,
@@ -35,7 +38,12 @@ def verify_remote_v0391(env, state):
     origin_process = viewer_process = None
 
     def request(environment, command, target=None, args=None):
-        response = raw_control_json(environment, {"cmd": command, "target": target, "args": args or {}}, timeout=45)
+        if command not in ("tree", "zmx.list", "session.text"):
+            print("Remote parity:", "origin" if environment is origin_env else "viewer", command, flush=True)
+        try:
+            response = raw_control_json(environment, {"cmd": command, "target": target, "args": args or {}}, timeout=45)
+        except TimeoutError as error:
+            raise AssertionError(command + " timed out") from error
         assert response["ok"], response
         return response.get("result", {})
 
@@ -110,7 +118,7 @@ def verify_remote_v0391(env, state):
         request(origin_env, "session.close", origin_page["id"])
         wait_for(lambda: row(viewer_env, reattached) is None, "origin page close left its viewer row alive", timeout=20)
 
-        # The parent's last shell exits while companions keep the session alive; both attached viewers recover.
+        # The parent's last shell exits while companions keep the session alive; its attached viewer recovers.
         pid_file = os.path.join(origin_state, "shell.pid")
 
         def shell_pid():

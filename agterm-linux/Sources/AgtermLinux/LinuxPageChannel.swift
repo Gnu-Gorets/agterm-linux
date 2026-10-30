@@ -26,7 +26,7 @@ final class LinuxPageChannel {
     }
 
     private var owner: LinuxControlStreamOwner?
-    private var process: Process?
+    private var process: LinuxChildProcess?
     private var resources: [Int: Fetch] = [:]
     private var queued: [(Int, Fetch)] = []
     private var bridges: [Int: BridgeReply] = [:]
@@ -42,25 +42,22 @@ final class LinuxPageChannel {
         var pair = [Int32](repeating: -1, count: 2)
         guard socketpair(AF_UNIX, Int32(SOCK_STREAM.rawValue), 0, &pair) == 0 else { return close() }
         _ = fcntl(pair[0], F_SETFD, FD_CLOEXEC)
-        let helper = Process(), errors = Pipe()
-        helper.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        helper.arguments = argv
-        helper.environment = gdkEnvironment.restoringChildEnvironment(ProcessInfo.processInfo.environment)
-        let child = FileHandle(fileDescriptor: pair[1], closeOnDealloc: false)
-        helper.standardInput = child
-        helper.standardOutput = child
-        helper.standardError = errors
+        let errors = Pipe()
         errors.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
             if data.isEmpty { handle.readabilityHandler = nil } else { LinuxStructuredLogger(category: "RemotePage").notice(String(decoding: data, as: UTF8.self)) }
         }
-        do { try helper.run() } catch {
+        do {
+            process = try LinuxChildProcess(argv: argv,
+                environment: gdkEnvironment.restoringChildEnvironment(ProcessInfo.processInfo.environment),
+                input: pair[1], output: pair[1], errors: errors.fileHandleForWriting.fileDescriptor)
+        } catch {
             _ = Glibc.close(pair[0]); _ = Glibc.close(pair[1])
             errors.fileHandleForReading.readabilityHandler = nil
             return close()
         }
         _ = Glibc.close(pair[1])
-        process = helper
+        try? errors.fileHandleForWriting.close()
         let connection = LinuxControlStreamOwner(descriptor: pair[0], maxPending: 32)
         owner = connection
         let spooler = LinuxPageSpooler(expected: expected, expectedBridges: expectedBridges) { [weak self] event in
@@ -107,7 +104,7 @@ final class LinuxPageChannel {
         closed = true
         owner?.shutdown()
         owner = nil
-        if process?.isRunning == true { process?.terminate() }
+        process?.terminate()
         process = nil
         let pendingResources = Array(resources.values) + queued.map(\.1)
         let pendingBridges = Array(bridges.values) + queuedBridges.map(\.2)
@@ -187,7 +184,8 @@ private final class LinuxPageSpooler: @unchecked Sendable {
             let fd = mkstemp(&template)
             guard fd >= 0 else { return false }
             _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
-            let resource = LinuxPageResource(path: String(cString: template), mime: mime)
+            let path = String(decoding: template.dropLast().map { UInt8(bitPattern: $0) }, as: UTF8.self)
+            let resource = LinuxPageResource(path: path, mime: mime)
             spools[id] = Spool(handle: FileHandle(fileDescriptor: fd, closeOnDealloc: true), resource: resource)
         case .chunk(let id, let data):
             guard let spool = spools[id] else { return false }

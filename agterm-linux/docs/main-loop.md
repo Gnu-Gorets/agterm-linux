@@ -111,6 +111,20 @@ Its deferred half, `scheduleAutoFollowRearm`, IS main-actor code and goes throug
 If a debounce, delay, or grace window "does nothing on Linux", check which mechanism scheduled it before
 suspecting the logic — that symptom is almost always this contract.
 
+## Long-lived SSH children
+
+`LinuxPresentationTransport` and `LinuxPageChannel` launch SSH through `LinuxChildProcess`.
+Foundation's Linux `Process` watches an inherited socket and then performs a blocking `waitpid` on its
+single process-watcher thread.
+OpenSSH closes that socket while it is still running, so one live presentation stream can block completion
+of unrelated `Process` invocations.
+The owned child adapter uses `posix_spawn` and a dedicated waiter instead.
+It closes every inherited descriptor above stderr after mapping standard I/O, so a helper cannot inherit
+its own input writer and prevent EOF during shutdown.
+`waitid(WNOWAIT)` keeps an exited PID reserved until the status lock is held and `waitpid` reaps it.
+Cancellation therefore cannot signal a PID that has already been reused.
+The callers restore the pre-launch GDK environment before passing it to the adapter.
+
 ## Testing through the seam
 
 `MainTimer.scheduleTimer` is a process-global mutable static and swift-testing runs tests in parallel, so a
