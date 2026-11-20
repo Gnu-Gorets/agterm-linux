@@ -1,10 +1,7 @@
 name: build
 
 on:
-  push:
-    branches: [linux-port]
-  pull_request:
-    branches: [linux-port]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
